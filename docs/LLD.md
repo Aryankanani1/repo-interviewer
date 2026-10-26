@@ -506,11 +506,16 @@ Inputs: the transcript (question, answer inside `<candidate_answer>`, score, mis
 ## 10. Configuration (`application.yml`, prefix `app`)
 
 ```java
-@ConfigurationProperties("app")
-public record AppProperties(Repo repo, Chunking chunking, Retrieval retrieval, RepoMap repoMap,
-                            Interview interview, Llm llm, Embedding embedding) { ... }
+@Validated
+@ConfigurationProperties(prefix = "app", ignoreUnknownFields = false)
+public record AppProperties(Repo repo, Chunking chunking, Embedding embedding, Retrieval retrieval,
+                            RepoMap repoMap, Analysis analysis, Interview interview, Llm llm) { ... }
 ```
-All keys and defaults are in `src/main/resources/application.yml`. Validate with `@Validated` and constraints (for example `maxFiles > 0`).
+Lives in `common.config`, registered by `@ConfigurationPropertiesScan` on the application class. All keys and defaults are in `src/main/resources/application.yml`.
+
+- **Startup validation:** field constraints (`@Positive`, `@NotBlank`, `@DurationMin`, question counts `@Min(1) @Max(8)` to match the `ck_session_count` DB check) plus cross-field `@AssertTrue` checks: `min ≤ default ≤ max` question count, `follow-up-score-min ≤ max`, `max-calls-per-session ≤ max-calls-per-day`. Every nested section is `@Valid`, or its constraints are skipped.
+- **Strict keys:** `ignoreUnknownFields = false`, so a misspelled `app.*` key fails startup. A new YAML key must be added to the record in the same change.
+- **Per-purpose LLM settings** (`llm.models`, `llm.max-output-tokens`) are records with one field per purpose, not `Map<LlmPurpose, ...>`, because `common` may not import `llm`. `LlmGateway` maps `LlmPurpose` to the field.
 
 ## 11. Concurrency and transactions summary
 

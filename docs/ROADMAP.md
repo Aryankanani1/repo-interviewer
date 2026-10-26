@@ -25,7 +25,7 @@ How to use this file:
   - AC: the ArchUnit test passes, and fails if you temporarily add an import from `interview` to `api` (try it once, then remove it).
 - [ ] **0.5 CI.** GitHub Actions workflow: checkout, Java 21 (Temurin), Maven cache, `./mvnw -B verify`. Testcontainers works on GitHub-hosted Ubuntu runners.
   - AC: green run on push; badge in README.
-- [ ] **0.6 Configuration properties.** `AppProperties` record tree for the `app.*` keys in `application.yml`, with `@Validated` constraints.
+- [x] **0.6 Configuration properties.** `AppProperties` record tree for the `app.*` keys in `application.yml`, with `@Validated` constraints.
   - AC: unit test binds the YAML and checks a few values; an invalid value (for example `max-files: 0`) fails startup.
 
 ## Phase 1 — GraphQL MVP (Oct 28–Nov 9)
@@ -142,3 +142,4 @@ How to use this file:
 | 2026-10-26 | 0.2 | Compose Postgres healthy on host port 5433 (5432 is used by a system PostgreSQL 18), pgvector 0.8.7 available. Ollama 0.40.8 native via Homebrew (D-013): `nomic-embed-text` returns 768-d vectors, `ollama ps` shows 100% GPU. Ollama container moved behind the `ollama` compose profile. |
 | 2026-10-26 | 0.3 | `./mvnw spring-boot:run` applied V1 to compose Postgres (localhost:5433) in 0.29 s, started in 14 s, health UP, GraphiQL 200. Starts without `ANTHROPIC_API_KEY` (checked only on first call). `FlywayV1MigrationTest`: vector extension, all 8 V1 tables, Flyway v1 success, `embedding` is `vector(768)`. Shares the cached test context: 1 container for the whole suite. |
 | 2026-10-26 | 0.4 | 6 module packages with `package-info.java`. `ArchitectureTest`: 5 rules (module directions, Spring AI chat only in `llm`, embedding only in `codebase.embed`, GraphQL only in `api`, entities only in own module + `api`). Checked once with temporary violations: `interview → api` failed the module rule; `interview` using a `project` entity failed the entity rule. Both removed. LLD §2 entity wording updated. |
+| 2026-10-26 | 0.6 | `AppProperties` record tree (8 sections), `@Validated`, strict keys, 3 cross-field checks. `AppPropertiesTest` (ApplicationContextRunner, no Docker, ~2 s): binds application.yml; `max-files=0`, `min-question-count=6` and a misspelled key each fail. Real app with `--app.repo.max-files=0` stops with "Property: app.repo.maxFiles, Reason: must be greater than 0". Done before 0.5 (needs the GitHub repo). |
