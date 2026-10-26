@@ -11,7 +11,7 @@ spring:
     virtual:
       enabled: true
   datasource:
-    url: jdbc:postgresql://localhost:5432/repo_interviewer
+    url: jdbc:postgresql://localhost:${DB_PORT:5433}/repo_interviewer   # host port from docker-compose.yml
     username: ${DB_USER:ri}
     password: ${DB_PASSWORD:ri}
   jpa:

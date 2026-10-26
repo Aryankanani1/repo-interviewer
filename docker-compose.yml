@@ -1,6 +1,9 @@
 # Local infrastructure.
-#   docker compose up -d                   -> Postgres (pgvector) + Ollama, pulls the embedding model
-#   docker compose --profile kafka up -d   -> also Kafka (KRaft, no ZooKeeper) + Kafka UI (Phase 2)
+#   docker compose up -d                    -> Postgres (pgvector)
+#   docker compose --profile ollama up -d   -> also Ollama in a container + pulls the embedding model
+#   docker compose --profile kafka up -d    -> also Kafka (KRaft, no ZooKeeper) + Kafka UI (Phase 2)
+# On macOS, run Ollama natively instead (see README, DECISIONS.md D-013): Docker on a Mac
+# cannot use the Apple GPU, and the image is 2.8 GB. Both listen on localhost:11434.
 # Check Docker Hub for newer image tags before Phase 2.
 
 name: repo-interviewer
@@ -13,7 +16,7 @@ services:
       POSTGRES_USER: ${DB_USER:-ri}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-ri}
     ports:
-      - "5432:5432"
+      - "${DB_PORT:-5433}:5432"   # 5433 on the host: 5432 is often taken by a locally installed Postgres
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -24,6 +27,7 @@ services:
 
   ollama:
     image: ollama/ollama:latest
+    profiles: ["ollama"]
     ports:
       - "11434:11434"
     volumes:
@@ -32,6 +36,7 @@ services:
   # One-shot helper: waits for Ollama, pulls the embedding model, then exits.
   ollama-pull:
     image: ollama/ollama:latest
+    profiles: ["ollama"]
     depends_on:
       - ollama
     environment:

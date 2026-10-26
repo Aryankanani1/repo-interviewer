@@ -2,7 +2,7 @@
 
 Submit a GitHub repository you built. Repo Interviewer analyzes its architecture and runs a technical interview about **your actual code**: questions that cite real files and lines, follow-ups when an answer is shallow, rubric-based grading, and a report on what to review.
 
-> Status: design complete, Phase 0 (setup) next. See `docs/ROADMAP.md`.
+> Status: Phase 0 (setup) in progress. See `docs/ROADMAP.md`.
 
 ## Why
 Interviews increasingly ask "walk me through your code" or let you use AI tools on a real codebase. Many candidates can build a project but cannot defend its design under questioning. This tool practices exactly that.
@@ -20,9 +20,35 @@ Evolves into Kafka-based pipelines (Phase 2), Kubernetes with lag-based autoscal
 ## Quick start (after Phase 0)
 ```bash
 cp .env.example .env            # add your ANTHROPIC_API_KEY
-docker compose up -d            # Postgres (pgvector) + Ollama, pulls nomic-embed-text
+docker compose up -d            # Postgres (pgvector) on localhost:5433
+# Ollama: see "Local infrastructure" below
 ./mvnw spring-boot:run          # GraphiQL: http://localhost:8080/graphiql
 ```
+
+## Local infrastructure
+
+**Postgres + pgvector** runs in Docker Compose on host port **5433** (5432 is often taken by a locally installed Postgres; change it with `DB_PORT` in `.env`).
+```bash
+docker compose up -d
+docker compose ps        # postgres must show "(healthy)"
+```
+
+**Ollama** serves the embedding model `nomic-embed-text` (768 dimensions) on `localhost:11434`.
+
+- **macOS (recommended): native.** Docker on a Mac cannot use the Apple GPU, and the Ollama image is 2.8 GB. The native install is about 55 MB and runs on the GPU (see `docs/DECISIONS.md` D-013).
+  ```bash
+  brew install ollama
+  brew services start ollama          # background service, restarts at login
+  ollama pull nomic-embed-text
+  ollama list                         # must show nomic-embed-text:latest
+  ```
+- **Linux / no Homebrew: in Docker.**
+  ```bash
+  docker compose --profile ollama up -d                 # also pulls the model
+  docker compose exec ollama ollama list                # must show nomic-embed-text:latest
+  ```
+
+Run only one of the two; both use port 11434. Tests need neither: they use Testcontainers for Postgres and a fake embedding model.
 
 Example:
 ```graphql

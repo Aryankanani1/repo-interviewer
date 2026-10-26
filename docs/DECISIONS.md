@@ -63,3 +63,8 @@ Short records of important choices: context, decision, and what we gave up. Add 
 **Context:** Tests must be fast, free, and deterministic; quality still has to be measured.
 **Decision:** `FakeLlmGateway` and `FakeEmbeddingModel` in all normal tests. Real calls only in `@Tag("eval")` tests run with `-Pevals`, which write results to `docs/RESULTS.md`.
 **Trade-off:** Normal tests do not catch prompt regressions; the eval harness does.
+
+## D-013 Native Ollama on macOS for local development
+**Context:** D-005 runs embeddings in Ollama. The plan was to run it in Docker Compose. On an Apple Silicon Mac, Docker runs containers inside a Linux VM that cannot use the Apple GPU, so embeddings would run on CPU. The `ollama/ollama` arm64 image is also 2.8 GB compressed, which was a real problem on a nearly full disk.
+**Decision:** On macOS, install Ollama with Homebrew (about 55 MB) and run it as a background service on `localhost:11434`. It runs `nomic-embed-text` on the GPU (`ollama ps` shows `100% GPU`). The Ollama container stays in `docker-compose.yml` behind the `ollama` profile for Linux and CI, and Kubernetes (Phase 3) still runs it as a container. The app config does not change: both listen on the same port.
+**Trade-off:** One more thing installed outside Docker, so local setup is less "one command". Native and container versions can drift; the embedding model and its 768 dimensions are what matter, and both pull the same model.
