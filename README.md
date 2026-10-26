@@ -1,8 +1,10 @@
 # Repo Interviewer
 
+[![CI](https://github.com/Aryankanani1/repo-interviewer/actions/workflows/ci.yml/badge.svg)](https://github.com/Aryankanani1/repo-interviewer/actions/workflows/ci.yml)
+
 Submit a GitHub repository you built. Repo Interviewer analyzes its architecture and runs a technical interview about **your actual code**: questions that cite real files and lines, follow-ups when an answer is shallow, rubric-based grading, and a report on what to review.
 
-> Status: Phase 0 (setup) in progress. See `docs/ROADMAP.md`.
+> Status: Phase 0 (setup) complete: project, local infrastructure, Flyway, module boundaries, configuration, CI. Phase 1 (GraphQL MVP) next. See `docs/ROADMAP.md`.
 
 ## Why
 Interviews increasingly ask "walk me through your code" or let you use AI tools on a real codebase. Many candidates can build a project but cannot defend its design under questioning. This tool practices exactly that.
