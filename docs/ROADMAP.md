@@ -19,7 +19,7 @@ How to use this file:
   - AC: `./mvnw verify` passes with a context-load test that uses Testcontainers (`pgvector/pgvector:pg17`) and the `test` profile.
 - [x] **0.2 Local infrastructure.** `docker compose up -d` starts Postgres. Ollama runs natively on macOS (Homebrew) or with `docker compose --profile ollama up -d`, and has `nomic-embed-text` (DECISIONS.md D-013).
   - AC: `docker compose ps` shows healthy Postgres; `ollama list` (or `docker compose exec ollama ollama list`) shows the model. Document the commands in README.
-- [ ] **0.3 Flyway V1.** The app starts against local Postgres and applies `V1__init.sql`; `ddl-auto=validate` passes once entities exist (entities come in later tasks, so for now check that the migration applies).
+- [x] **0.3 Flyway V1.** The app starts against local Postgres and applies `V1__init.sql`; `ddl-auto=validate` passes once entities exist (entities come in later tasks, so for now check that the migration applies).
   - AC: an integration test asserts the `vector` extension and all V1 tables exist.
 - [ ] **0.4 Module skeleton + ArchUnit.** Create the packages from LLD §2 with a `package-info.java` each. Add ArchUnit rules from LLD §2.
   - AC: the ArchUnit test passes, and fails if you temporarily add an import from `interview` to `api` (try it once, then remove it).
@@ -140,3 +140,4 @@ How to use this file:
 | 2026-10-25 | — | Design docs, schema, migration, prompts and Claude Code setup created. |
 | 2026-10-26 | 0.1 | Boot 4.1.2, Spring AI 2.0.2 (versions in LLD §1.1). Context-load test green on Testcontainers `pgvector/pgvector:pg17` (PostgreSQL 17.11, V1 applied). Fixed model IDs to `claude-sonnet-5` / `claude-haiku-4-5`. `ScalarConfig` moved forward from 1.1: the app cannot start while `scalar DateTime` has no implementation. |
 | 2026-10-26 | 0.2 | Compose Postgres healthy on host port 5433 (5432 is used by a system PostgreSQL 18), pgvector 0.8.7 available. Ollama 0.40.8 native via Homebrew (D-013): `nomic-embed-text` returns 768-d vectors, `ollama ps` shows 100% GPU. Ollama container moved behind the `ollama` compose profile. |
+| 2026-10-26 | 0.3 | `./mvnw spring-boot:run` applied V1 to compose Postgres (localhost:5433) in 0.29 s, started in 14 s, health UP, GraphiQL 200. Starts without `ANTHROPIC_API_KEY` (checked only on first call). `FlywayV1MigrationTest`: vector extension, all 8 V1 tables, Flyway v1 success, `embedding` is `vector(768)`. Shares the cached test context: 1 container for the whole suite. |
