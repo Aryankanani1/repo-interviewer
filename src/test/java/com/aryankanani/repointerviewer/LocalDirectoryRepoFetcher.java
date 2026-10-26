@@ -15,6 +15,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -34,6 +35,20 @@ public class LocalDirectoryRepoFetcher implements RepoFetcher {
 	public static final String DEFAULT_SHA = "1111111111111111111111111111111111111111";
 
 	public static final String FIXTURE = "/fixtures/sample-repo";
+
+	/** Every file in the fixture repository, sorted. Tests of the scanner, chunkers and retrieval rely on it. */
+	public static final List<String> FIXTURE_FILES = List.of(
+			"README.md",
+			"pom.xml",
+			"src/main/java/com/example/shop/ShopApplication.java",
+			"src/main/java/com/example/shop/order/Order.java",
+			"src/main/java/com/example/shop/order/OrderController.java",
+			"src/main/java/com/example/shop/order/OrderRepository.java",
+			"src/main/java/com/example/shop/order/OrderService.java",
+			"src/main/java/com/example/shop/order/RefundRequest.java",
+			"src/main/resources/application.yml",
+			"src/main/resources/db/migration/V1__orders.sql",
+			"src/test/java/com/example/shop/order/OrderServiceTest.java");
 
 	private final Map<String, RemoteHead> heads = new ConcurrentHashMap<>();
 

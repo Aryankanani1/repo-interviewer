@@ -18,19 +18,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 class LocalDirectoryRepoFetcherTest {
 
-	/** Every file in the fixture repository. Later tasks (scanner, chunkers, retrieval) rely on these paths. */
-	private static final List<String> FIXTURE_FILES = List.of(
-			"README.md",
-			"pom.xml",
-			"src/main/java/com/example/shop/ShopApplication.java",
-			"src/main/java/com/example/shop/order/Order.java",
-			"src/main/java/com/example/shop/order/OrderController.java",
-			"src/main/java/com/example/shop/order/OrderRepository.java",
-			"src/main/java/com/example/shop/order/OrderService.java",
-			"src/main/java/com/example/shop/order/RefundRequest.java",
-			"src/main/resources/application.yml",
-			"src/main/resources/db/migration/V1__orders.sql",
-			"src/test/java/com/example/shop/order/OrderServiceTest.java");
+	private static final List<String> FIXTURE_FILES = LocalDirectoryRepoFetcher.FIXTURE_FILES;
 
 	private static final GithubUrl URL = GithubUrl.parse("https://github.com/acme/shop");
 

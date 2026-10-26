@@ -62,7 +62,8 @@ ri
 │   ├── fetch/              # RepoFetcher, JGitRepoFetcher, LocalDirectoryRepoFetcher (tests),
 │   │                       # GithubUrl (value object: parse + normalize + validate), RemoteHead,
 │   │                       # ClonedRepo, FileTrees
-│   ├── scan/               # FileScanner, FileClassifier, SecretRedactor
+│   ├── scan/               # FileScanner, FileClassifier, FilePatterns, ScannedFile, ScanResult,
+│   │                       # FileRole, SecretRedactor
 │   ├── chunk/              # JavaChunker, TextChunker, Chunk
 │   ├── embed/              # EmbeddingService
 │   ├── store/              # CodeFileRepository (JPA), ChunkStore (JdbcTemplate + pgvector)
@@ -274,32 +275,40 @@ public record ClonedRepo(Path directory, String commitSha) implements AutoClosea
 - `LocalDirectoryRepoFetcher` (tests): copies `src/test/resources/fixtures/sample-repo` (read from the test classpath) to a temp dir. No network in tests.
 
 ### 6.5 `FileScanner` and `FileClassifier`
-- Walk with `Files.walkFileTree`. **Do not follow symlinks**; skip symlinked files and directories entirely.
-- Skip directories: `.git, target, build, out, node_modules, .idea, .vscode, .gradle, dist, vendor, .mvn/wrapper`.
-- Skip secret files entirely: `.env*`, `*.pem`, `*.key`, `*.p12`, `*.jks`, `*.keystore`, `id_rsa*`, `credentials*`.
-- Include: `*.java`; `pom.xml`, `build.gradle(.kts)`, `settings.gradle(.kts)`; `application*.yml|yaml|properties`; `Dockerfile`, `docker-compose*.yml`; `*.sql` under a `db/migration` or `resources` path; `README*.md`, top-level `*.md`; `.github/workflows/*.yml`.
+Package `codebase.scan`. The path and name rules live in `FilePatterns` (package-private), shared by both classes. Paths are repo-relative with forward slashes; names are compared in lowercase.
+
+`FileScanner.scan(root)` returns `ScanResult(files, skipped)`: the kept files as `ScannedFile(path, language, content, lineCount, sizeBytes, contentSha)` sorted by path, and the paths left out for a reason worth reporting, each with a `Reason` (`IGNORED_DIRECTORY`, `SECRET_FILE`, `SYMLINK`, `TOO_LARGE`, `BINARY`). Files that are simply not source (images, `.txt`) are only counted.
+- Walk with `Files.walkFileTree`. **Do not follow symlinks**; skip symlinked files and directories entirely (`SYMLINK`). Files are opened with `NOFOLLOW_LINKS` as a second guard.
+- Skip directories `.git, .idea, .vscode, .gradle, node_modules, .mvn/wrapper` anywhere, and `target, build, out, dist, vendor` only outside `src/`: inside it they are Java package names such as `com.acme.vendor` (task 1.4).
+- Skip secret files entirely, before the include list: `.env*`, `*.pem`, `*.key`, `*.p12`, `*.jks`, `*.keystore`, `id_rsa*` (and `id_dsa`, `id_ecdsa`, `id_ed25519`), `credentials*`.
+- Include: `*.java`; `pom.xml`, `build.gradle(.kts)`, `settings.gradle(.kts)`; `application*.yml|yaml|properties`; `Dockerfile`, `Dockerfile.*`, `docker-compose*.yml|yaml`, `compose*.yml|yaml`; `*.sql` under a `db/migration` or `resources` path; `README*.md` (any case), top-level `*.md`; `.github/workflows/*.yml|yaml`.
 - Skip files over `app.repo.max-file-bytes` and binary files (NUL byte in the first 8 KB).
-- Stop with `REPO_TOO_LARGE` when included files exceed `app.repo.max-files`.
+- Stop with `REPO_TOO_LARGE` when kept files exceed `app.repo.max-files`.
 - No `.java` files at all → `UNSUPPORTED_LANGUAGE`.
-- Role classification (first match wins):
+- Content is decoded as UTF-8 (invalid bytes become U+FFFD); `contentSha` is the SHA-256 of the bytes. `ScannedFile.toString()` leaves the content out, because it is not redacted yet.
+
+`FileClassifier.classify(ScannedFile)` (first match wins):
 
 | Role | Rule |
 |---|---|
 | TEST | path under `src/test/` |
 | MIGRATION | `.sql` under `db/migration` |
-| BUILD | `pom.xml`, `build.gradle*`, `settings.gradle*`, `Dockerfile`, compose, workflows |
-| CONFIG | `application*` files, or a Java class annotated `@Configuration` / `@ConfigurationProperties` |
-| SECURITY | class with a `SecurityFilterChain` bean, or extends `OncePerRequestFilter` with a name containing `Jwt`/`Auth` |
+| BUILD | `pom.xml`, `build.gradle*`, `settings.gradle*`, Dockerfiles, Compose files, workflows |
+| CONFIG | `application*` files |
+| SECURITY | class with a `SecurityFilterChain` `@Bean`, or extends `OncePerRequestFilter` with a name containing `Jwt`/`Auth` |
+| CONFIG | Java class annotated `@Configuration` / `@ConfigurationProperties` |
 | CONTROLLER | `@RestController`, `@Controller`, `@*Mapping` on a type, or `@QueryMapping`/`@MutationMapping` |
 | MESSAGING | `@KafkaListener`, `@RabbitListener`, `@EventListener`, `@TransactionalEventListener` |
 | SERVICE | `@Service` or `@Component` with a name ending in `Service`/`Handler`/`UseCase` |
 | REPOSITORY | `@Repository`, or an interface extending a Spring Data `*Repository` |
 | ENTITY | `@Entity`, `@Embeddable`, `@MappedSuperclass` |
-| DTO | records or classes named `*Request`, `*Response`, `*Dto`, `*Command`, `*Event` |
+| DTO | records or classes named `*Request`, `*Response`, `*Dto`, `*Command`, `*Event` (a record with another name is not a DTO) |
 | DOC | `.md` |
 | OTHER | everything else |
 
-Use JavaParser annotation names (simple names are fine) rather than regex on raw text.
+SECURITY is checked before the Java CONFIG rule: the usual `SecurityConfig` is also a `@Configuration` class, so with CONFIG first it could never be SECURITY (task 1.4).
+
+Java rules look at the file's main type: the type named like the file, else the first one. Use JavaParser (language level `JAVA_25`) annotation names (simple names, so fully qualified annotations match too) rather than regex on raw text. A file that does not parse is `DTO` if its file name matches the DTO rule, else `OTHER` (the path rules still come first).
 
 ### 6.6 Chunking
 `Chunk(path, chunkType, symbol, startLine, endLine, content, tokenEstimate)`. Line numbers are 1-based and inclusive and come from JavaParser `Range`.
