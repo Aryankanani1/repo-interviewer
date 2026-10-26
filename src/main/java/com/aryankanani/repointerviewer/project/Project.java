@@ -1,5 +1,7 @@
 package com.aryankanani.repointerviewer.project;
 
+import com.aryankanani.repointerviewer.codebase.fetch.GithubUrl;
+import com.aryankanani.repointerviewer.codebase.fetch.RemoteHead;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -80,6 +82,19 @@ public class Project {
 
 	/** For JPA only: Hibernate creates the object, then fills the fields. */
 	protected Project() {
+	}
+
+	/** A new project waiting for analysis. Only {@link ProjectService} creates projects. */
+	Project(GithubUrl url, RemoteHead head, SubmitProjectCommand command) {
+		this.githubUrl = url.normalized();
+		this.owner = url.owner();
+		this.repoName = url.repo();
+		this.commitSha = head.commitSha();
+		this.defaultBranch = head.defaultBranch();
+		this.status = AnalysisStatus.SUBMITTED;
+		this.goal = command.goal();
+		this.domain = command.domain();
+		this.targetRole = command.targetRole();
 	}
 
 	public UUID getId() {

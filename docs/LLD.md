@@ -59,7 +59,8 @@ ri
 │   ├── LlmCallLedger.java          # writes llm_call rows
 │   └── output/                     # records the model must return (structured output)
 ├── codebase/               # files, chunks, embeddings, repo map, retrieval
-│   ├── fetch/              # RepoFetcher, JGitRepoFetcher, LocalDirectoryRepoFetcher (tests)
+│   ├── fetch/              # RepoFetcher, JGitRepoFetcher, LocalDirectoryRepoFetcher (tests),
+│   │                       # GithubUrl (value object: parse + normalize + validate), RemoteHead
 │   ├── scan/               # FileScanner, FileClassifier, SecretRedactor
 │   ├── chunk/              # JavaChunker, TextChunker, Chunk
 │   ├── embed/              # EmbeddingService
@@ -68,7 +69,6 @@ ri
 │   └── retrieve/           # Retriever, RetrievedContext
 ├── project/                # project aggregate + analysis orchestration
 │   ├── Project.java, ProjectRepository.java, ProjectService.java
-│   ├── GithubUrl.java              # value object: parse + normalize + validate
 │   ├── AnalysisPipeline.java       # interface (port)
 │   ├── InProcessAnalysisPipeline.java   # Phase 1 implementation
 │   └── StaleAnalysisRecovery.java
@@ -99,6 +99,8 @@ common     → (nothing)
 - Only `llm` imports `org.springframework.ai.chat..`. Only `codebase.embed` imports `org.springframework.ai.embedding..`.
 - Only `api` imports `org.springframework.graphql..`.
 - An `@Entity` class is used only by its own module and by `api`, which maps it to GraphQL view records. Other modules get records from queries: for example `ProjectService` gives `interview` a `ProjectContext` record (summary, repo map), never the `Project` entity. This is the same shape as the Phase 4 endpoint `GET /internal/projects/{id}/context`.
+
+`GithubUrl` lives in `codebase.fetch`, not `project`: `RepoFetcher.resolveHead(GithubUrl)` needs it, and `codebase` may not depend on `project` (task 1.2).
 
 All of the above are checked by `ArchitectureTest` on the compiled main classes. Layers are optional (`withOptionalLayers(true)`) so empty modules pass. Not checkable by ArchUnit, so covered by code review: `api` uses only read models from `codebase`, and `interview` only reads from `project`.
 

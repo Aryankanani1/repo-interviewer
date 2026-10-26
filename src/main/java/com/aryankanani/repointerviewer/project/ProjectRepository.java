@@ -1,5 +1,6 @@
 package com.aryankanani.repointerviewer.project;
 
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.ScrollPosition;
@@ -18,5 +19,8 @@ interface ProjectRepository extends JpaRepository<Project, UUID> {
 	 * instead of {@code OFFSET n}.
 	 */
 	Window<Project> findAllByOrderByCreatedAtDescIdDesc(ScrollPosition position, Limit limit);
+
+	/** Duplicate check for submitProject. Backed by the unique constraint uq_project_url_commit. */
+	Optional<Project> findByGithubUrlAndCommitSha(String githubUrl, String commitSha);
 
 }
