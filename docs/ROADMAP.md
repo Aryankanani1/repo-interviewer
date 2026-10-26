@@ -7,7 +7,7 @@ How to use this file:
 - When a task is done: tick the box, add one line to the Status log at the bottom.
 - Dates are timeboxes, not promises. If a phase runs long, cut stretch tasks first.
 
-**Current phase: 0**
+**Current phase: 1**
 
 ---
 
@@ -23,7 +23,7 @@ How to use this file:
   - AC: an integration test asserts the `vector` extension and all V1 tables exist.
 - [x] **0.4 Module skeleton + ArchUnit.** Create the packages from LLD §2 with a `package-info.java` each. Add ArchUnit rules from LLD §2.
   - AC: the ArchUnit test passes, and fails if you temporarily add an import from `interview` to `api` (try it once, then remove it).
-- [ ] **0.5 CI.** GitHub Actions workflow: checkout, Java 21 (Temurin), Maven cache, `./mvnw -B verify`. Testcontainers works on GitHub-hosted Ubuntu runners.
+- [x] **0.5 CI.** GitHub Actions workflow: checkout, Java 21 (Temurin), Maven cache, `./mvnw -B verify`. Testcontainers works on GitHub-hosted Ubuntu runners.
   - AC: green run on push; badge in README.
 - [x] **0.6 Configuration properties.** `AppProperties` record tree for the `app.*` keys in `application.yml`, with `@Validated` constraints.
   - AC: unit test binds the YAML and checks a few values; an invalid value (for example `max-files: 0`) fails startup.
@@ -143,3 +143,4 @@ How to use this file:
 | 2026-10-26 | 0.3 | `./mvnw spring-boot:run` applied V1 to compose Postgres (localhost:5433) in 0.29 s, started in 14 s, health UP, GraphiQL 200. Starts without `ANTHROPIC_API_KEY` (checked only on first call). `FlywayV1MigrationTest`: vector extension, all 8 V1 tables, Flyway v1 success, `embedding` is `vector(768)`. Shares the cached test context: 1 container for the whole suite. |
 | 2026-10-26 | 0.4 | 6 module packages with `package-info.java`. `ArchitectureTest`: 5 rules (module directions, Spring AI chat only in `llm`, embedding only in `codebase.embed`, GraphQL only in `api`, entities only in own module + `api`). Checked once with temporary violations: `interview → api` failed the module rule; `interview` using a `project` entity failed the entity rule. Both removed. LLD §2 entity wording updated. |
 | 2026-10-26 | 0.6 | `AppProperties` record tree (8 sections), `@Validated`, strict keys, 3 cross-field checks. `AppPropertiesTest` (ApplicationContextRunner, no Docker, ~2 s): binds application.yml; `max-files=0`, `min-question-count=6` and a misspelled key each fail. Real app with `--app.repo.max-files=0` stops with "Property: app.repo.maxFiles, Reason: must be greater than 0". Done before 0.5 (needs the GitHub repo). |
+| 2026-10-26 | 0.5 | Public repo github.com/Aryankanani1/repo-interviewer. Personal notes trimmed from CLAUDE.md and HLD in all commits before the first push. `.github/workflows/ci.yml` (checkout v7, setup-java v6, Temurin 21, Maven cache). First run green in 3 min: 14 tests, Testcontainers pgvector on the Ubuntu runner, `verify` 41 s. Phase 0 complete. |
