@@ -36,7 +36,7 @@ spring:
       api-key: ${ANTHROPIC_API_KEY:}
       chat:
         options:
-          model: claude-sonnet-5-5   # default; the gateway overrides per purpose (app.llm.models)
+          model: claude-sonnet-5   # default; the gateway overrides per purpose (app.llm.models)
           max-tokens: 2048
     ollama:
       base-url: http://localhost:11434
@@ -96,12 +96,12 @@ app:
     prefetch-enabled: false   # task 1.16 turns this on
   llm:
     models:
-      summary: claude-haiku-5-5
-      plan: claude-sonnet-5-5
-      question: claude-sonnet-5-5
-      follow-up: claude-sonnet-5-5
-      evaluation: claude-sonnet-5-5
-      report: claude-haiku-5-5
+      summary: claude-haiku-4-5
+      plan: claude-sonnet-5
+      question: claude-sonnet-5
+      follow-up: claude-sonnet-5
+      evaluation: claude-sonnet-5
+      report: claude-haiku-4-5
     max-output-tokens:
       summary: 2000
       plan: 2000

@@ -13,7 +13,7 @@ How to use this file:
 
 ## Phase 0 — Setup (Oct 26–27)
 
-- [ ] **0.1 Generate the project.** Maven, Java 21, Spring Boot 4.1.x, group `com.aryankanani`, artifact `repo-interviewer`, package `com.aryankanani.repointerviewer`. Dependencies: Web, Spring for GraphQL, Data JPA, Validation, Actuator, PostgreSQL driver, Flyway (+ `flyway-database-postgresql`), Testcontainers (Postgres, JUnit), Spring AI Anthropic chat starter, Spring AI Ollama starter, `javaparser-core`, JGit, `graphql-java-extended-scalars`, ArchUnit (`archunit-junit5`). Import the Spring AI 2.0.x BOM.
+- [x] **0.1 Generate the project.** Maven, Java 21, Spring Boot 4.1.x, group `com.aryankanani`, artifact `repo-interviewer`, package `com.aryankanani.repointerviewer`. Dependencies: Web, Spring for GraphQL, Data JPA, Validation, Actuator, PostgreSQL driver, Flyway (+ `flyway-database-postgresql`), Testcontainers (Postgres, JUnit), Spring AI Anthropic chat starter, Spring AI Ollama starter, `javaparser-core`, JGit, `graphql-java-extended-scalars`, ArchUnit (`archunit-junit5`). Import the Spring AI 2.0.x BOM.
   - Verify every artifact ID and version on start.spring.io, the Spring AI 2.0 reference docs, and Maven Central. Do not guess. Record the chosen versions in `docs/LLD.md` §1.
   - Keep the existing `src/main/resources` files (schema, migration, prompts, application.yml).
   - AC: `./mvnw verify` passes with a context-load test that uses Testcontainers (`pgvector/pgvector:pg17`) and the `test` profile.
@@ -31,7 +31,7 @@ How to use this file:
 ## Phase 1 — GraphQL MVP (Oct 28–Nov 9)
 
 ### A. GraphQL basics and projects
-- [ ] **1.1 [hands-on] First queries.** `Project` entity + repository, `ProjectController` with `project(id)` and `projects(first, after)` returning `Window<ProjectView>`. Register the `DateTime` scalar. GraphiQL at `/graphiql`.
+- [ ] **1.1 [hands-on] First queries.** `Project` entity + repository, `ProjectController` with `project(id)` and `projects(first, after)` returning `Window<ProjectView>`. The `DateTime` scalar is already registered (`api/scalar/ScalarConfig`, task 0.1); add a test that `createdAt` serializes as an ISO-8601 string. GraphiQL at `/graphiql`.
   - Claude Code: explain schema-first mapping, `@QueryMapping`, `@Argument`, and how `Window`/`ScrollSubrange` become a Connection. Let Aryan write the controller.
   - AC: `GraphQlTester` tests for found, not found (null), and pagination across 3 pages.
 - [ ] **1.2 `submitProject`.** `GithubUrl` value object (LLD §6.2), `RepoFetcher.resolveHead`, dedupe by `(url, sha)`, insert `SUBMITTED`, start the pipeline after commit. Payload `errors` pattern.
@@ -138,3 +138,4 @@ How to use this file:
 | Date | Task | Note |
 |---|---|---|
 | 2026-10-25 | — | Design docs, schema, migration, prompts and Claude Code setup created. |
+| 2026-10-26 | 0.1 | Boot 4.1.2, Spring AI 2.0.2 (versions in LLD §1.1). Context-load test green on Testcontainers `pgvector/pgvector:pg17` (PostgreSQL 17.11, V1 applied). Fixed model IDs to `claude-sonnet-5` / `claude-haiku-4-5`. `ScalarConfig` moved forward from 1.1: the app cannot start while `scalar DateTime` has no implementation. |

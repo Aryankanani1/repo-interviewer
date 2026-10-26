@@ -12,14 +12,32 @@
 | API | Spring for GraphQL (`spring-boot-starter-graphql`) | Schema-first, GraphiQL in dev, `@BatchMapping` for N+1 |
 | Custom scalar | `graphql-java-extended-scalars` | `DateTime`. Pick the version that matches the graphql-java version Boot 4.1 manages. |
 | AI | Spring AI **2.0.x** | Requires Boot 4.0/4.1. Anthropic chat starter + Ollama embedding starter. **Verify artifact IDs and property names in the Spring AI 2.0 reference docs; they changed between 1.x and 2.0.** |
-| Chat models | `claude-sonnet-5-5` (plan, question, follow-up, evaluation), `claude-haiku-5-5` (summary, report) | Config, not code |
+| Chat models | `claude-sonnet-5` (plan, question, follow-up, evaluation), `claude-haiku-4-5` (summary, report) | Config, not code |
 | Embeddings | Ollama `nomic-embed-text` (768-d), local and free | Behind Spring AI `EmbeddingModel`, swappable |
 | Database | PostgreSQL 17 + pgvector (`pgvector/pgvector:pg17` image) | Flyway migrations, JPA for aggregates, JdbcTemplate for chunks/vectors |
 | Git | JGit (`org.eclipse.jgit`) | `lsRemoteRepository` + shallow clone (`setDepth(1)`) |
 | Java parsing | JavaParser (`javaparser-core`) | Set the language level to Java 21 |
-| Tests | JUnit 5, AssertJ, Mockito, Testcontainers (Postgres with pgvector image), `GraphQlTester`, ArchUnit | No real LLM calls in normal tests |
+| Tests | JUnit Jupiter 6, AssertJ, Mockito, Testcontainers 2 (Postgres with pgvector image), `GraphQlTester`, ArchUnit | No real LLM calls in normal tests |
 | Build | Maven wrapper (`./mvnw`) | |
 | Phase 2+ | Spring for Apache Kafka, Apache Kafka 4.x (KRaft), Testcontainers Kafka | |
+
+### 1.1 Pinned versions (verified 2026-10-25, task 0.1)
+
+Checked on start.spring.io, Maven Central, and the Spring AI autoconfigure jars. Versions live in `pom.xml` properties.
+
+| Artifact | Version | Notes |
+|---|---|---|
+| `spring-boot-starter-parent` | 4.1.2 | Latest 4.1 GA |
+| `spring-ai-bom` | 2.0.2 | Latest 2.0.x patch (Initializr still offered 2.0.1) |
+| `javaparser-core` | 3.28.2 | |
+| `org.eclipse.jgit` | 7.8.0.202609011348-r | |
+| `graphql-java-extended-scalars` | 24.0 | Newest release, built against graphql-java 24.1. Boot manages 25.1. If `DateTime` breaks, replace it with a small custom scalar. |
+| `archunit-junit5` | 1.5.1 | Test scope |
+| Managed by Boot 4.1.2 | graphql-java 25.1, Spring for GraphQL 2.0.6, Hibernate 7.4.13, Flyway 12.4.0, Testcontainers 2.0.5, JUnit Jupiter 6.0.3, PostgreSQL driver 42.7.14 | |
+
+Boot 4 artifact names that differ from Boot 3: `spring-boot-starter-webmvc` (not `-web`), `spring-boot-starter-flyway` (plus `flyway-database-postgresql`), and one test starter per module (`spring-boot-starter-graphql-test`, `-data-jpa-test`, ...). Testcontainers 2 uses `testcontainers-postgresql` and the class `org.testcontainers.postgresql.PostgreSQLContainer`.
+
+Spring AI 2.0.2 property names used in `application.yml` were checked against the jars' configuration metadata: `spring.ai.model.chat`, `spring.ai.model.embedding`, `spring.ai.anthropic.api-key`, `spring.ai.anthropic.chat.options.model|max-tokens`, `spring.ai.ollama.base-url`, `spring.ai.ollama.embedding.options.model`, `spring.ai.retry.max-attempts`.
 
 Base package: `com.aryankanani.repointerviewer` (shortened to `ri` below).
 
