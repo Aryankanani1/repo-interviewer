@@ -60,7 +60,8 @@ ri
 │   └── output/                     # records the model must return (structured output)
 ├── codebase/               # files, chunks, embeddings, repo map, retrieval
 │   ├── fetch/              # RepoFetcher, JGitRepoFetcher, LocalDirectoryRepoFetcher (tests),
-│   │                       # GithubUrl (value object: parse + normalize + validate), RemoteHead
+│   │                       # GithubUrl (value object: parse + normalize + validate), RemoteHead,
+│   │                       # ClonedRepo, FileTrees
 │   ├── scan/               # FileScanner, FileClassifier, SecretRedactor
 │   ├── chunk/              # JavaChunker, TextChunker, Chunk
 │   ├── embed/              # EmbeddingService
@@ -247,25 +248,30 @@ Each stage: `transitionTo(stage)` in its own short transaction → do the work *
 
 | Stage | Work | Output |
 |---|---|---|
-| CLONING | `RepoFetcher.cloneShallow(url, sha, workDir)` | temp directory |
+| CLONING | `RepoFetcher.cloneShallow(url, head, workDir)` | `ClonedRepo` (temp directory + actual commit) |
 | PARSING | `FileScanner.scan` → `FileClassifier.classify` → `JavaChunker` / `TextChunker` → `SecretRedactor.redact` → save files and chunks (no embeddings yet) → `RepoMapBuilder.build` → save stats and repo map | rows in `code_file`, `code_chunk` |
 | EMBEDDING | `EmbeddingService.embedPending(projectId)` in batches | `code_chunk.embedding` filled |
 | SUMMARIZING | `LlmGateway` SUMMARY call → `SummaryValidator` removes unknown class names | `project.summary` |
 | READY | set `analysis_completed_at` | |
 
-Always delete the temp directory in `finally`.
+Always delete the temp directory: open the `ClonedRepo` with try-with-resources; its `close()` deletes it.
 
 ### 6.4 `RepoFetcher`
 
 ```java
 public interface RepoFetcher {
-    RemoteHead resolveHead(GithubUrl url);                       // ls-remote
-    Path cloneShallow(GithubUrl url, String commitSha, Path parentDir);
+    RemoteHead resolveHead(GithubUrl url);                                    // ls-remote
+    ClonedRepo cloneShallow(GithubUrl url, RemoteHead head, Path parentDir);  // depth 1
 }
+public record ClonedRepo(Path directory, String commitSha) implements AutoCloseable {}  // close() deletes directory
 ```
-- `JGitRepoFetcher`: `Git.cloneRepository().setURI(url.cloneUri()).setDepth(1).setBranch(defaultBranch).setNoTags()`, timeout from config. After the clone, check the checked-out HEAD equals `commitSha`; if not, record the actual sha (the branch moved).
-- Enforce `app.repo.max-repo-bytes` by walking the directory after the clone, and fail with `REPO_TOO_LARGE`.
-- `LocalDirectoryRepoFetcher` (tests): copies `src/test/resources/fixtures/sample-repo` to a temp dir. No network in tests.
+- `JGitRepoFetcher`: `Git.cloneRepository().setURI(url.cloneUri()).setDepth(1).setBranch(defaultBranch).setBranchesToClone(that branch only).setNoTags()`, submodules off, into a new `clone-*` directory under `parentDir`. It takes the whole `RemoteHead` because the clone needs the branch, not only the sha (task 1.3 changed the signature for this).
+- `ClonedRepo.commitSha` is the commit actually checked out. If it differs from `head.commitSha()`, the branch moved since submit; the caller records the actual sha (task 1.9).
+- Timeout: JGit's `setTimeout` only limits a single socket read, so `app.repo.clone-timeout` is enforced as a deadline for the whole clone by a `ProgressMonitor` whose `isCancelled()` turns true when time is up. JGit asks it repeatedly while downloading and checking out.
+- Size: after the clone, the working tree (regular files, without `.git`, symlinks not followed) must be at most `app.repo.max-repo-bytes`. A huge repository is still downloaded until the deadline; the deadline is what caps the download.
+- Errors: over the size limit or past the deadline → `REPO_TOO_LARGE`; any other clone failure (deleted or made private since submit, network) → `REPO_NOT_FOUND`. The partial directory is deleted before throwing. On success the caller owns the directory.
+- `FileTrees` (package-private): `deleteTree` and `workingTreeBytes`, neither follows symbolic links, so a link like `docs -> /Users/me` can never make us count or delete outside the clone.
+- `LocalDirectoryRepoFetcher` (tests): copies `src/test/resources/fixtures/sample-repo` (read from the test classpath) to a temp dir. No network in tests.
 
 ### 6.5 `FileScanner` and `FileClassifier`
 - Walk with `Files.walkFileTree`. **Do not follow symlinks**; skip symlinked files and directories entirely.
@@ -541,7 +547,7 @@ Lives in `common.config`, registered by `@ConfigurationPropertiesScan` on the ap
 | Architecture | Module dependency rules | ArchUnit |
 | Evals (opt-in) | Real model calls on golden repos; tagged `@Tag("eval")`, excluded from `./mvnw verify`, run with `./mvnw verify -Pevals` | JUnit + `docs/RESULTS.md` |
 
-Fixture repo: `src/test/resources/fixtures/sample-repo/`, a tiny Spring Boot app (one controller, service, entity, repository, `application.yml`, and a fake secret to test redaction). Create it in task 1.3.
+Fixture repo: `src/test/resources/fixtures/sample-repo/`, a tiny Spring Boot order service (created in task 1.3): `OrderController`, `OrderService` (with `refund`), `Order` entity, `OrderRepository`, `RefundRequest` record, `ShopApplication`, `application.yml`, a Flyway migration, `pom.xml`, `README.md` and one test class. The fake secret is the hard-coded `spring.datasource.password`; `shop.payment.api-key: ${PAYMENT_API_KEY}` is the placeholder that must not be redacted. No realistic token formats (`ghp_`, `AKIA`, `sk-ant-`), because GitHub push protection may block them. Files that must be skipped (`target/`, `.env`, symlinks, binaries) are created by tests in the temp copy: `.gitignore` excludes `target/` and `.env*`, and Maven does not copy some dotfiles to `target/test-classes`.
 
 ### Eval harness metrics (task 1.17, expanded in 5.1)
 - **Grounding rate:** questions with ≥ 1 valid ref / total.

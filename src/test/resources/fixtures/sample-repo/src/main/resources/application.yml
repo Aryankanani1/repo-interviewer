@@ -1,0 +1,16 @@
+spring:
+  application:
+    name: shop
+  datasource:
+    url: jdbc:postgresql://localhost:5432/shop
+    username: ${DB_USERNAME:shop}
+    # Fake credential, on purpose: the analyzer must redact it before storing or embedding this file.
+    password: fixture-pa55word-not-real
+  jpa:
+    open-in-view: false
+
+shop:
+  refunds:
+    max-days-after-purchase: 30
+  payment:
+    api-key: ${PAYMENT_API_KEY}

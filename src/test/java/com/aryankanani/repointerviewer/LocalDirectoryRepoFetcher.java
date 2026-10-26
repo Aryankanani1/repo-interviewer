@@ -1,23 +1,39 @@
 package com.aryankanani.repointerviewer;
 
+import com.aryankanani.repointerviewer.codebase.fetch.ClonedRepo;
 import com.aryankanani.repointerviewer.codebase.fetch.GithubUrl;
 import com.aryankanani.repointerviewer.codebase.fetch.RemoteHead;
 import com.aryankanani.repointerviewer.codebase.fetch.RepoFetcher;
 import com.aryankanani.repointerviewer.common.error.DomainException;
 import com.aryankanani.repointerviewer.common.error.ErrorCode;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.net.URISyntaxException;
+import java.net.URL;
+import java.nio.file.FileVisitResult;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Test {@link RepoFetcher}: never touches the network. Every repository exists at {@link #DEFAULT_SHA}
- * unless a test says otherwise. Task 1.3 adds cloning from {@code src/test/resources/fixtures}.
+ * unless a test says otherwise, and "cloning" any of them copies the fixture repository
+ * {@code src/test/resources/fixtures/sample-repo} into a new directory.
+ *
+ * <p>The fixture is read from the test classpath ({@code target/test-classes}). Maven does not copy dotfiles
+ * such as {@code .gitignore} there, so tests that need one create it in the copy.
  *
  * <p>It is a singleton shared by all integration tests, so tests call {@link #reset()} first.
  */
 public class LocalDirectoryRepoFetcher implements RepoFetcher {
 
 	public static final String DEFAULT_SHA = "1111111111111111111111111111111111111111";
+
+	public static final String FIXTURE = "/fixtures/sample-repo";
 
 	private final Map<String, RemoteHead> heads = new ConcurrentHashMap<>();
 
@@ -39,11 +55,61 @@ public class LocalDirectoryRepoFetcher implements RepoFetcher {
 
 	@Override
 	public RemoteHead resolveHead(GithubUrl url) {
+		failIfMissing(url);
+		return heads.getOrDefault(url.fullName(), new RemoteHead(DEFAULT_SHA, "main"));
+	}
+
+	@Override
+	public ClonedRepo cloneShallow(GithubUrl url, RemoteHead head, Path parentDir) {
+		failIfMissing(url);
+		try {
+			Files.createDirectories(parentDir);
+			Path directory = Files.createTempDirectory(parentDir, "clone-");
+			copyTree(fixtureRoot(), directory);
+			return new ClonedRepo(directory, head.commitSha());
+		}
+		catch (IOException ex) {
+			throw new UncheckedIOException(ex);
+		}
+	}
+
+	/** The fixture on disk. Tests may read it but must never change it. */
+	public static Path fixtureRoot() {
+		URL url = LocalDirectoryRepoFetcher.class.getResource(FIXTURE);
+		if (url == null) {
+			throw new IllegalStateException(FIXTURE + " is not on the test classpath");
+		}
+		try {
+			return Path.of(url.toURI());
+		}
+		catch (URISyntaxException ex) {
+			throw new IllegalStateException(ex);
+		}
+	}
+
+	private void failIfMissing(GithubUrl url) {
 		if (missing.contains(url.fullName())) {
 			throw new DomainException(ErrorCode.REPO_NOT_FOUND, "Repository not found. It must exist and be public.",
 					"githubUrl");
 		}
-		return heads.getOrDefault(url.fullName(), new RemoteHead(DEFAULT_SHA, "main"));
+	}
+
+	private static void copyTree(Path source, Path target) throws IOException {
+		Files.walkFileTree(source, new SimpleFileVisitor<>() {
+
+			@Override
+			public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
+				Files.createDirectories(target.resolve(source.relativize(dir)));
+				return FileVisitResult.CONTINUE;
+			}
+
+			@Override
+			public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+				Files.copy(file, target.resolve(source.relativize(file)));
+				return FileVisitResult.CONTINUE;
+			}
+
+		});
 	}
 
 }
