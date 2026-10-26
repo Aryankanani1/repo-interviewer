@@ -1,0 +1,20 @@
+# Build
+target/
+build/
+!.mvn/wrapper/maven-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.DS_Store
+
+# Secrets and personal files
+.env
+.env.*
+!.env.example
+CLAUDE.local.md
+.claude/settings.local.json
+
+# Local eval output that should not be committed
+evals/tmp/

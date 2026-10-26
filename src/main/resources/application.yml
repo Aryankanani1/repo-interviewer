@@ -1,0 +1,126 @@
+# Repo Interviewer configuration.
+# Spring AI 2.0 property names: verify against the Spring AI 2.0 reference docs during task 0.1.
+# Secrets come from environment variables or a local .env file (gitignored). Never commit keys.
+
+spring:
+  application:
+    name: repo-interviewer
+  config:
+    import: optional:file:.env[.properties]
+  threads:
+    virtual:
+      enabled: true
+  datasource:
+    url: jdbc:postgresql://localhost:5432/repo_interviewer
+    username: ${DB_USER:ri}
+    password: ${DB_PASSWORD:ri}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+  graphql:
+    graphiql:
+      enabled: true
+    schema:
+      inspection:
+        enabled: true
+    websocket:
+      path: /graphql-ws
+  ai:
+    model:
+      chat: anthropic        # chat goes to Anthropic, not Ollama
+      embedding: ollama      # embeddings go to local Ollama
+    anthropic:
+      api-key: ${ANTHROPIC_API_KEY:}
+      chat:
+        options:
+          model: claude-sonnet-5-5   # default; the gateway overrides per purpose (app.llm.models)
+          max-tokens: 2048
+    ollama:
+      base-url: http://localhost:11434
+      embedding:
+        options:
+          model: nomic-embed-text
+    retry:
+      max-attempts: 3
+
+server:
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+logging:
+  level:
+    com.aryankanani.repointerviewer: INFO
+
+app:
+  repo:
+    allowed-host: github.com
+    max-files: 1500
+    max-file-bytes: 300000
+    max-repo-bytes: 25000000
+    ls-remote-timeout: 15s
+    clone-timeout: 60s
+    work-dir: ${java.io.tmpdir}/repo-interviewer
+  chunking:
+    max-chunk-lines: 120
+    small-method-lines: 4
+  embedding:
+    batch-size: 32
+    dimensions: 768
+  retrieval:
+    top-k: 8
+    max-context-tokens: 6000
+  repo-map:
+    max-tokens: 12000
+  analysis:
+    stale-after: 15m
+  interview:
+    default-question-count: 5
+    min-question-count: 3
+    max-question-count: 8
+    max-follow-ups-per-topic: 1
+    follow-up-score-min: 3
+    follow-up-score-max: 7
+    answer-max-chars: 4000
+    prefetch-enabled: false   # task 1.16 turns this on
+  llm:
+    models:
+      summary: claude-haiku-5-5
+      plan: claude-sonnet-5-5
+      question: claude-sonnet-5-5
+      follow-up: claude-sonnet-5-5
+      evaluation: claude-sonnet-5-5
+      report: claude-haiku-5-5
+    max-output-tokens:
+      summary: 2000
+      plan: 2000
+      question: 1500
+      follow-up: 1000
+      evaluation: 1200
+      report: 1500
+    max-calls-per-session: 30
+    max-calls-per-day: 300
+    timeout: 60s
+
+---
+spring:
+  config:
+    activate:
+      on-profile: test
+  graphql:
+    graphiql:
+      enabled: false
+  ai:
+    anthropic:
+      api-key: test-key-not-used   # tests use FakeLlmGateway; this only satisfies auto-configuration

@@ -1,0 +1,366 @@
+# Repo Interviewer GraphQL schema. This file is the source of truth for the API (schema-first).
+#
+# Conventions
+# - Every mutation takes one `input` and returns a `...Payload` with `errors: [UserError!]!`.
+#   Expected failures (bad URL, not ready, already answered) go in `errors`, not in GraphQL top-level errors.
+#   Top-level GraphQL errors are only for bugs and infrastructure failures.
+# - IDs are UUIDs.
+# - Reading a field never calls the LLM. Everything readable is computed and stored first.
+# - Rubrics and ideal answers are only exposed on Answer, after the question has been answered.
+# - Fields marked "Phase 2" exist now so the schema does not break later.
+
+scalar DateTime
+
+# ---------------------------------------------------------------------------
+# Entry points
+# ---------------------------------------------------------------------------
+
+type Query {
+  project(id: ID!): Project
+  "Newest first. Cursor-based pagination."
+  projects(first: Int = 20, after: String): ProjectConnection!
+  interviewSession(id: ID!): InterviewSession
+}
+
+type Mutation {
+  submitProject(input: SubmitProjectInput!): SubmitProjectPayload!
+  reanalyzeProject(input: ReanalyzeProjectInput!): SubmitProjectPayload!
+  startInterview(input: StartInterviewInput!): StartInterviewPayload!
+  submitAnswer(input: SubmitAnswerInput!): SubmitAnswerPayload!
+  endInterview(input: EndInterviewInput!): EndInterviewPayload!
+}
+
+type Subscription {
+  "Task 1.18: in-process events. Phase 2: fed from Kafka."
+  projectAnalysisProgress(projectId: ID!): AnalysisProgressEvent!
+  "Phase 2: evaluation results and next questions arrive here when processing is asynchronous."
+  interviewEvents(sessionId: ID!): InterviewEvent!
+}
+
+# ---------------------------------------------------------------------------
+# Projects
+# ---------------------------------------------------------------------------
+
+type Project {
+  id: ID!
+  githubUrl: String!
+  name: String!
+  commitSha: String!
+  status: AnalysisStatus!
+  failureReason: String
+  context: ProjectContext!
+  "Null until PARSING finishes."
+  stats: RepoStats
+  "Null until status is READY."
+  summary: RepoSummary
+  files(role: FileRole, first: Int = 50): [CodeFile!]!
+  sessions: [InterviewSession!]!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+
+enum AnalysisStatus {
+  SUBMITTED
+  CLONING
+  PARSING
+  EMBEDDING
+  SUMMARIZING
+  READY
+  FAILED
+}
+
+type ProjectContext {
+  goal: String
+  domain: String
+  targetRole: String
+}
+
+type RepoStats {
+  fileCount: Int!
+  javaFileCount: Int!
+  totalLines: Int!
+  chunkCount: Int!
+  primaryLanguage: String
+}
+
+type RepoSummary {
+  oneLiner: String!
+  architectureStyle: String!
+  techStack: [String!]!
+  modules: [ModuleSummary!]!
+  notablePatterns: [String!]!
+  riskAreas: [String!]!
+}
+
+type ModuleSummary {
+  name: String!
+  responsibility: String!
+  keyClasses: [String!]!
+}
+
+type CodeFile {
+  id: ID!
+  path: String!
+  role: FileRole!
+  language: String!
+  lineCount: Int!
+}
+
+enum FileRole {
+  CONTROLLER
+  SERVICE
+  REPOSITORY
+  ENTITY
+  DTO
+  CONFIG
+  SECURITY
+  MESSAGING
+  TEST
+  MIGRATION
+  BUILD
+  DOC
+  OTHER
+}
+
+type ProjectConnection {
+  edges: [ProjectEdge!]!
+  pageInfo: PageInfo!
+}
+
+type ProjectEdge {
+  node: Project!
+  cursor: String!
+}
+
+type PageInfo {
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+  startCursor: String
+  endCursor: String
+}
+
+type AnalysisProgressEvent {
+  projectId: ID!
+  status: AnalysisStatus!
+  progressPercent: Int!
+  message: String
+  at: DateTime!
+}
+
+# ---------------------------------------------------------------------------
+# Interviews
+# ---------------------------------------------------------------------------
+
+type InterviewSession {
+  id: ID!
+  project: Project!
+  status: SessionStatus!
+  difficulty: Difficulty!
+  focusAreas: [QuestionCategory!]!
+  plannedQuestionCount: Int!
+  "Asked questions only, in order. Prepared (prefetched) questions are never exposed."
+  questions: [Question!]!
+  currentQuestion: Question
+  "Null until the session is COMPLETED or ABANDONED."
+  report: InterviewReport
+  failureReason: String
+  startedAt: DateTime!
+  completedAt: DateTime
+}
+
+enum SessionStatus {
+  PLANNING
+  IN_PROGRESS
+  COMPLETED
+  ABANDONED
+  FAILED
+}
+
+enum Difficulty {
+  INTERN
+  JUNIOR
+  MID
+}
+
+enum QuestionCategory {
+  ARCHITECTURE
+  DESIGN_DECISION
+  DATA_MODEL
+  CONCURRENCY
+  FAILURE_HANDLING
+  SECURITY
+  TESTING
+  PERFORMANCE
+  SCALING
+  CODE_WALKTHROUGH
+}
+
+type Question {
+  id: ID!
+  order: Int!
+  category: QuestionCategory!
+  text: String!
+  isFollowUp: Boolean!
+  parent: Question
+  codeRefs: [CodeRef!]!
+  "Null until answered."
+  answer: Answer
+  askedAt: DateTime!
+}
+
+type CodeRef {
+  path: String!
+  startLine: Int!
+  endLine: Int!
+  "The referenced lines, so the candidate can see the code while answering."
+  snippet: String
+}
+
+type Answer {
+  id: ID!
+  text: String!
+  submittedAt: DateTime!
+  "Null while evaluation is pending (always filled in Phase 1; asynchronous in Phase 2)."
+  evaluation: AnswerEvaluation
+}
+
+type AnswerEvaluation {
+  score: Int!
+  verdict: AnswerVerdict!
+  feedback: String!
+  coveredPoints: [String!]!
+  missedPoints: [String!]!
+  incorrectClaims: [String!]!
+  "Revealed only after answering."
+  idealAnswerOutline: [String!]!
+  evaluatedAt: DateTime!
+}
+
+enum AnswerVerdict {
+  STRONG
+  ADEQUATE
+  WEAK
+  OFF_TOPIC
+}
+
+type InterviewReport {
+  overallScore: Float!
+  summary: String!
+  strengths: [String!]!
+  weaknesses: [String!]!
+  categoryScores: [CategoryScore!]!
+  topicsToReview: [ReviewTopic!]!
+}
+
+type CategoryScore {
+  category: QuestionCategory!
+  averageScore: Float!
+  questionCount: Int!
+}
+
+type ReviewTopic {
+  topic: String!
+  why: String!
+}
+
+type InterviewEvent {
+  sessionId: ID!
+  type: InterviewEventType!
+  answer: Answer
+  nextQuestion: Question
+  session: InterviewSession
+  at: DateTime!
+}
+
+enum InterviewEventType {
+  ANSWER_EVALUATED
+  QUESTION_READY
+  SESSION_COMPLETED
+  SESSION_FAILED
+}
+
+# ---------------------------------------------------------------------------
+# Inputs and payloads
+# ---------------------------------------------------------------------------
+
+input SubmitProjectInput {
+  "https://github.com/{owner}/{repo} (public repositories only)"
+  githubUrl: String!
+  "What the project is for, in the candidate's words. Max 500 characters."
+  goal: String
+  domain: String
+  "For example: backend intern, new-grad SWE."
+  targetRole: String
+}
+
+input ReanalyzeProjectInput {
+  projectId: ID!
+}
+
+type SubmitProjectPayload {
+  project: Project
+  errors: [UserError!]!
+}
+
+input StartInterviewInput {
+  projectId: ID!
+  difficulty: Difficulty = JUNIOR
+  "Empty or omitted means balanced coverage."
+  focusAreas: [QuestionCategory!]
+  "3 to 8."
+  questionCount: Int = 5
+}
+
+type StartInterviewPayload {
+  session: InterviewSession
+  firstQuestion: Question
+  errors: [UserError!]!
+}
+
+input SubmitAnswerInput {
+  questionId: ID!
+  "1 to 4000 characters. \"I don't know\" is a valid answer."
+  text: String!
+}
+
+type SubmitAnswerPayload {
+  answer: Answer
+  "Null when the session just completed (see session.report), or in Phase 2 while processing."
+  nextQuestion: Question
+  session: InterviewSession
+  errors: [UserError!]!
+}
+
+input EndInterviewInput {
+  sessionId: ID!
+}
+
+type EndInterviewPayload {
+  session: InterviewSession
+  errors: [UserError!]!
+}
+
+type UserError {
+  code: ErrorCode!
+  message: String!
+  "Path to the input field that caused the error, for example [\"input\", \"githubUrl\"]."
+  field: [String!]
+}
+
+enum ErrorCode {
+  INVALID_URL
+  REPO_NOT_FOUND
+  REPO_TOO_LARGE
+  UNSUPPORTED_LANGUAGE
+  NOT_FOUND
+  PROJECT_NOT_READY
+  INVALID_QUESTION_COUNT
+  SESSION_NOT_ACTIVE
+  NOT_CURRENT_QUESTION
+  ALREADY_ANSWERED
+  ANSWER_EMPTY
+  ANSWER_TOO_LONG
+  BUDGET_EXCEEDED
+  LLM_UNAVAILABLE
+  INTERNAL
+}
