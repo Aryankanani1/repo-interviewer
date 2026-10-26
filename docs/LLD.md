@@ -96,9 +96,11 @@ common     → (nothing)
 ```
 
 - Nothing depends on `api`.
-- Only `llm` imports `org.springframework.ai.chat..`. `codebase.embed` may import `org.springframework.ai.embedding..`.
+- Only `llm` imports `org.springframework.ai.chat..`. Only `codebase.embed` imports `org.springframework.ai.embedding..`.
 - Only `api` imports `org.springframework.graphql..`.
-- Entities stay inside their module. `api` maps them to GraphQL records.
+- An `@Entity` class is used only by its own module and by `api`, which maps it to GraphQL view records. Other modules get records from queries: for example `ProjectService` gives `interview` a `ProjectContext` record (summary, repo map), never the `Project` entity. This is the same shape as the Phase 4 endpoint `GET /internal/projects/{id}/context`.
+
+All of the above are checked by `ArchitectureTest` on the compiled main classes. Layers are optional (`withOptionalLayers(true)`) so empty modules pass. Not checkable by ArchUnit, so covered by code review: `api` uses only read models from `codebase`, and `interview` only reads from `project`.
 
 ## 3. Domain model
 
