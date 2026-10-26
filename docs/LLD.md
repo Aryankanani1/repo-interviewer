@@ -145,7 +145,7 @@ Topic: `PENDING → ASKED → DONE` (or `SKIPPED`).
 - `Project`, `InterviewSession`, `InterviewTopic`, `Question`, `Answer`: JPA entities, `@Version` where the table has `version`.
 - JSONB columns map with `@JdbcTypeCode(SqlTypes.JSON)` to records (`RepoSummary`, `Rubric`, `List<CodeRef>`, `InterviewReport`, `List<String>`).
 - `code_file`: JPA. `code_chunk`: **JdbcTemplate only** (batch inserts, vector columns, explicit SQL). See DECISIONS.md D-004.
-- IDs: database `gen_random_uuid()` or Hibernate `@UuidGenerator`. Pick one and use it everywhere.
+- IDs: Hibernate `@UuidGenerator(style = VERSION_7)` on every entity (DECISIONS.md D-014). The id exists before the insert and is time-ordered. The `gen_random_uuid()` column defaults stay only for rows inserted with plain SQL (tests, scripts).
 - `spring.jpa.open-in-view=false`. Controllers never touch lazy associations; `@BatchMapping` loads them.
 
 ### 3.4 Records that cross module boundaries (examples)
@@ -206,7 +206,7 @@ Spring for GraphQL turns `Window<T>` into the `ProjectConnection` shape. The cur
 - Input validation: Bean Validation on input records (`@NotBlank`, `@Size`) plus domain validation (`GithubUrl.parse`). Validation errors become `UserError` with `field = ["input", "<name>"]`.
 
 ### 5.3 Mapping rule
-Controllers map entities to `api` view records (`ProjectView`, `QuestionView`, ...). `QuestionView` never contains the rubric. `AnswerEvaluationView.idealAnswerOutline` is read from the question, only once the answer exists.
+Controllers map entities to `api` view records (`ProjectView`, `QuestionView`, ...). `Project.name` is `owner/repo`. `DateTime` fields must be `OffsetDateTime` (or `ZonedDateTime`) in views: the extended-scalars `DateTime` cannot serialize `Instant` or `LocalDateTime`. `QuestionView` never contains the rubric. `AnswerEvaluationView.idealAnswerOutline` is read from the question, only once the answer exists.
 
 ### 5.4 Other GraphQL settings
 - GraphiQL on in `local` profile only (`spring.graphql.graphiql.enabled`).
@@ -535,7 +535,7 @@ Lives in `common.config`, registered by `@ConfigurationPropertiesScan` on the ap
 |---|---|---|
 | Unit | `GithubUrl`, `FileClassifier`, `JavaChunker` line ranges, `SecretRedactor`, `RepoMapBuilder` budget, `CodeRefValidator`, `TopicValidator`, `FollowUpPolicy`, `Scoring`, state transitions | JUnit 5, AssertJ |
 | Slice | GraphQL controllers with mocked services; payload errors; `@BatchMapping` wiring | `@GraphQlTest`, `GraphQlTester` |
-| Integration | Full flow on the fixture repo: submit → READY → interview → report, with `FakeLlmGateway` + `FakeEmbeddingModel` + `LocalDirectoryRepoFetcher`; real Postgres with pgvector | `@SpringBootTest`, Testcontainers (`pgvector/pgvector:pg17`), `HttpGraphQlTester` |
+| Integration | Full flow on the fixture repo: submit → READY → interview → report, with `FakeLlmGateway` + `FakeEmbeddingModel` + `LocalDirectoryRepoFetcher`; real Postgres with pgvector | `@SpringBootTest`, Testcontainers (`pgvector/pgvector:pg17`), `GraphQlTester` (via `@AutoConfigureGraphQlTester`, in the shared `@IntegrationTest` annotation) |
 | Architecture | Module dependency rules | ArchUnit |
 | Evals (opt-in) | Real model calls on golden repos; tagged `@Tag("eval")`, excluded from `./mvnw verify`, run with `./mvnw verify -Pevals` | JUnit + `docs/RESULTS.md` |
 

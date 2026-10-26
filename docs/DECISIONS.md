@@ -68,3 +68,8 @@ Short records of important choices: context, decision, and what we gave up. Add 
 **Context:** D-005 runs embeddings in Ollama. The plan was to run it in Docker Compose. On an Apple Silicon Mac, Docker runs containers inside a Linux VM that cannot use the Apple GPU, so embeddings would run on CPU. The `ollama/ollama` arm64 image is also 2.8 GB compressed, which was a real problem on a nearly full disk.
 **Decision:** On macOS, install Ollama with Homebrew (about 55 MB) and run it as a background service on `localhost:11434`. It runs `nomic-embed-text` on the GPU (`ollama ps` shows `100% GPU`). The Ollama container stays in `docker-compose.yml` behind the `ollama` profile for Linux and CI, and Kubernetes (Phase 3) still runs it as a container. The app config does not change: both listen on the same port.
 **Trade-off:** One more thing installed outside Docker, so local setup is less "one command". Native and container versions can drift; the embedding model and its 768 dimensions are what matter, and both pull the same model.
+
+## D-014 Time-ordered UUIDs generated in Java (UUIDv7)
+**Context:** LLD §3.3 left a choice: database `gen_random_uuid()` or Hibernate `@UuidGenerator`. Random (v4) UUIDs land at random places in the primary-key B-tree, which spreads writes and splits pages as tables grow.
+**Decision:** Every entity uses `@UuidGenerator(style = VERSION_7)`. The id is created in Java before the insert, so a new entity has its id immediately (useful for logs, MDC and outbox events), and v7 ids start with a timestamp, so new rows go to the right edge of the index like a sequence would.
+**Trade-off:** Ids leak creation time (fine here). Rows inserted with plain SQL still get random v4 ids from the column default; both kinds work together.

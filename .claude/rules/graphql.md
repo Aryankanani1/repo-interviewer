@@ -13,4 +13,4 @@ paths:
 - Controllers map entities to view records. `QuestionView` never includes the rubric. Ideal answers appear only on `AnswerEvaluation`.
 - No LLM calls while resolving fields on read.
 - Pagination uses `ScrollSubrange` in, `Window<T>` out.
-- Tests: `@GraphQlTest` slices for controllers, `HttpGraphQlTester` for end-to-end. Assert on `errors[].code`, not on message text.
+- Tests: `@GraphQlTest` slices for controllers; `@IntegrationTest` + `GraphQlTester` for end-to-end (full GraphQL engine, no HTTP; `HttpGraphQlTester` would need spring-webflux). Assert on `errors[].code`, not on message text.

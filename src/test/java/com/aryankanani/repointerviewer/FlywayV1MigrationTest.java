@@ -5,20 +5,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.ActiveProfiles;
 
 /**
  * Task 0.3 acceptance test: Flyway applied V1__init.sql to a real pgvector Postgres.
- *
- * <p>Same annotations as {@link RepoInterviewerApplicationTests}, so Spring reuses the cached
- * application context (and the same container) instead of starting a second one.
+ * Uses the shared {@link IntegrationTest} context and container.
  */
-@SpringBootTest
-@ActiveProfiles("test")
-@Import(TestcontainersConfiguration.class)
+@IntegrationTest
 class FlywayV1MigrationTest {
 
 	private static final List<String> V1_TABLES = List.of(
