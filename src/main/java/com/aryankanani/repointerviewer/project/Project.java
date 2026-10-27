@@ -10,17 +10,21 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import java.time.Instant;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.UpdateTimestamp;
 import org.hibernate.annotations.UuidGenerator;
+import org.hibernate.type.SqlTypes;
 
 /**
  * One analyzed GitHub repository at one commit (table {@code project}).
  *
- * <p>Column names come from the field names (camelCase to snake_case). {@code summary} and
- * {@code repo_map} are not mapped yet (task 1.9); {@code ddl-auto=validate} only checks mapped columns.
- * No setters: status changes will go through {@code transitionTo} (task 1.9).
+ * <p>Column names come from the field names (camelCase to snake_case). No setters: every change is a named
+ * step of the analysis ({@link #startAnalysis}, {@link #recordIndex}, {@link #complete}, {@link #fail},
+ * {@link #reanalyze}), and each goes through {@link #transitionTo}, the only way to change the status.
  */
 @Entity
 @Table(name = "project")
@@ -53,6 +57,16 @@ public class Project {
 
 	private String targetRole;
 
+	/** The arrows of the state machine in docs/LLD.md §3.2. Anything else is a bug. */
+	private static final Map<AnalysisStatus, Set<AnalysisStatus>> ALLOWED = Map.of(
+			AnalysisStatus.SUBMITTED, Set.of(AnalysisStatus.CLONING),
+			AnalysisStatus.CLONING, Set.of(AnalysisStatus.PARSING, AnalysisStatus.FAILED),
+			AnalysisStatus.PARSING, Set.of(AnalysisStatus.EMBEDDING, AnalysisStatus.FAILED),
+			AnalysisStatus.EMBEDDING, Set.of(AnalysisStatus.SUMMARIZING, AnalysisStatus.FAILED),
+			AnalysisStatus.SUMMARIZING, Set.of(AnalysisStatus.READY, AnalysisStatus.FAILED),
+			AnalysisStatus.READY, Set.of(),
+			AnalysisStatus.FAILED, Set.of(AnalysisStatus.SUBMITTED));
+
 	// Repository statistics: NULL until PARSING finishes, so wrapper types, not int.
 	private Integer fileCount;
 
@@ -63,6 +77,13 @@ public class Project {
 	private Integer chunkCount;
 
 	private String primaryLanguage;
+
+	/** The architecture summary, a JSON document in a JSONB column. Null until READY. */
+	@JdbcTypeCode(SqlTypes.JSON)
+	private RepoSummary summary;
+
+	/** The token-budgeted outline used in prompts (LLD §6.9). Null until PARSING finishes. */
+	private String repoMap;
 
 	private Instant analysisStartedAt;
 
@@ -95,6 +116,64 @@ public class Project {
 		this.goal = command.goal();
 		this.domain = command.domain();
 		this.targetRole = command.targetRole();
+	}
+
+	/**
+	 * The only way to change the status: allowed only along an arrow of the state machine.
+	 *
+	 * @throws IllegalStateTransitionException for any other change
+	 */
+	void transitionTo(AnalysisStatus next) {
+		if (!ALLOWED.get(status).contains(next)) {
+			throw new IllegalStateTransitionException(id, status, next);
+		}
+		status = next;
+	}
+
+	/** SUBMITTED → CLONING. Clears what an earlier analysis left, so a rerun starts clean. */
+	void startAnalysis() {
+		transitionTo(AnalysisStatus.CLONING);
+		analysisStartedAt = Instant.now();
+		analysisCompletedAt = null;
+		failureReason = null;
+		fileCount = null;
+		javaFileCount = null;
+		totalLines = null;
+		chunkCount = null;
+		primaryLanguage = null;
+		summary = null;
+		repoMap = null;
+	}
+
+	/** PARSING → EMBEDDING, with what PARSING found. */
+	void recordIndex(int fileCount, int javaFileCount, int totalLines, int chunkCount, String primaryLanguage,
+			String repoMap) {
+		transitionTo(AnalysisStatus.EMBEDDING);
+		this.fileCount = fileCount;
+		this.javaFileCount = javaFileCount;
+		this.totalLines = totalLines;
+		this.chunkCount = chunkCount;
+		this.primaryLanguage = primaryLanguage;
+		this.repoMap = repoMap;
+	}
+
+	/** SUMMARIZING → READY. */
+	void complete(RepoSummary summary) {
+		transitionTo(AnalysisStatus.READY);
+		this.summary = summary;
+		this.analysisCompletedAt = Instant.now();
+	}
+
+	/** Any running stage → FAILED. The reason is shown to the user, so it must be safe and readable. */
+	void fail(String reason) {
+		transitionTo(AnalysisStatus.FAILED);
+		this.failureReason = reason;
+	}
+
+	/** FAILED → SUBMITTED ({@code reanalyzeProject}). */
+	void reanalyze() {
+		transitionTo(AnalysisStatus.SUBMITTED);
+		this.failureReason = null;
 	}
 
 	public UUID getId() {
@@ -159,6 +238,14 @@ public class Project {
 
 	public String getPrimaryLanguage() {
 		return primaryLanguage;
+	}
+
+	public RepoSummary getSummary() {
+		return summary;
+	}
+
+	public String getRepoMap() {
+		return repoMap;
 	}
 
 	public Instant getAnalysisStartedAt() {

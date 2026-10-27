@@ -94,6 +94,14 @@ public class ChunkStore {
 				row.getInt("token_estimate"), row.getDouble("similarity")), query, projectId, query, limit);
 	}
 
+	/** The symbols of the project's TYPE_HEADER chunks: every parsed type, nested ones as {@code Order.Status}. */
+	public List<String> typeSymbols(UUID projectId) {
+		return jdbc.queryForList("""
+				SELECT DISTINCT symbol FROM code_chunk
+				WHERE project_id = ? AND chunk_type = 'TYPE_HEADER'
+				""", String.class, projectId);
+	}
+
 	/** {@code [0.12,-0.03,...]}, the text form pgvector reads. */
 	static String toVectorLiteral(float[] vector) {
 		StringBuilder text = new StringBuilder(vector.length * 12).append('[');

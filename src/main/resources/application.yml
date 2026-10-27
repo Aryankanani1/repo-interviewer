@@ -70,6 +70,9 @@ management:
         enabled: true
 
 logging:
+  pattern:
+    # Adds the MDC ids (set by AnalysisJob, later by the interview code) after the level: "INFO 0192f0...".
+    level: "%5p %X{projectId:-}%X{sessionId:-}"
   level:
     com.aryankanani.repointerviewer: INFO
 

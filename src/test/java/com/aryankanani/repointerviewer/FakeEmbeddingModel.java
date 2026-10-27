@@ -51,6 +51,12 @@ public class FakeEmbeddingModel implements EmbeddingModel {
 		this.dimensions = dimensions;
 	}
 
+	/** Back to a working model with no calls counted. The bean is shared by all integration tests. */
+	public void reset() {
+		calls.set(0);
+		failOnCall = 0;
+	}
+
 	/** Makes call number {@code callNumber} (1-based) throw, like Ollama going down halfway. */
 	public void failOnCall(int callNumber) {
 		this.failOnCall = callNumber;

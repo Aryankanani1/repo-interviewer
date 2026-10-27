@@ -60,6 +60,8 @@ ri
 │   ├── BudgetExceededException, LlmUnavailableException, LlmOutputException   # DomainException subclasses
 │   └── output/                     # records the model must return (structured output), LlmOutput
 ├── codebase/               # files, chunks, embeddings, repo map, retrieval
+│   ├── CodebaseIndexer, IndexResult, SummarySources   # the PARSING stage as one call (task 1.9)
+│   ├── CodebaseQueries     # read-only lookups for other modules (known names, ...)
 │   ├── fetch/              # RepoFetcher, JGitRepoFetcher, LocalDirectoryRepoFetcher (tests),
 │   │                       # GithubUrl (value object: parse + normalize + validate), RemoteHead,
 │   │                       # ClonedRepo, FileTrees
@@ -72,9 +74,11 @@ ri
 │   ├── map/                # RepoMapBuilder, JavaOutline, RepoFile
 │   └── retrieve/           # Retriever, RetrievedContext
 ├── project/                # project aggregate + analysis orchestration
-│   ├── Project.java, ProjectRepository.java, ProjectService.java
+│   ├── Project.java, ProjectRepository.java, ProjectService.java (submit, reanalyze)
+│   ├── RepoSummary.java            # the stored summary (JSONB), with ModuleSummary
 │   ├── AnalysisPipeline.java       # interface (port)
 │   ├── InProcessAnalysisPipeline.java   # Phase 1 implementation
+│   ├── AnalysisJob.java, SummaryValidator.java
 │   └── StaleAnalysisRecovery.java
 ├── interview/              # sessions, topics, questions, answers, scoring, report
 │   ├── InterviewService.java       # use cases: start, submitAnswer, end
@@ -131,7 +135,7 @@ stateDiagram-v2
     READY --> [*]
 ```
 
-`Project.transitionTo(next)` is the only way to change status. It throws `IllegalStateTransitionException` for anything not drawn above.
+`Project.transitionTo(next)` is the only way to change status. It throws `IllegalStateTransitionException` (an `IllegalStateException`: always a bug, never a user error) for anything not drawn above. The analysis uses named steps that call it (task 1.9): `startAnalysis()` (SUBMITTED → CLONING; sets `analysis_started_at` and clears the results of an earlier run), `recordIndex(...)` (PARSING → EMBEDDING with the stats and repo map), `complete(summary)` (SUMMARIZING → READY), `fail(reason)` (any running stage → FAILED) and `reanalyze()` (FAILED → SUBMITTED). `ProjectTest` checks all 49 (from, to) pairs.
 
 ```mermaid
 stateDiagram-v2
@@ -247,17 +251,23 @@ Phase 2: `KafkaAnalysisPipeline` writes an outbox event instead. `ProjectService
 
 ### 6.3 `AnalysisJob.run(projectId)` stages
 
-Each stage: `transitionTo(stage)` in its own short transaction → do the work **outside** any transaction → persist results in a short transaction. Any exception → `FAILED` with a user-safe reason; the full error is logged.
+Each stage: change the status in its own short transaction → do the work **outside** any transaction → persist results in a short transaction. The job only starts a project that is still `SUBMITTED` (`startAnalysis()` in one transaction; an `OptimisticLockingFailureException` there means another job got it first). Any exception → `FAILED` with a user-safe reason; the full error is logged with `projectId` in the MDC.
 
 | Stage | Work | Output |
 |---|---|---|
-| CLONING | `RepoFetcher.cloneShallow(url, head, workDir)` | `ClonedRepo` (temp directory + actual commit) |
-| PARSING | `FileScanner.scan` → `FileClassifier.classify` → `SecretRedactor.redact` (whole file) → `JavaChunker` / `TextChunker` → save files and chunks (no embeddings yet) → `RepoMapBuilder.build` → save stats and repo map | rows in `code_file`, `code_chunk` |
+| CLONING | `RepoFetcher.cloneShallow(url, head, app.repo.work-dir)`. If the clone's commit differs from the submitted one (the branch moved), FAILED with "The repository changed since you submitted it. Submit it again to analyze the latest commit." | `ClonedRepo` |
+| PARSING | `CodebaseIndexer.index(projectId, dir)`: `FileScanner.scan` → `SecretRedactor.redact` (whole file) → `JavaChunker` / `TextChunker` → `FileClassifier.classify` in memory; then one transaction that deletes the project's earlier `code_file` rows (chunks cascade) and saves files and chunks (no embeddings); then `RepoMapBuilder.build`. Then `recordIndex(...)` → EMBEDDING. **The clone is deleted here**: later stages work from the database. | `code_file`, `code_chunk`, stats, `repo_map`; `IndexResult` |
 | EMBEDDING | `EmbeddingService.embedPending(projectId)` in batches | `code_chunk.embedding` filled |
-| SUMMARIZING | `LlmGateway` SUMMARY call → `SummaryValidator` removes unknown class names | `project.summary` |
-| READY | set `analysis_completed_at` | |
+| SUMMARIZING | `LlmGateway` SUMMARY call (repoName, goal, domain, repoMap, buildFiles, readme) → `SummaryValidator` | `project.summary` (JSONB `RepoSummary`) |
+| READY | `complete(summary)` sets `analysis_completed_at` | |
 
-Always delete the temp directory: open the `ClonedRepo` with try-with-resources; its `close()` deletes it.
+- `CodebaseIndexer` is the `codebase` module's entry point: `project` may not use the `CodeFile` entity, so it gets plain numbers and text back (`IndexResult`). `CodebaseQueries` answers read-only questions (here `knownNames`). Files are saved with `saveAllAndFlush` before the chunks: the chunk inserts are plain JDBC with a foreign key to `code_file`, and Hibernate would otherwise hold its INSERTs until commit.
+- Stats: `fileCount` (kept files), `javaFileCount`, `totalLines`, `chunkCount`, `primaryLanguage` = the programming language with the most lines (doc and config formats and build scripts ignored). A repository without `.java` files already fails in the scanner (`UNSUPPORTED_LANGUAGE`).
+- Summary inputs (`SummarySources`, from redacted text): `buildFiles` = the `<parent>` and `<dependency>` coordinates of each `pom.xml` and the dependency lines of `build.gradle(.kts)`, as `- group:artifact` lines (`(test)` for test scope), at most 100; `readme` = the first 150 lines of the README closest to the root. They are handed from PARSING to SUMMARIZING **in memory**, which works because Phase 1 runs all stages in one job. Phase 2 (task 2.3) splits the stages across consumers and must store them or rebuild them from the chunks.
+- `SummaryValidator`: `modules[].keyClasses` keep only names from `CodebaseQueries.knownNames` (type symbols like `Order.Status` and their last part, file names, Java file names without `.java`); a `notablePatterns` / `riskAreas` item is kept only if it names at least one of them (`OrderService#refund` counts as `OrderService`). Framework names in the same sentence may stay.
+- Failure reasons: a `DomainException` message (repository not found or too large, no Java files, model unavailable, budget) or the branch-moved message is shown as is; anything else becomes "Analysis failed while <cloning the repository | reading the code | indexing the code for search | summarizing the architecture>. Use reanalyzeProject to retry."
+- `reanalyzeProject` (`ProjectService.reanalyze`): FAILED → SUBMITTED and the pipeline starts after commit (same `ProjectSubmittedEvent`); any other status is returned unchanged; unknown id → `NOT_FOUND`.
+- `InProcessAnalysisPipeline` owns a virtual-thread executor; `start` returns at once, and a `ConcurrentHashMap` of running jobs ignores a second start of the same project. On shutdown it interrupts running jobs (`shutdownNow`); `StaleAnalysisRecovery` fails them on a later start.
 
 ### 6.4 `RepoFetcher`
 
@@ -269,7 +279,7 @@ public interface RepoFetcher {
 public record ClonedRepo(Path directory, String commitSha) implements AutoCloseable {}  // close() deletes directory
 ```
 - `JGitRepoFetcher`: `Git.cloneRepository().setURI(url.cloneUri()).setDepth(1).setBranch(defaultBranch).setBranchesToClone(that branch only).setNoTags()`, submodules off, into a new `clone-*` directory under `parentDir`. It takes the whole `RemoteHead` because the clone needs the branch, not only the sha (task 1.3 changed the signature for this).
-- `ClonedRepo.commitSha` is the commit actually checked out. If it differs from `head.commitSha()`, the branch moved since submit; the caller records the actual sha (task 1.9).
+- `ClonedRepo.commitSha` is the commit actually checked out. If it differs from `head.commitSha()`, the branch moved since submit, and the analysis fails asking for a new submit (task 1.9). Recording the new commit instead could collide with another project at that commit (unique `github_url, commit_sha`).
 - Timeout: JGit's `setTimeout` only limits a single socket read, so `app.repo.clone-timeout` is enforced as a deadline for the whole clone by a `ProgressMonitor` whose `isCancelled()` turns true when time is up. JGit asks it repeatedly while downloading and checking out.
 - Size: after the clone, the working tree (regular files, without `.git`, symlinks not followed) must be at most `app.repo.max-repo-bytes`. A huge repository is still downloaded until the deadline; the deadline is what caps the download.
 - Errors: over the size limit or past the deadline → `REPO_TOO_LARGE`; any other clone failure (deleted or made private since submit, network) → `REPO_NOT_FOUND`. The partial directory is deleted before throwing. On success the caller owns the directory.
@@ -372,10 +382,10 @@ Layout: folders sorted by path (`./` for the root), files sorted by name inside.
 
 **Budget:** when the map does not fit, roles are shrunk one at a time, least important first: DOC, TEST, OTHER, DTO, MIGRATION, BUILD, REPOSITORY, CONFIG, MESSAGING, SECURITY, ENTITY, SERVICE, CONTROLLER. Each role in two steps, checking the size after each: first **names only** (type lines stay, member lines go, so the paths stay visible to the planner), then **count** (its files in each folder become one line, `  12 more DTO files`). If even the all-counts map is too big, the last lines are cut and `... (repo map truncated)` is added, so the result is always within budget. Size is `TokenEstimator` (`ceil(chars / 4)`).
 
-Build files (`pom.xml` dependencies only) and the README (first 150 lines) are not part of the map; they are passed to the summary prompt separately (task 1.9).
+Build files (dependencies only) and the README (first 150 lines) are not part of the map; `SummarySources` prepares them for the summary prompt separately (§6.3).
 
 ### 6.10 StaleAnalysisRecovery
-On `ApplicationReadyEvent`: projects in `CLONING`, `PARSING`, `EMBEDDING` or `SUMMARIZING` whose `updated_at` is older than 15 minutes → `FAILED` with reason "Analysis was interrupted. Use reanalyzeProject to retry."
+On `ApplicationReadyEvent`: projects in `CLONING`, `PARSING`, `EMBEDDING` or `SUMMARIZING` whose `updated_at` is older than `app.analysis.stale-after` (15 minutes) → `FAILED` with reason "Analysis was interrupted. Use reanalyzeProject to retry." One native bulk `UPDATE` (`ProjectRepository.failStale`), which sets `updated_at` and bumps `version` itself because it bypasses Hibernate. Only stale rows, not all running ones: with several instances (Phase 3) another one may still be working. A long EMBEDDING stage does not touch `updated_at`; Phase 2/3 need a heartbeat before this runs while other instances work.
 
 ## 7. Retrieval
 

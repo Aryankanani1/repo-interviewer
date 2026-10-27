@@ -2,6 +2,7 @@ package com.aryankanani.repointerviewer.api.graphql;
 
 import com.aryankanani.repointerviewer.project.AnalysisStatus;
 import com.aryankanani.repointerviewer.project.Project;
+import com.aryankanani.repointerviewer.project.RepoSummary;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -10,7 +11,8 @@ import java.util.UUID;
 /**
  * GraphQL type {@code Project}. Component names match schema field names, so Spring for GraphQL
  * resolves {@code githubUrl}, {@code status}, ... from the record accessors with no extra code.
- * Fields with their own resolvers ({@code files}, {@code sessions}, {@code summary}) come in later tasks.
+ * {@code summary} is the stored {@link RepoSummary} record, whose field names match the GraphQL types. Fields with
+ * their own resolvers ({@code files}, {@code sessions}) come in later tasks.
  */
 record ProjectView(
 		UUID id,
@@ -21,6 +23,7 @@ record ProjectView(
 		String failureReason,
 		Context context,
 		Stats stats,
+		RepoSummary summary,
 		OffsetDateTime createdAt,
 		OffsetDateTime updatedAt) {
 
@@ -34,6 +37,7 @@ record ProjectView(
 				project.getFailureReason(),
 				new Context(project.getGoal(), project.getDomain(), project.getTargetRole()),
 				Stats.from(project),
+				project.getSummary(),
 				toUtc(project.getCreatedAt()),
 				toUtc(project.getUpdatedAt()));
 	}

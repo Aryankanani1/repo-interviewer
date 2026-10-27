@@ -14,7 +14,8 @@ import org.springframework.graphql.data.query.ScrollSubrange;
 import org.springframework.stereotype.Controller;
 
 /**
- * Resolvers for {@code Query.project}, {@code Query.projects} and {@code Mutation.submitProject}
+ * Resolvers for {@code Query.project}, {@code Query.projects}, {@code Mutation.submitProject} and
+ * {@code Mutation.reanalyzeProject}
  * (schema-first: the method name is the field name). Maps entities to views; no business logic here.
  */
 @Controller
@@ -57,6 +58,17 @@ class ProjectController {
 		var command = new SubmitProjectCommand(input.githubUrl(), input.goal(), input.domain(), input.targetRole());
 		try {
 			return SubmitProjectPayload.success(ProjectView.from(projectService.submit(command)));
+		}
+		catch (DomainException ex) {
+			return SubmitProjectPayload.failure(UserErrorMapper.toUserError(ex));
+		}
+	}
+
+	/** {@code reanalyzeProject(input): SubmitProjectPayload!}. Retries a FAILED analysis. */
+	@MutationMapping
+	SubmitProjectPayload reanalyzeProject(@Argument ReanalyzeProjectInput input) {
+		try {
+			return SubmitProjectPayload.success(ProjectView.from(projectService.reanalyze(input.projectId())));
 		}
 		catch (DomainException ex) {
 			return SubmitProjectPayload.failure(UserErrorMapper.toUserError(ex));

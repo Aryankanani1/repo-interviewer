@@ -54,9 +54,12 @@ public class LocalDirectoryRepoFetcher implements RepoFetcher {
 
 	private final Set<String> missing = ConcurrentHashMap.newKeySet();
 
+	private final Map<String, String> clonedCommits = new ConcurrentHashMap<>();
+
 	public void reset() {
 		heads.clear();
 		missing.clear();
+		clonedCommits.clear();
 	}
 
 	/** @param fullName for example {@code acme/shop} */
@@ -66,6 +69,11 @@ public class LocalDirectoryRepoFetcher implements RepoFetcher {
 
 	public void markMissing(String fullName) {
 		missing.add(fullName);
+	}
+
+	/** The clone reports this commit instead of the requested one, like a branch that moved after submit. */
+	public void setClonedCommit(String fullName, String commitSha) {
+		clonedCommits.put(fullName, commitSha);
 	}
 
 	@Override
@@ -81,7 +89,7 @@ public class LocalDirectoryRepoFetcher implements RepoFetcher {
 			Files.createDirectories(parentDir);
 			Path directory = Files.createTempDirectory(parentDir, "clone-");
 			copyTree(fixtureRoot(), directory);
-			return new ClonedRepo(directory, head.commitSha());
+			return new ClonedRepo(directory, clonedCommits.getOrDefault(url.fullName(), head.commitSha()));
 		}
 		catch (IOException ex) {
 			throw new UncheckedIOException(ex);

@@ -3,10 +3,13 @@ package com.aryankanani.repointerviewer.project;
 import com.aryankanani.repointerviewer.codebase.fetch.GithubUrl;
 import com.aryankanani.repointerviewer.codebase.fetch.RemoteHead;
 import com.aryankanani.repointerviewer.codebase.fetch.RepoFetcher;
+import com.aryankanani.repointerviewer.common.error.DomainException;
+import com.aryankanani.repointerviewer.common.error.ErrorCode;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.ScrollPosition;
 import org.springframework.data.domain.Window;
@@ -73,6 +76,31 @@ public class ProjectService {
 			return transaction.execute(status -> projectRepository
 					.findByGithubUrlAndCommitSha(url.normalized(), head.commitSha())
 					.orElseThrow(() -> ex));
+		}
+	}
+
+	/**
+	 * {@code reanalyzeProject}: a FAILED project goes back to SUBMITTED and its analysis starts again after the
+	 * commit, from the clone onwards. A project in any other status is returned unchanged: it is running, done,
+	 * or already queued.
+	 *
+	 * @throws DomainException NOT_FOUND
+	 */
+	public Project reanalyze(UUID projectId) {
+		try {
+			return transaction.execute(status -> {
+				Project project = projectRepository.findById(projectId).orElseThrow(
+						() -> new DomainException(ErrorCode.NOT_FOUND, "Project not found.", "projectId"));
+				if (project.getStatus() == AnalysisStatus.FAILED) {
+					project.reanalyze();
+					events.publishEvent(new ProjectSubmittedEvent(project.getId()));
+				}
+				return project;
+			});
+		}
+		catch (OptimisticLockingFailureException ex) {
+			// Two reanalyze calls at once: the other one won (@Version). Return what it committed.
+			return projectRepository.findById(projectId).orElseThrow(() -> ex);
 		}
 	}
 
