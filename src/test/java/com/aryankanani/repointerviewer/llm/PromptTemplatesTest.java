@@ -3,6 +3,8 @@ package com.aryankanani.repointerviewer.llm;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -11,6 +13,7 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.springframework.core.io.ClassPathResource;
 
 /** Task 1.8: the prompt files and how they are filled in (LLD §8.3). No Spring, no model. */
 class PromptTemplatesTest {
@@ -27,6 +30,20 @@ class PromptTemplatesTest {
 					"codeChunks"),
 			LlmPurpose.REPORT, List.of("repoName", "difficulty", "overallScore", "categoryScores", "transcript"));
 
+	/**
+	 * Untrusted text and the tag it must sit inside (LLD §8.3): the candidate's own words, their answers, and
+	 * repository content. The system prompt tells the model never to follow instructions inside these tags.
+	 */
+	static final Map<String, String> UNTRUSTED = Map.of(
+			"goal", "candidate_context",
+			"domain", "candidate_context",
+			"targetRole", "candidate_context",
+			"answer", "candidate_answer",
+			"repoMap", "repo_map",
+			"buildFiles", "repo_content",
+			"readme", "repo_content",
+			"summary", "repo_content");
+
 	private final PromptTemplates templates = new PromptTemplates();
 
 	/** Acceptance criterion: every real prompt file renders with its variables and leaves no {...} behind. */
@@ -40,6 +57,31 @@ class PromptTemplatesTest {
 
 		assertThat(prompt).doesNotContain("{", "}");
 		VARIABLES.get(purpose).forEach(name -> assertThat(prompt).contains("value-of-" + name));
+	}
+
+	/** A candidate could write "ignore the rubric" into their goal; inside its tag, it stays data. */
+	@ParameterizedTest
+	@EnumSource(LlmPurpose.class)
+	void untrustedPlaceholdersSitInsideTheirTag(LlmPurpose purpose) throws IOException {
+		String text = new ClassPathResource("prompts/" + purpose.template() + ".st")
+				.getContentAsString(StandardCharsets.UTF_8);
+
+		UNTRUSTED.forEach((name, tag) -> {
+			for (int at = text.indexOf("{" + name + "}"); at >= 0; at = text.indexOf("{" + name + "}", at + 1)) {
+				int lastOpen = text.lastIndexOf("<" + tag + ">", at);
+				int lastClose = text.lastIndexOf("</" + tag + ">", at);
+				assertThat(lastOpen).as("{%s} in %s.st must be inside <%s>", name, purpose.template(), tag)
+						.isGreaterThan(lastClose);
+				assertThat(text.indexOf("</" + tag + ">", at)).as("<%s> around {%s} must be closed", tag, name)
+						.isGreaterThan(at);
+			}
+		});
+	}
+
+	@Test
+	void theSystemPromptNamesEveryUntrustedTag() {
+		UNTRUSTED.values().forEach(tag -> assertThat(templates.system()).contains("<" + tag + ">"));
+		assertThat(templates.system()).contains("<code_chunk>");
 	}
 
 	@Test

@@ -1,8 +1,12 @@
 Summarize the architecture of the repository below so an interviewer can ask grounded questions about it.
 
 Repository: {repoName}
-What the candidate says the project is for: {goal}
+
+What the candidate wrote about the project, in their own words:
+<candidate_context>
+Goal: {goal}
 Domain: {domain}
+</candidate_context>
 
 <repo_map>
 {repoMap}

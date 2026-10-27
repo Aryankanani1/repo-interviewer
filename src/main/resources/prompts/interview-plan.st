@@ -1,10 +1,14 @@
 Plan a technical interview about this codebase.
 
 Candidate level: {difficulty}
-Target role: {targetRole}
 Number of main questions: {questionCount}
 Requested focus areas (empty means balanced): {focusAreas}
-What the candidate says the project is for: {goal}
+
+What the candidate wrote about themselves and the project, in their own words:
+<candidate_context>
+Target role: {targetRole}
+Goal: {goal}
+</candidate_context>
 
 Architecture summary:
 <repo_content>
