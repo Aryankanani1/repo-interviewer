@@ -37,7 +37,7 @@ Checked on start.spring.io, Maven Central, and the Spring AI autoconfigure jars.
 
 Boot 4 artifact names that differ from Boot 3: `spring-boot-starter-webmvc` (not `-web`), `spring-boot-starter-flyway` (plus `flyway-database-postgresql`), and one test starter per module (`spring-boot-starter-graphql-test`, `-data-jpa-test`, ...). Testcontainers 2 uses `testcontainers-postgresql` and the class `org.testcontainers.postgresql.PostgreSQLContainer`.
 
-Spring AI 2.0.2 property names used in `application.yml` were checked against the jars' configuration metadata: `spring.ai.model.chat`, `spring.ai.model.embedding`, `spring.ai.anthropic.api-key`, `spring.ai.anthropic.chat.options.model|max-tokens`, `spring.ai.ollama.base-url`, `spring.ai.ollama.embedding.options.model`, `spring.ai.retry.max-attempts`.
+Spring AI 2.0.2 property names used in `application.yml` were checked against the jars' configuration metadata (tasks 0.1 and 1.8): `spring.ai.model.chat`, `spring.ai.model.embedding`, `spring.ai.anthropic.api-key`, `spring.ai.anthropic.max-retries`, `spring.ai.anthropic.chat.model|max-tokens`, `spring.ai.ollama.base-url`, `spring.ai.ollama.embedding.model`, `spring.ai.retry.max-attempts` (Ollama only). The `chat.options.*` and `embedding.options.*` forms are deprecated in 2.0.2. The Anthropic client is the official Anthropic Java SDK underneath, with its own retries (`max-retries`) and timeout.
 
 Base package: `com.aryankanani.repointerviewer` (shortened to `ri` below).
 
@@ -52,12 +52,13 @@ ri
 │   ├── error/              # DomainException, ErrorCode (mirrors GraphQL enum)
 │   └── config/             # AppProperties (@ConfigurationProperties "app")
 ├── llm/                    # the ONLY way to call a chat model
-│   ├── LlmGateway.java             # interface
+│   ├── LlmGateway.java             # interface; LlmRequest, LlmPurpose (purpose → template)
 │   ├── SpringAiLlmGateway.java     # Spring AI ChatClient implementation
-│   ├── PromptTemplates.java        # loads prompts/*.st, computes prompt_version
+│   ├── PromptTemplates.java        # loads and checks prompts/*.st, computes prompt_version
 │   ├── LlmBudget.java              # per-session and per-day caps
-│   ├── LlmCallLedger.java          # writes llm_call rows
-│   └── output/                     # records the model must return (structured output)
+│   ├── LlmCallLedger.java          # writes llm_call rows (LlmCall entity, LlmCallRepository)
+│   ├── BudgetExceededException, LlmUnavailableException, LlmOutputException   # DomainException subclasses
+│   └── output/                     # records the model must return (structured output), LlmOutput
 ├── codebase/               # files, chunks, embeddings, repo map, retrieval
 │   ├── fetch/              # RepoFetcher, JGitRepoFetcher, LocalDirectoryRepoFetcher (tests),
 │   │                       # GithubUrl (value object: parse + normalize + validate), RemoteHead,
@@ -110,7 +111,7 @@ All of the above are checked by `ArchitectureTest` on the compiled main classes.
 ## 3. Domain model
 
 ### 3.1 Enums (Java mirrors the GraphQL enums one-to-one)
-`AnalysisStatus`, `FileRole`, `ChunkType` (`TYPE_HEADER, METHOD, CONFIG, DOC, SQL, TEXT`), `SessionStatus`, `Difficulty`, `QuestionCategory`, `TopicStatus` (`PENDING, ASKED, DONE, SKIPPED`), `QuestionStatus` (`PREPARED, ASKED, ANSWERED, SKIPPED`), `AnswerVerdict`, `LlmPurpose` (`SUMMARY, PLAN, QUESTION, FOLLOW_UP, EVALUATION, REPORT`), `ErrorCode`.
+`AnalysisStatus`, `FileRole`, `ChunkType` (`TYPE_HEADER, METHOD, CONFIG, DOC, SQL, TEXT`), `SessionStatus`, `Difficulty`, `QuestionCategory` (in `common`: `llm.output.PlannedTopic` and `interview` both use it, task 1.8), `TopicStatus` (`PENDING, ASKED, DONE, SKIPPED`), `QuestionStatus` (`PREPARED, ASKED, ANSWERED, SKIPPED`), `AnswerVerdict`, `LlmPurpose` (`SUMMARY, PLAN, QUESTION, FOLLOW_UP, EVALUATION, REPORT`), `ErrorCode`.
 
 ### 3.2 State machines
 
@@ -414,28 +415,34 @@ Algorithm:
 
 ```java
 public interface LlmGateway {
-    <T> T call(LlmRequest<T> request);   // throws LlmUnavailableException, LlmOutputException, BudgetExceededException
+    <T extends LlmOutput<T>> T call(LlmRequest<T> request);
+    // throws BudgetExceededException, LlmUnavailableException, LlmOutputException (all DomainException)
 }
 
-public record LlmRequest<T>(
-        LlmPurpose purpose,
-        String template,                 // e.g. "question-generation"
-        Map<String, Object> variables,
+public record LlmRequest<T extends LlmOutput<T>>(
+        LlmPurpose purpose,              // SUMMARY → repo-summary.st, PLAN → interview-plan.st, ...
+        Map<String, Object> variables,   // must match the template's placeholders exactly; null values allowed
         Class<T> outputType,             // a record from llm.output
         UUID projectId,                  // nullable
-        UUID sessionId) {}               // nullable
+        UUID sessionId) {}               // nullable; when set, the call counts against that session's budget
 ```
+The template comes from the purpose (`LlmPurpose.template()`), so the two can never disagree (task 1.8 removed the separate `template` field).
 
-`SpringAiLlmGateway.call`:
-1. `LlmBudget.reserve(sessionId)`: checks `interview_session.llm_call_count < max-calls-per-session` (atomic `UPDATE ... SET llm_call_count = llm_call_count + 1 WHERE id = ? AND llm_call_count < ?`) and the daily count from `llm_call`. Fails with `BUDGET_EXCEEDED`.
-2. Render `system-interviewer.st` and the purpose template with `PromptTemplate`. Placeholders use `{name}`. **Prompt files must not contain any other `{` or `}`**; StringTemplate treats them as delimiters.
-3. Model = `app.llm.models.<purpose>`. Max tokens per purpose from config.
-4. Call Spring AI `ChatClient` with structured output for `outputType` (in 1.x the shape is `.call().responseEntity(Class)`, which returns both the `ChatResponse` metadata and the entity; confirm the 2.0 equivalent). Usage metadata gives input/output tokens.
-5. Retries: Spring AI retry for transport errors (`spring.ai.retry.*`). For a parse or validation failure: one more attempt with the error appended ("Your previous output failed validation: ..."). Spring AI 2.0 has built-in self-correcting structured output; prefer it if it fits.
-6. Always write an `llm_call` row in `finally` (success or failure), with `prompt_version = template + "@" + first 8 hex characters of sha256(template text)`, computed once at startup by `PromptTemplates`.
-7. Micrometer timer `ri.llm.call` with tags `purpose`, `model`, `outcome`.
+`SpringAiLlmGateway.call` (task 1.8):
+0. Inside a database transaction → `IllegalStateException`. The rule "never call the LLM inside a transaction" is enforced in code (`TransactionSynchronizationManager.isActualTransactionActive()`).
+1. Render `system-interviewer.st` and the purpose template (`PromptTemplates`, §8.3). Model = `app.llm.models.<purpose>`, max tokens = `app.llm.max-output-tokens.<purpose>`, timeout = `app.llm.timeout`.
+2. Per attempt (at most 2): `LlmBudget.reserve(sessionId)`. The daily cap counts today's `llm_call` rows (UTC day; soft: concurrent calls can overshoot by a few). The session cap is an atomic `UPDATE interview_session SET llm_call_count = llm_call_count + 1 WHERE id = ? AND llm_call_count < ?` (exact). Either fails with `BUDGET_EXCEEDED` before the model is called, and no ledger row is written. A failed attempt keeps its slot: it can cost tokens too.
+3. Call `ChatClient` with `.options(AnthropicChatOptions.builder().model(..).maxTokens(..).timeout(..).outputSchema(schema))`, where `schema` is `BeanOutputConverter(outputType).getJsonSchema()` (`additionalProperties: false`, every property required). This is Anthropic's **native structured output**: the API makes the reply match the schema. ChatClient merges these options into a copy of the model's default options (`getOptions().mutate().combineWith(..)`); with `AnthropicChatOptions` defaults the schema survives the merge (checked in `SpringAiLlmGatewayTest`).
+4. Read the reply with `converter.convert(text)` (our code, not `.entity()`), then `normalized()` (§8.2). Two failure kinds stay apart:
+   - The API failed after the Anthropic SDK's own retries (`spring.ai.anthropic.max-retries: 2`; network errors, 429, 5xx) → `LlmUnavailableException` (`LLM_UNAVAILABLE`). No second attempt here. Phase 2 retries it with backoff.
+   - The reply could not be read → one more attempt with `Your previous output failed validation: <first line of the error>` appended to the user message, then `LlmOutputException` (`LLM_UNAVAILABLE`). Phase 2 sends it straight to the DLT.
+   Spring AI's `validateSchema()` advisor was not used: it retries inside one call and reports one combined usage, so attempts would be invisible to the budget and the ledger.
+5. Every attempt, success or failure, writes one `llm_call` row: purpose, model, `prompt_version`, ids, input/output/cached tokens from `ChatResponse.getMetadata().getUsage()` (`getPromptTokens`, `getCompletionTokens`, `getCacheReadInputTokens`), latency, `success`, `error_type` (`OUTPUT_INVALID` or the exception's class name), `attempt`. `LlmCallLedger.record` never throws: if the insert fails it logs an error, and the caller still gets the call's real result.
+6. Micrometer timer `ri.llm.call` with tags `purpose`, `model`, `outcome` (`success`, `output_invalid`, `unavailable`). One INFO log line per attempt with the same numbers, never the prompt or the reply.
 
-`FakeLlmGateway` (test source set): returns canned records keyed by purpose. Tests can queue specific outputs, including invalid ones.
+**Hand-off to task 1.10:** the `InterviewSession` entity must map `llm_call_count` read-only (`@Column(insertable = false, updatable = false)`). Hibernate writes every mapped column on update, so a session loaded before a call and saved after it would otherwise overwrite the counter with its old value.
+
+`FakeLlmGateway` (test source set, `@Primary` in `TestDoublesConfiguration`): returns canned outputs about the fixture repository per purpose, normalized like the real gateway. Tests can queue specific outputs (including invalid ones) or failures, and read the recorded requests. `SpringAiLlmGateway`'s own tests use `StubChatModel` (a fake Claude whose default options are `AnthropicChatOptions`, so the options merge is the production one).
 
 ### 8.2 Structured outputs (`llm.output`)
 
@@ -462,7 +469,7 @@ public record ReportOutput(String summary, List<String> strengths, List<String> 
 public record ReviewTopicOutput(String topic, String why) {}
 ```
 
-After every call, normalize in code: null lists → empty, trim strings, clamp `score` to 0..10, cap list sizes.
+Every output record implements `LlmOutput<T>` with `normalized()`, applied by the gateway after every call: null text → empty, strings trimmed, null lists → empty, blank and null items dropped, a missing `rubric` → an empty one, `score` clamped to 0..10, list sizes capped at what the prompts ask for (modules 8, key classes 4, other summary lists 10, topics 8 with 5 paths/symbols each, code refs 3, mustMention 4, goodToMention 3, redFlags 3, outline 5, evaluation points 10, strengths 4, weaknesses 4, topics to review 5). Checks that need the database (do the paths and lines exist?) belong to the callers (`TopicValidator`, `CodeRefValidator`).
 
 ### 8.3 Prompt files (`src/main/resources/prompts/`)
 
@@ -476,7 +483,9 @@ After every call, normalize in code: null lists → empty, trim strings, clamp `
 | `follow-up-question.st` | FOLLOW_UP | difficulty, question, answer, missedPoints, followUpReason, codeChunks |
 | `session-report.st` | REPORT | repoName, difficulty, overallScore, categoryScores, transcript |
 
-Rendering rules: null values become `"(not provided)"`; lists render as `- item` lines; `summary` and `rubric` render as readable text, not JSON. **Candidate text is always placed inside `<candidate_answer>` tags**, including inside `transcript`.
+Rendering rules (`PromptTemplates`, task 1.8): at startup every file may contain only `{name}` placeholders (any other brace stops the app), and `system-interviewer.st` none. A render must pass exactly the template's placeholders: a missing or unknown variable is an `IllegalArgumentException` naming it. Null values and empty lists become `"(not provided)"`; lists render as `- item` lines; values are inserted as text, never parsed, so code with braces is safe. ChatClient only re-renders text as a template when it gets parameters, and the gateway passes none. `summary` and `rubric` render as readable text, not JSON (the callers format them). **Candidate text is always placed inside `<candidate_answer>` tags**, including inside `transcript`.
+
+`prompt_version` = template name + `@` + the first 8 hex characters of SHA-256 over the system prompt and the template together (`repo-summary@1a2b3c4d`), computed once at startup. Editing either file changes it.
 
 ## 9. Interview engine
 
@@ -563,7 +572,7 @@ Lives in `common.config`, registered by `@ConfigurationPropertiesScan` on the ap
 | Two generators for one topic | partial unique index on `question(topic_id)` |
 | Lost update on session pointer | `@Version` on `interview_session` |
 | Long DB locks during LLM calls | never call the LLM inside a transaction |
-| Budget race | atomic conditional `UPDATE` on `llm_call_count` |
+| Budget race | atomic conditional `UPDATE` on `llm_call_count` (exact per session); the daily cap is a soft count of today's `llm_call` rows |
 
 ## 12. Testing strategy
 
@@ -573,7 +582,7 @@ Lives in `common.config`, registered by `@ConfigurationPropertiesScan` on the ap
 | Slice | GraphQL controllers with mocked services; payload errors; `@BatchMapping` wiring | `@GraphQlTest`, `GraphQlTester` |
 | Integration | Full flow on the fixture repo: submit → READY → interview → report, with `FakeLlmGateway` + `FakeEmbeddingModel` + `LocalDirectoryRepoFetcher`; real Postgres with pgvector | `@SpringBootTest`, Testcontainers (`pgvector/pgvector:pg17`), `GraphQlTester` (via `@AutoConfigureGraphQlTester`, in the shared `@IntegrationTest` annotation) |
 | Architecture | Module dependency rules | ArchUnit |
-| Evals (opt-in) | Real model calls on golden repos; tagged `@Tag("eval")`, excluded from `./mvnw verify`, run with `./mvnw verify -Pevals` | JUnit + `docs/RESULTS.md` |
+| Evals (opt-in) | Real model calls on golden repos; tagged `@Tag("eval")`, excluded from `./mvnw verify` by Surefire `excludedGroups`, run alone with `./mvnw verify -Pevals` (profile in `pom.xml`, task 1.8) | JUnit + `docs/RESULTS.md` |
 
 Fixture repo: `src/test/resources/fixtures/sample-repo/`, a tiny Spring Boot order service (created in task 1.3): `OrderController`, `OrderService` (with `refund`), `Order` entity, `OrderRepository`, `RefundRequest` record, `ShopApplication`, `application.yml`, a Flyway migration, `pom.xml`, `README.md` and one test class. The fake secret is the hard-coded `spring.datasource.password`; `shop.payment.api-key: ${PAYMENT_API_KEY}` is the placeholder that must not be redacted. No realistic token formats (`ghp_`, `AKIA`, `sk-ant-`), because GitHub push protection may block them. Files that must be skipped (`target/`, `.env`, symlinks, binaries) are created by tests in the temp copy: `.gitignore` excludes `target/` and `.env*`, and Maven does not copy some dotfiles to `target/test-classes`.
 

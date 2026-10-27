@@ -23,6 +23,9 @@
 		<!-- Newest release; built against graphql-java 24.1 while Boot 4.1.2 manages 25.1. Task 1.1 verifies DateTime. -->
 		<graphql-java-extended-scalars.version>24.0</graphql-java-extended-scalars.version>
 		<archunit.version>1.5.1</archunit.version>
+		<!-- Tests tagged "eval" call the real model and cost money: skipped by default, run alone with -Pevals. -->
+		<test.groups></test.groups>
+		<test.excluded-groups>eval</test.excluded-groups>
 		<!-- ./mvnw spring-boot:run starts the dev environment; override with -Dspring-boot.run.profiles=stage.
 		     Only affects spring-boot:run: the built jar has no default environment (DECISIONS.md D-015). -->
 		<spring-boot.run.profiles>dev</spring-boot.run.profiles>
@@ -165,7 +168,26 @@
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
 			</plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-surefire-plugin</artifactId>
+				<configuration>
+					<groups>${test.groups}</groups>
+					<excludedGroups>${test.excluded-groups}</excludedGroups>
+				</configuration>
+			</plugin>
 		</plugins>
 	</build>
+
+	<profiles>
+		<!-- ./mvnw verify -Pevals: only the @Tag("eval") tests, with real model calls. Ask before running. -->
+		<profile>
+			<id>evals</id>
+			<properties>
+				<test.groups>eval</test.groups>
+				<test.excluded-groups></test.excluded-groups>
+			</properties>
+		</profile>
+	</profiles>
 
 </project>

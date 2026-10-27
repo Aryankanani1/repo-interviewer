@@ -6,7 +6,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 
 /**
- * Replaces ports that would reach the outside world (GitHub, the analysis pipeline, Ollama) in integration tests.
+ * Replaces ports that would reach the outside world (GitHub, the analysis pipeline, Ollama, Claude) in integration
+ * tests.
  * {@code @Primary} wins over the production bean of the same type. Part of {@link IntegrationTest}, so all
  * tests share these beans: reset them in {@code @BeforeEach}.
  */
@@ -30,6 +31,13 @@ public class TestDoublesConfiguration {
 	@Primary
 	FakeEmbeddingModel fakeEmbeddingModel() {
 		return new FakeEmbeddingModel();
+	}
+
+	/** Wins over SpringAiLlmGateway, which is created but never called (its own tests build one by hand). */
+	@Bean
+	@Primary
+	FakeLlmGateway fakeLlmGateway() {
+		return new FakeLlmGateway();
 	}
 
 }
