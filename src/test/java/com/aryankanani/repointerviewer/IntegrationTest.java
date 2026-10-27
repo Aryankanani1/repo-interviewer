@@ -12,8 +12,9 @@ import org.springframework.test.context.ActiveProfiles;
 
 /**
  * Full application context on a real pgvector Postgres (Testcontainers), plus a {@code GraphQlTester}
- * that runs queries through the real GraphQL engine (no HTTP), and test doubles for GitHub and the
- * analysis pipeline ({@link TestDoublesConfiguration}).
+ * that runs queries through the real GraphQL engine (no HTTP), test doubles for GitHub, the analysis
+ * pipeline and the embedding model ({@link TestDoublesConfiguration}), and {@link FixtureIndexer} to load the
+ * fixture repository into the database.
  *
  * <p>Every integration test uses this one annotation, so Spring caches a single context and the
  * whole suite shares one container. A test that adds its own configuration (a mock bean, another
@@ -24,7 +25,7 @@ import org.springframework.test.context.ActiveProfiles;
 @Documented
 @SpringBootTest
 @ActiveProfiles("test")
-@Import({ TestcontainersConfiguration.class, TestDoublesConfiguration.class })
+@Import({ TestcontainersConfiguration.class, TestDoublesConfiguration.class, FixtureIndexer.class })
 @AutoConfigureGraphQlTester
 public @interface IntegrationTest {
 }

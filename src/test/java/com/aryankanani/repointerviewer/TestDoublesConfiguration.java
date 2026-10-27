@@ -6,7 +6,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 
 /**
- * Replaces ports that would reach the outside world (GitHub, the analysis pipeline) in integration tests.
+ * Replaces ports that would reach the outside world (GitHub, the analysis pipeline, Ollama) in integration tests.
  * {@code @Primary} wins over the production bean of the same type. Part of {@link IntegrationTest}, so all
  * tests share these beans: reset them in {@code @BeforeEach}.
  */
@@ -23,6 +23,13 @@ public class TestDoublesConfiguration {
 	@Primary
 	RecordingAnalysisPipeline recordingAnalysisPipeline(DataSource dataSource) {
 		return new RecordingAnalysisPipeline(dataSource);
+	}
+
+	/** Wins over Spring AI's auto-configured OllamaEmbeddingModel, which is created but never called. */
+	@Bean
+	@Primary
+	FakeEmbeddingModel fakeEmbeddingModel() {
+		return new FakeEmbeddingModel();
 	}
 
 }

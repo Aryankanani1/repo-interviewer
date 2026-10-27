@@ -66,7 +66,8 @@ ri
 │   │                       # FileRole, SecretRedactor, RedactedFile, JavaParsing
 │   ├── chunk/              # JavaChunker, TextChunker, Chunk, ChunkType, LineWindows, SourceLines
 │   ├── embed/              # EmbeddingService
-│   ├── store/              # CodeFileRepository (JPA), ChunkStore (JdbcTemplate + pgvector)
+│   ├── store/              # CodeFile + CodeFileRepository (JPA), ChunkStore (JdbcTemplate + pgvector),
+│   │                       # PendingChunk, ChunkEmbedding, RetrievedChunk
 │   ├── map/                # RepoMapBuilder
 │   └── retrieve/           # Retriever, RetrievedContext
 ├── project/                # project aggregate + analysis orchestration
@@ -332,6 +333,7 @@ Method: refund
 <content>
 ```
 `nomic-embed-text` expects the `search_document:` / `search_query:` task prefixes. Queries use `search_query: <text>`.
+Built by `codebase.embed.EmbeddingText` (task 1.6): a type header has no `Method:` line, a text chunk (no symbol) has only the `File:` line, a window's `#part2` suffix is dropped (`Method: refund`), and a run of small methods gets no `Method:` line because `small-methods` is not a real name.
 
 **Token estimate:** `ceil(chars / 4)`, implemented once in `common.TokenEstimator`. Good enough for budgeting.
 
@@ -341,10 +343,14 @@ Runs on **every file before it is chunked** (task 1.5; it was "every chunk" befo
 - In yml/properties: `password|secret|token|api[-_]?key` assignments, also indented, commented out, or as `- KEY=value` list items (Docker Compose `environment:`). `${NAME}` is kept; in `${NAME:default}` the default is a hard-coded value and is redacted (`${DB_PASSWORD:<REDACTED:password>}`). Numbers, booleans, durations and empty values are kept (`max-tokens: 1024`, `token-expiry: 15m`).
 Unit tested with positive and negative cases; fake tokens in test code are built by string concatenation so no secret scanner sees one.
 
-### 6.8 EmbeddingService
-- Uses Spring AI `EmbeddingModel` (Ollama in `local`, `FakeEmbeddingModel` in tests).
-- `embedPending(projectId)`: load chunks with `embedding IS NULL` in pages of `batch-size` (32), embed, then `UPDATE code_chunk SET embedding = ?::vector WHERE id = ?` in a JDBC batch. Resumable: a restart continues with the remaining NULL rows.
-- `FakeEmbeddingModel` (test only): deterministic vector from a hash of the token set, normalized, so similar text gives similar vectors. Good enough for retrieval tests.
+### 6.8 EmbeddingService and ChunkStore
+- `EmbeddingService` uses Spring AI `EmbeddingModel` (Ollama in `dev`, `FakeEmbeddingModel` in tests). It is the only class that does (ArchitectureTest).
+- `embedPending(projectId)`: load up to `batch-size` (32) chunks with `embedding IS NULL`, embed them in one model call, then `UPDATE code_chunk SET embedding = ?::vector WHERE id = ?` in a JDBC batch, and repeat until none are left. No OFFSET: saved rows stop matching `IS NULL`. Not `@Transactional`: the model call is outside any transaction, and each batch is saved in its own short one. Resumable: a restart continues with the remaining NULL rows. Returns the number embedded.
+- `embedQuery(text)`: the same model with the `search_query:` prefix.
+- Every vector is checked against `app.embedding.dimensions` (768) before anything is written. Another size means the wrong model is configured (D-005): `IllegalStateException` with a clear message, not Postgres' "expected 768 dimensions".
+- `ChunkStore` (`codebase.store`, `JdbcTemplate` only, D-004): `insert(projectId, fileId, chunks)` (JDBC batch, embedding NULL), `findUnembedded(projectId, limit)`, `saveEmbeddings(List<ChunkEmbedding>)`, `search(projectId, float[] query, limit)` (the §7 step 2 SQL, returns `RetrievedChunk`). Vectors travel as pgvector text, `[0.12,-0.03,...]`, cast with `?::vector`, so no pgvector Java library is needed.
+- `code_file` rows are `CodeFile` entities (`CodeFileRepository`). `projectId` is a plain UUID column, not a `@ManyToOne`, because `codebase` may not depend on `project`.
+- `FakeEmbeddingModel` (test only, the "hashing trick"): drop the task prefix, split camelCase (`RefundRequest` → `refund request`), lowercase, split into words; each distinct word adds 1 to one of 768 slots chosen by `String.hashCode`, then the vector is scaled to length 1. Texts that share words get a higher cosine similarity. It knows nothing about meaning, so tests prove the machinery and the evals (task 1.17) measure search quality (D-012). On the fixture, `refund` ranks the 4-line `OrderController#refund` first and `refund a paid order` ranks `OrderService#refund` first.
 
 ### 6.9 RepoMapBuilder
 Builds a text outline within `app.repo-map.max-tokens` (12K):
