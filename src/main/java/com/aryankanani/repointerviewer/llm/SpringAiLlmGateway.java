@@ -116,6 +116,11 @@ class SpringAiLlmGateway implements LlmGateway {
 		}
 	}
 
+	@Override
+	public String promptVersion(LlmPurpose purpose) {
+		return templates.version(purpose.template());
+	}
+
 	private void finish(LlmRequest<?> request, String model, String version, int attempt, long start, Tokens tokens,
 			String errorType) {
 		long nanos = System.nanoTime() - start;

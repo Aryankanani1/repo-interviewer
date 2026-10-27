@@ -72,7 +72,7 @@ ri
 │   ├── store/              # CodeFile + CodeFileRepository (JPA), ChunkStore (JdbcTemplate + pgvector),
 │   │                       # PendingChunk, ChunkEmbedding, RetrievedChunk
 │   ├── map/                # RepoMapBuilder, JavaOutline, RepoFile
-│   └── retrieve/           # Retriever, RetrievedContext
+│   └── retrieve/           # Retriever, TopicQuery, RetrievedContext
 ├── project/                # project aggregate + analysis orchestration
 │   ├── Project.java, ProjectRepository.java, ProjectService.java (submit, reanalyze)
 │   ├── RepoSummary.java            # the stored summary (JSONB), with ModuleSummary
@@ -82,8 +82,9 @@ ri
 │   └── StaleAnalysisRecovery.java
 ├── interview/              # sessions, topics, questions, answers, scoring, report
 │   ├── InterviewService.java       # use cases: start, submitAnswer, end
-│   ├── planning/   QuestionPlanner, TopicValidator
-│   ├── question/   QuestionGenerator, CodeRefValidator, QuestionPrefetcher
+│   ├── InterviewSession, InterviewTopic, Question (+ repositories), CodeRef, Rubric, enums
+│   ├── planning/   QuestionPlanner, TopicValidator, SummaryText
+│   ├── question/   QuestionGenerator, CodeRefValidator, GeneratedQuestion, QuestionPrefetcher
 │   ├── evaluation/ AnswerEvaluator, FollowUpPolicy, Scoring
 │   └── report/     ReportWriter
 └── api/                    # GraphQL controllers, input/output mapping, error mapping
@@ -390,34 +391,36 @@ On `ApplicationReadyEvent`: projects in `CLONING`, `PARSING`, `EMBEDDING` or `SU
 ## 7. Retrieval
 
 ```java
-public interface Retriever {
-    RetrievedContext forTopic(UUID projectId, TopicQuery q, int maxTokens);
+@Component public class Retriever {                       // codebase.retrieve (task 1.10)
+    public RetrievedContext forTopic(UUID projectId, TopicQuery q, int maxTokens);
 }
-public record TopicQuery(String text, List<String> targetPaths, List<String> targetSymbols) {}
+public record TopicQuery(String text, List<String> targetPaths, List<String> targetSymbols, boolean includeTests) {}
 public record RetrievedContext(List<RetrievedChunk> chunks, int totalTokens) {
     public String render() { /* code_chunk tags, see below */ }
 }
 ```
 
 Algorithm:
-1. **Exact hits:** chunks where `path = ANY(:targetPaths)` (TYPE_HEADER first, then METHOD) or `symbol = ANY(:symbols)` or `symbol LIKE :class || '#%'`.
-2. **Vector hits:**
+1. **Exact hits** (`ChunkStore.exactHits`): chunks where `path = ANY(:paths)` or `symbol = ANY(:symbols)` or `symbol LIKE ANY(:patterns)` (`Class#%` for a class, `method#%` and `method(%` for a method, so overloads and `#part2` windows match; `_` and `%` escaped). Ranked: 0 = the named methods, 1 = TYPE_HEADERs of named files and classes, 2 = the rest of them; then by path and start line.
+2. **Vector hits** (`ChunkStore.search`):
    ```sql
-   SELECT id, path, symbol, start_line, end_line, content, token_estimate,
-          1 - (embedding <=> ?::vector) AS similarity
-   FROM code_chunk
-   WHERE project_id = ? AND embedding IS NOT NULL AND chunk_type <> 'DOC'
-   ORDER BY embedding <=> ?::vector
+   SELECT c.id, c.path, c.symbol, c.start_line, c.end_line, c.content, c.token_estimate,
+          1 - (c.embedding <=> ?::vector) AS similarity
+   FROM code_chunk c JOIN code_file f ON f.id = c.file_id
+   WHERE c.project_id = ? AND c.embedding IS NOT NULL AND c.chunk_type <> 'DOC'
+     AND (? OR f.role <> 'TEST')          -- includeTests: only for TESTING topics
+   ORDER BY c.embedding <=> ?::vector
    LIMIT ?            -- app.retrieval.top-k (8)
    ```
-3. Merge: exact hits first, then vector hits by similarity, dedupe by id, skip TEST chunks unless the category is `TESTING`.
-4. Add chunks until `maxTokens` (6K) is reached. Always include at least one chunk.
+3. Merge: exact hits first, then vector hits by similarity, dedupe by id. The TEST filter applies to the vector hits only: a test file the plan names is always kept.
+4. Add chunks while they fit in `maxTokens` (6K). A chunk that does not fit is skipped and smaller ones after it may still fit. Always at least one chunk.
 5. Render each chunk as:
    ```
    <code_chunk path="src/main/java/.../PaymentService.java" lines="40-88" symbol="PaymentService#refund">
    ...content...
    </code_chunk>
    ```
+   No `symbol` attribute for text chunks. The repository is untrusted: `<code_chunk` and `</code_chunk` inside content are broken up (`<\code_chunk`, `<\/code_chunk`), and `"`, `<`, `>` in attribute values become `_`, so it cannot close the tag and write outside it. Line counts do not change.
 
 ## 8. LLM layer
 
@@ -427,6 +430,7 @@ Algorithm:
 public interface LlmGateway {
     <T extends LlmOutput<T>> T call(LlmRequest<T> request);
     // throws BudgetExceededException, LlmUnavailableException, LlmOutputException (all DomainException)
+    String promptVersion(LlmPurpose purpose);   // stored with what a call produced, e.g. question.prompt_version
 }
 
 public record LlmRequest<T extends LlmOutput<T>>(
@@ -488,9 +492,9 @@ Every output record implements `LlmOutput<T>` with `normalized()`, applied by th
 | `system-interviewer.st` | shared system message | none |
 | `repo-summary.st` | SUMMARY | repoName, goal, domain, repoMap, buildFiles, readme |
 | `interview-plan.st` | PLAN | difficulty, targetRole, questionCount, focusAreas, goal, summary, repoMap |
-| `question-generation.st` | QUESTION | difficulty, topicTitle, category, rationale, codeChunks, previousQuestions |
+| `question-generation.st` | QUESTION | difficulty, topicTitle, category, rationale, codeChunks, previousQuestions, retryFeedback |
 | `answer-evaluation.st` | EVALUATION | difficulty, question, rubric, codeChunks, answer |
-| `follow-up-question.st` | FOLLOW_UP | difficulty, question, answer, missedPoints, followUpReason, codeChunks |
+| `follow-up-question.st` | FOLLOW_UP | difficulty, question, answer, missedPoints, followUpReason, codeChunks, retryFeedback |
 | `session-report.st` | REPORT | repoName, difficulty, overallScore, categoryScores, transcript |
 
 Rendering rules (`PromptTemplates`, task 1.8): at startup every file may contain only `{name}` placeholders (any other brace stops the app), and `system-interviewer.st` none. A render must pass exactly the template's placeholders: a missing or unknown variable is an `IllegalArgumentException` naming it. Null values and empty lists become `"(not provided)"`; lists render as `- item` lines; values are inserted as text, never parsed, so code with braces is safe. ChatClient only re-renders text as a template when it gets parameters, and the gateway passes none. `summary` and `rubric` render as readable text, not JSON (the callers format them). **Candidate text is always placed inside its tag**: answers in `<candidate_answer>` (including inside `transcript`), and the candidate's own `goal`, `domain` and `targetRole` in `<candidate_context>`; repository text in `<repo_map>`, `<repo_content>` or `<code_chunk>`. The system prompt names all five tags as untrusted, and `PromptTemplatesTest` fails if one of these placeholders sits outside its tag.
@@ -500,20 +504,23 @@ Rendering rules (`PromptTemplates`, task 1.8): at startup every file may contain
 ## 9. Interview engine
 
 ### 9.1 `InterviewService.start(StartInterviewCommand cmd)`
-1. Validate: project exists (`NOT_FOUND`) and is `READY` (`PROJECT_NOT_READY`); `questionCount` is within 3..8 (`INVALID_QUESTION_COUNT`).
-2. Tx: insert session `PLANNING`.
-3. PLAN call → `TopicValidator`:
-   - keep `targetPaths` that exist in `code_file` for this project;
-   - keep `targetSymbols` that match `code_chunk.symbol` (exact match, or a class name matching `symbol LIKE 'X#%'` or `symbol = 'X'`);
-   - drop topics left with no valid path and no valid symbol;
-   - drop topics whose main symbol repeats an earlier topic;
-   - if fewer than 3 topics remain → `FAILED` ("Could not plan grounded questions for this repo").
-   - `plannedQuestionCount = topics.size()`.
-4. Tx: insert topics (`PENDING`).
-5. `QuestionGenerator.generateMain(session, topic1)` (§9.3).
-6. Tx: question 1 → `ASKED`, `order_index = 1`, topic 1 → `ASKED`, session → `IN_PROGRESS`, `current_question_id = q1`.
+1. Validate, before anything is saved: project exists (`NOT_FOUND`) and is `READY` (`PROJECT_NOT_READY`), read through `ProjectService.context(id)` → `ProjectContext` (interview never sees the `Project` entity); `questionCount` (default `app.interview.default-question-count`) is within `min..max-question-count`, 3..8 (`INVALID_QUESTION_COUNT`, field `questionCount`). Difficulty defaults to JUNIOR; focus areas are deduplicated.
+2. Tx: insert session `PLANNING`. `sessionId` goes into the MDC.
+3. `QuestionPlanner.plan`: PLAN call (difficulty, targetRole, questionCount, focusAreas, goal, summary rendered as text by `SummaryText`, repoMap) → `TopicValidator` with `CodebaseQueries.paths` and `.symbols`:
+   - keep `targetPaths` that are files of the project (a leading `./` or `/` ignored);
+   - keep `targetSymbols` that are a chunk symbol or the start of one (`X#…`, `X(…`); an unknown method of an existing class falls back to the class (small methods are merged into `#small-methods` chunks);
+   - drop topics with no category or title, or left with no valid path and no valid symbol;
+   - drop topics whose main class (first symbol, else the Java file's name) repeats an earlier topic;
+   - keep at most `questionCount`; fewer than `min-question-count` → the start fails ("Could not plan questions grounded in this repository's code. Try again.", `LLM_UNAVAILABLE`).
+4. Tx: insert topics (`PENDING`, order 1..n); `plannedQuestionCount = topics.size()`.
+5. For each topic in order: `QuestionGenerator.generate` (§9.3). A topic without a grounded question is `SKIPPED` and the next one is tried; none at all → the start fails ("Could not write a question grounded in this repository's code. Try again.", `LLM_UNAVAILABLE`).
+6. Tx: insert the question `ASKED` with `order_index = 1` and `asked_at`, topic → `ASKED`, session → `IN_PROGRESS`, `current_question_id = q1` (Hibernate runs the INSERT before the UPDATE, so the foreign key holds).
 7. `QuestionPrefetcher.prefetchNext(sessionId)` (task 1.16).
-8. Return the session and the first question.
+8. Return `StartResult(session, firstQuestion, null)`.
+
+A `DomainException` after the session exists (plan or question failed, `LLM_UNAVAILABLE`, `BUDGET_EXCEEDED`) → session `FAILED` with the message as `failure_reason`, and `StartResult(failedSession, null, error)`: the GraphQL payload carries **both** the failed session and the error. Any other exception also fails the session, then propagates. All model calls carry the `sessionId`, so they count against the session budget.
+
+GraphQL (task 1.10): `startInterview`, `interviewSession(id)`, and plain `@SchemaMapping` resolvers for `InterviewSession.project`, `.questions` (asked ones, in order), `.currentQuestion` and `Project.sessions` — one query per parent, on purpose: task 1.13 measures the N+1 and replaces them with `@BatchMapping`. `Question.answer`, `.parent`, `CodeRef.snippet` and `InterviewSession.report` stay null until tasks 1.11–1.13. `QuestionView` has no rubric or ideal outline.
 
 ### 9.2 `InterviewService.submitAnswer(SubmitAnswerCommand cmd)`
 Every step is resumable. Re-sending the same `(questionId, text)` continues from where it stopped.
@@ -533,12 +540,12 @@ Every step is resumable. Re-sending the same `(questionId, text)` continues from
 **Never hold a database transaction open across an LLM call.** Pattern: short tx → LLM call (no tx) → short tx with a version check.
 
 ### 9.3 `QuestionGenerator` and `CodeRefValidator`
-1. `Retriever.forTopic(projectId, TopicQuery(topic.title + ". " + topic.rationale, paths, symbols), 6000)`.
-2. `previousQuestions` = text of asked questions in the session (one line each).
-3. QUESTION call.
-4. `CodeRefValidator.validate(refs, context)`: a ref is valid when its `path` equals a retrieved chunk's path **and** its line range overlaps that chunk's range. Clamp the ref to the chunk range.
-5. No valid refs → retry the call once with "Your codeRefs did not match the provided chunks. Valid ranges are: ...". Still none → mark the topic `SKIPPED` and move to the next topic.
-6. Persist with the rubric, the ideal outline, the refs and `prompt_version`.
+1. `Retriever.forTopic(projectId, TopicQuery(topic.title + ". " + topic.rationale, paths, symbols, category == TESTING), app.retrieval.max-context-tokens)`.
+2. `previousQuestions` = text of asked questions in the session (one `- ` line each; "(not provided)" when none).
+3. QUESTION call with `retryFeedback` null on the first attempt.
+4. `CodeRefValidator.validate(refs, context)`: a ref is valid when its `path` equals a retrieved chunk's path **and** its line range overlaps that chunk's range (start ≥ 1, end ≥ start). It is clamped to the chunk with the largest overlap; duplicates are dropped.
+5. No valid refs (or an empty question) → one more QUESTION call with `retryFeedback` = what was wrong and the valid ranges (`path lines a-b`, one per sent chunk). The text lives in the prompt file around the `{retryFeedback}` placeholder, not in Java. Still none → the generator returns empty and the caller marks the topic `SKIPPED`.
+6. The generator saves nothing and opens no transaction; it returns a `GeneratedQuestion` (text, refs, rubric, ideal outline, `prompt_version` from `LlmGateway.promptVersion`) and the caller persists it.
 
 ### 9.4 `QuestionPrefetcher` (task 1.16)
 After a main question becomes `ASKED`, generate the next `PENDING` topic's main question in the background and store it as `PREPARED`. The partial unique index makes a racing duplicate fail. Catch it and discard. Prefetch failures are logged only; the synchronous path generates later.

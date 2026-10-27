@@ -1,8 +1,11 @@
 package com.aryankanani.repointerviewer;
 
+import com.aryankanani.repointerviewer.codebase.CodebaseIndexer;
+import com.aryankanani.repointerviewer.codebase.IndexResult;
 import com.aryankanani.repointerviewer.codebase.chunk.Chunk;
 import com.aryankanani.repointerviewer.codebase.chunk.JavaChunker;
 import com.aryankanani.repointerviewer.codebase.chunk.TextChunker;
+import com.aryankanani.repointerviewer.codebase.embed.EmbeddingService;
 import com.aryankanani.repointerviewer.codebase.scan.FileClassifier;
 import com.aryankanani.repointerviewer.codebase.scan.FileScanner;
 import com.aryankanani.repointerviewer.codebase.scan.RedactedFile;
@@ -17,11 +20,22 @@ import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
- * Puts the fixture repository into the database for one project, the way the PARSING stage will (task 1.9):
- * scan, classify, redact, chunk, then save the files and their chunks (no embeddings yet). Registered as a
+ * Puts the fixture repository into the database for one project: {@link #index} the way the PARSING stage does
+ * (files and chunks, no embeddings), or {@link #readyProject} for a fully analyzed READY project. Registered as a
  * bean by {@link IntegrationTest}.
  */
 public class FixtureIndexer {
+
+	/** A summary of the fixture, as the SUMMARIZING stage would store it. */
+	public static final String SUMMARY_JSON = """
+			{"oneLiner": "A small order service that places and refunds orders.",
+			 "architectureStyle": "layered monolith",
+			 "techStack": ["Spring Boot", "Spring Data JPA", "PostgreSQL", "Flyway"],
+			 "modules": [{"name": "order", "responsibility": "Orders and refunds",
+			              "keyClasses": ["OrderService", "OrderController", "Order"]}],
+			 "notablePatterns": ["Refund limit checked in OrderService#refund"],
+			 "riskAreas": ["Concurrent refunds on the same order in OrderService#refund"]}
+			""";
 
 	private final JdbcTemplate jdbc;
 
@@ -39,8 +53,13 @@ public class FixtureIndexer {
 
 	private final ChunkStore chunkStore;
 
+	private final CodebaseIndexer codebaseIndexer;
+
+	private final EmbeddingService embeddingService;
+
 	FixtureIndexer(JdbcTemplate jdbc, FileScanner scanner, FileClassifier classifier, SecretRedactor redactor,
-			JavaChunker javaChunker, TextChunker textChunker, CodeFileRepository files, ChunkStore chunkStore) {
+			JavaChunker javaChunker, TextChunker textChunker, CodeFileRepository files, ChunkStore chunkStore,
+			CodebaseIndexer codebaseIndexer, EmbeddingService embeddingService) {
 		this.jdbc = jdbc;
 		this.scanner = scanner;
 		this.classifier = classifier;
@@ -49,6 +68,25 @@ public class FixtureIndexer {
 		this.textChunker = textChunker;
 		this.files = files;
 		this.chunkStore = chunkStore;
+		this.codebaseIndexer = codebaseIndexer;
+		this.embeddingService = embeddingService;
+	}
+
+	/**
+	 * A READY project of the fixture: indexed with the production {@link CodebaseIndexer}, embedded with the fake
+	 * model, with stats, repo map and {@link #SUMMARY_JSON}.
+	 */
+	public UUID readyProject() {
+		UUID project = newProject();
+		IndexResult index = codebaseIndexer.index(project, LocalDirectoryRepoFetcher.fixtureRoot());
+		embeddingService.embedPending(project);
+		jdbc.update("""
+				UPDATE project SET status = 'READY', repo_map = ?, summary = CAST(? AS jsonb), file_count = ?,
+				    java_file_count = ?, total_lines = ?, chunk_count = ?, primary_language = ?
+				WHERE id = ?
+				""", index.repoMap(), SUMMARY_JSON, index.fileCount(), index.javaFileCount(), index.totalLines(),
+				index.chunkCount(), index.primaryLanguage(), project);
+		return project;
 	}
 
 	/** A new project row. The random repository name keeps the unique (github_url, commit_sha) check happy. */

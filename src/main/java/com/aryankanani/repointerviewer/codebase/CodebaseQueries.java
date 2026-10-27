@@ -44,4 +44,15 @@ public class CodebaseQueries {
 		return names;
 	}
 
+	/** Every file path in the project, repo-relative. */
+	@Transactional(readOnly = true)
+	public Set<String> paths(UUID projectId) {
+		return Set.copyOf(codeFiles.findPathsByProjectId(projectId));
+	}
+
+	/** Every chunk symbol in the project: {@code Order}, {@code Order.Status}, {@code Order#markRefunded}, ... */
+	public Set<String> symbols(UUID projectId) {
+		return Set.copyOf(chunkStore.symbols(projectId));
+	}
+
 }

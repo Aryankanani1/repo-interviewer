@@ -48,6 +48,14 @@ public class ProjectService {
 		return projectRepository.findById(id);
 	}
 
+	/** For other modules, which may not use the {@link Project} entity (LLD §2). */
+	@Transactional(readOnly = true)
+	public Optional<ProjectContext> context(UUID id) {
+		return projectRepository.findById(id).map(project -> new ProjectContext(project.getId(), project.getStatus(),
+				project.getOwner() + "/" + project.getRepoName(), project.getGoal(), project.getTargetRole(),
+				project.getSummary(), project.getRepoMap()));
+	}
+
 	/** Newest first. Start with {@code ScrollPosition.keyset()}, then pass the position of the last item seen. */
 	@Transactional(readOnly = true)
 	public Window<Project> page(ScrollPosition position, int limit) {

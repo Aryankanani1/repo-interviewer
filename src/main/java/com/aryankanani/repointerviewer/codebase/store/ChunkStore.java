@@ -1,6 +1,10 @@
 package com.aryankanani.repointerviewer.codebase.store;
 
 import com.aryankanani.repointerviewer.codebase.chunk.Chunk;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -81,17 +85,70 @@ public class ChunkStore {
 	 * a question must point at code or config, not at the README.
 	 */
 	public List<RetrievedChunk> search(UUID projectId, float[] queryVector, int limit) {
+		return search(projectId, queryVector, limit, true);
+	}
+
+	/**
+	 * Same, and with {@code includeTests = false} also without chunks of TEST files (role from {@code code_file}):
+	 * a question about production code should not be built on its tests.
+	 */
+	public List<RetrievedChunk> search(UUID projectId, float[] queryVector, int limit, boolean includeTests) {
 		String query = toVectorLiteral(queryVector);
 		return jdbc.query("""
-				SELECT id, path, symbol, start_line, end_line, content, token_estimate,
-				       1 - (embedding <=> ?::vector) AS similarity
-				FROM code_chunk
-				WHERE project_id = ? AND embedding IS NOT NULL AND chunk_type <> 'DOC'
-				ORDER BY embedding <=> ?::vector
+				SELECT c.id, c.path, c.symbol, c.start_line, c.end_line, c.content, c.token_estimate,
+				       1 - (c.embedding <=> ?::vector) AS similarity
+				FROM code_chunk c JOIN code_file f ON f.id = c.file_id
+				WHERE c.project_id = ? AND c.embedding IS NOT NULL AND c.chunk_type <> 'DOC'
+				  AND (? OR f.role <> 'TEST')
+				ORDER BY c.embedding <=> ?::vector
 				LIMIT ?
-				""", (row, i) -> new RetrievedChunk(row.getObject("id", UUID.class), row.getString("path"),
-				row.getString("symbol"), row.getInt("start_line"), row.getInt("end_line"), row.getString("content"),
-				row.getInt("token_estimate"), row.getDouble("similarity")), query, projectId, query, limit);
+				""", ChunkStore::retrievedChunk, query, projectId, includeTests, query, limit);
+	}
+
+	/**
+	 * The chunks a topic names explicitly (LLD §7 step 1), most specific first:
+	 * <ol>
+	 * <li>the named methods ({@code OrderService#refund}, with its overloads and {@code #part2} windows);</li>
+	 * <li>the TYPE_HEADER of every named file and class;</li>
+	 * <li>the other chunks of those files and classes, in file order.</li>
+	 * </ol>
+	 * Similarity is reported as 1: these were asked for by name, not found by meaning.
+	 *
+	 * @param paths repo-relative file paths
+	 * @param symbols class names ({@code Order}, {@code Order.Status}) or methods ({@code OrderService#refund})
+	 */
+	public List<RetrievedChunk> exactHits(UUID projectId, Collection<String> paths, Collection<String> symbols) {
+		List<String> methods = symbols.stream().filter(symbol -> symbol.contains("#")).toList();
+		List<String> methodPatterns = new ArrayList<>();
+		methods.forEach(method -> methodPatterns.addAll(List.of(likeEscape(method) + "#%", likeEscape(method) + "(%")));
+		List<String> allPatterns = new ArrayList<>(methodPatterns);
+		symbols.stream().filter(symbol -> !symbol.contains("#")).forEach(type -> allPatterns.add(likeEscape(type) + "#%"));
+		return jdbc.query(connection -> {
+			var statement = connection.prepareStatement("""
+					SELECT c.id, c.path, c.symbol, c.start_line, c.end_line, c.content, c.token_estimate,
+					       1.0 AS similarity,
+					       CASE WHEN c.symbol = ANY(?) OR c.symbol LIKE ANY(?) THEN 0
+					            WHEN c.chunk_type = 'TYPE_HEADER' THEN 1
+					            ELSE 2 END AS rank
+					FROM code_chunk c
+					WHERE c.project_id = ?
+					  AND (c.path = ANY(?) OR c.symbol = ANY(?) OR c.symbol LIKE ANY(?))
+					ORDER BY rank, c.path, c.start_line
+					""");
+			statement.setArray(1, connection.createArrayOf("text", methods.toArray()));
+			statement.setArray(2, connection.createArrayOf("text", methodPatterns.toArray()));
+			statement.setObject(3, projectId);
+			statement.setArray(4, connection.createArrayOf("text", paths.toArray()));
+			statement.setArray(5, connection.createArrayOf("text", symbols.toArray()));
+			statement.setArray(6, connection.createArrayOf("text", allPatterns.toArray()));
+			return statement;
+		}, ChunkStore::retrievedChunk);
+	}
+
+	/** Every symbol in the project ({@code Order}, {@code Order#markRefunded}, ...), for checking a plan. */
+	public List<String> symbols(UUID projectId) {
+		return jdbc.queryForList("SELECT DISTINCT symbol FROM code_chunk WHERE project_id = ? AND symbol IS NOT NULL",
+				String.class, projectId);
 	}
 
 	/** The symbols of the project's TYPE_HEADER chunks: every parsed type, nested ones as {@code Order.Status}. */
@@ -100,6 +157,17 @@ public class ChunkStore {
 				SELECT DISTINCT symbol FROM code_chunk
 				WHERE project_id = ? AND chunk_type = 'TYPE_HEADER'
 				""", String.class, projectId);
+	}
+
+	private static RetrievedChunk retrievedChunk(ResultSet row, int rowNumber) throws SQLException {
+		return new RetrievedChunk(row.getObject("id", UUID.class), row.getString("path"), row.getString("symbol"),
+				row.getInt("start_line"), row.getInt("end_line"), row.getString("content"), row.getInt("token_estimate"),
+				row.getDouble("similarity"));
+	}
+
+	/** {@code _} and {@code %} are wildcards in LIKE; a class name like {@code Order_Item} must match literally. */
+	private static String likeEscape(String text) {
+		return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
 	}
 
 	/** {@code [0.12,-0.03,...]}, the text form pgvector reads. */

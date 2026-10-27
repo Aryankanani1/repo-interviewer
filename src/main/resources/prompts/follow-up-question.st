@@ -13,6 +13,9 @@ Why a follow-up is useful: {followUpReason}
 Code:
 {codeChunks}
 
+Problems with your previous attempt at this question (empty on the first attempt):
+{retryFeedback}
+
 Rules:
 - One or two sentences. Sound like a real interviewer, for example: "You mentioned X. What happens if Y?"
 - Target the most important missing point. Do not give away the answer.

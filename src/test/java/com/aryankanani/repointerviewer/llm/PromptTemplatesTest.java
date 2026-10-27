@@ -24,10 +24,10 @@ class PromptTemplatesTest {
 			LlmPurpose.PLAN, List.of("difficulty", "targetRole", "questionCount", "focusAreas", "goal", "summary",
 					"repoMap"),
 			LlmPurpose.QUESTION, List.of("difficulty", "topicTitle", "category", "rationale", "codeChunks",
-					"previousQuestions"),
+					"previousQuestions", "retryFeedback"),
 			LlmPurpose.EVALUATION, List.of("difficulty", "question", "rubric", "codeChunks", "answer"),
 			LlmPurpose.FOLLOW_UP, List.of("difficulty", "question", "answer", "missedPoints", "followUpReason",
-					"codeChunks"),
+					"codeChunks", "retryFeedback"),
 			LlmPurpose.REPORT, List.of("repoName", "difficulty", "overallScore", "categoryScores", "transcript"));
 
 	/**

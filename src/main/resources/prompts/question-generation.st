@@ -11,6 +11,9 @@ Code the question must be about:
 Questions already asked in this interview (do not repeat them or ask about the same thing):
 {previousQuestions}
 
+Problems with your previous attempt at this question (empty on the first attempt):
+{retryFeedback}
+
 Rules for the question:
 - Refer to something concrete in the code above, such as a class, method, field, query, annotation or configuration value, and mention it by name.
 - It must be answerable by the person who built this code in 2 to 5 minutes of speaking.

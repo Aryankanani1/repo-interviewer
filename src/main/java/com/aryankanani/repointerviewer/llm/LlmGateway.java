@@ -18,4 +18,11 @@ public interface LlmGateway {
 	 */
 	<T extends LlmOutput<T>> T call(LlmRequest<T> request);
 
+	/**
+	 * The {@code prompt_version} the gateway uses for this purpose right now, for example
+	 * {@code question-generation@1a2b3c4d}. Stored with what the call produced (a question), so results can be
+	 * traced back to the prompt that made them.
+	 */
+	String promptVersion(LlmPurpose purpose);
+
 }

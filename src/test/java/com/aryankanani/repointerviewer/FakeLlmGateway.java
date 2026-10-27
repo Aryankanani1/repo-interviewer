@@ -70,6 +70,11 @@ public class FakeLlmGateway implements LlmGateway {
 		return request.outputType().cast(next).normalized();
 	}
 
+	@Override
+	public String promptVersion(LlmPurpose purpose) {
+		return purpose.template() + "@fake0000";
+	}
+
 	private synchronized Object next(LlmPurpose purpose) {
 		Deque<Object> queue = queued.get(purpose);
 		return queue == null || queue.isEmpty() ? canned(purpose) : queue.poll();
