@@ -1,9 +1,5 @@
 package com.aryankanani.repointerviewer.codebase.scan;
 
-import com.github.javaparser.JavaParser;
-import com.github.javaparser.ParseResult;
-import com.github.javaparser.ParserConfiguration;
-import com.github.javaparser.ParserConfiguration.LanguageLevel;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
@@ -25,8 +21,8 @@ import org.springframework.stereotype.Component;
  * Markdown, OTHER for everything else.
  *
  * <p>Annotations are matched by simple name: {@code @org.springframework.stereotype.Service} counts as
- * {@code Service}. JavaParser only builds the syntax tree; nothing is compiled or resolved, so the imported
- * classes do not have to exist.
+ * {@code Service}. {@link JavaParsing} only builds the syntax tree; nothing is compiled or resolved, so the
+ * imported classes do not have to exist.
  */
 @Component
 public class FileClassifier {
@@ -100,17 +96,13 @@ public class FileClassifier {
 		return isDtoName(name) ? FileRole.DTO : FileRole.OTHER;
 	}
 
-	/**
-	 * The type named like the file, else the first type in it. Empty when the source does not parse. A new
-	 * parser per call: JavaParser instances are not thread-safe, and this bean is shared.
-	 */
+	/** The type named like the file, else the first type in it. Empty when the source does not parse. */
 	private static Optional<TypeDeclaration<?>> mainType(String source, String typeName) {
-		JavaParser parser = new JavaParser(new ParserConfiguration().setLanguageLevel(LanguageLevel.JAVA_25));
-		ParseResult<CompilationUnit> result = parser.parse(source);
-		if (!result.isSuccessful() || result.getResult().isEmpty()) {
+		Optional<CompilationUnit> unit = JavaParsing.parse(source);
+		if (unit.isEmpty()) {
 			return Optional.empty();
 		}
-		NodeList<TypeDeclaration<?>> types = result.getResult().get().getTypes();
+		NodeList<TypeDeclaration<?>> types = unit.get().getTypes();
 		return types.stream()
 				.filter(type -> type.getNameAsString().equals(typeName))
 				.findFirst()

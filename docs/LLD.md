@@ -63,8 +63,8 @@ ri
 │   │                       # GithubUrl (value object: parse + normalize + validate), RemoteHead,
 │   │                       # ClonedRepo, FileTrees
 │   ├── scan/               # FileScanner, FileClassifier, FilePatterns, ScannedFile, ScanResult,
-│   │                       # FileRole, SecretRedactor
-│   ├── chunk/              # JavaChunker, TextChunker, Chunk
+│   │                       # FileRole, SecretRedactor, RedactedFile, JavaParsing
+│   ├── chunk/              # JavaChunker, TextChunker, Chunk, ChunkType, LineWindows, SourceLines
 │   ├── embed/              # EmbeddingService
 │   ├── store/              # CodeFileRepository (JPA), ChunkStore (JdbcTemplate + pgvector)
 │   ├── map/                # RepoMapBuilder
@@ -250,7 +250,7 @@ Each stage: `transitionTo(stage)` in its own short transaction → do the work *
 | Stage | Work | Output |
 |---|---|---|
 | CLONING | `RepoFetcher.cloneShallow(url, head, workDir)` | `ClonedRepo` (temp directory + actual commit) |
-| PARSING | `FileScanner.scan` → `FileClassifier.classify` → `JavaChunker` / `TextChunker` → `SecretRedactor.redact` → save files and chunks (no embeddings yet) → `RepoMapBuilder.build` → save stats and repo map | rows in `code_file`, `code_chunk` |
+| PARSING | `FileScanner.scan` → `FileClassifier.classify` → `SecretRedactor.redact` (whole file) → `JavaChunker` / `TextChunker` → save files and chunks (no embeddings yet) → `RepoMapBuilder.build` → save stats and repo map | rows in `code_file`, `code_chunk` |
 | EMBEDDING | `EmbeddingService.embedPending(projectId)` in batches | `code_chunk.embedding` filled |
 | SUMMARIZING | `LlmGateway` SUMMARY call → `SummaryValidator` removes unknown class names | `project.summary` |
 | READY | set `analysis_completed_at` | |
@@ -311,16 +311,18 @@ SECURITY is checked before the Java CONFIG rule: the usual `SecurityConfig` is a
 Java rules look at the file's main type: the type named like the file, else the first one. Use JavaParser (language level `JAVA_25`) annotation names (simple names, so fully qualified annotations match too) rather than regex on raw text. A file that does not parse is `DTO` if its file name matches the DTO rule, else `OTHER` (the path rules still come first).
 
 ### 6.6 Chunking
-`Chunk(path, chunkType, symbol, startLine, endLine, content, tokenEstimate)`. Line numbers are 1-based and inclusive and come from JavaParser `Range`.
+`Chunk(path, chunkType, symbol, startLine, endLine, content, tokenEstimate)`. Line numbers are 1-based and inclusive and come from JavaParser `Range`. Chunkers take a `RedactedFile` (§6.7), never raw content.
 
-**JavaChunker** (per top-level and nested type):
-1. One `TYPE_HEADER` chunk: package, a condensed import list (first 15 imports, then `// +N more`), type annotations and declaration, fields with annotations, and **signatures** of all methods (no bodies). Symbol: `ClassName`.
-2. One `METHOD` chunk per method or constructor, including Javadoc and annotations. Symbol: `ClassName#method`. Overloads get `ClassName#method(ParamType,...)`.
-3. Methods shorter than 4 lines are merged into one chunk per class (`ClassName#small-methods`), using the min/max line range.
-4. A method longer than `app.chunking.max-chunk-lines` is split into windows of that size with 10 lines of overlap. Symbol suffix `#part2`, ...
-5. Files JavaParser cannot parse fall back to `TextChunker`.
+**Line-range rule (task 1.5):** every chunk except `TYPE_HEADER` holds exactly the source lines `startLine..endLine`, one content line per source line. The model sees `lines="40-88"` next to the content and cites code by those numbers, and `CodeRefValidator` and the `CodeRef` snippets work on them, so they must be true. A `TYPE_HEADER` is a condensed outline; its range is the whole type. `Chunk` rejects ranges the `ck_chunk_lines` check would reject.
 
-**TextChunker** (yml, properties, xml, sql, md, Dockerfile): split on blank lines or YAML top-level keys into pieces of at most `max-chunk-lines` lines. Types: `CONFIG`, `SQL`, `DOC`, `TEXT`.
+**JavaChunker** (per top-level and nested type; parsing via `JavaParsing`, the same `JAVA_25` level as `FileClassifier`):
+1. One `TYPE_HEADER` chunk: package, a condensed import list (first 15 imports, then `// +N more imports`), type annotations and declaration (enum constants kept), fields with annotations, and **signatures** of all methods and constructors (no bodies, no comments); nested types appear as `public enum Status { ... }`. Symbol: `ClassName`; nested types `Outer.Inner`.
+2. One `METHOD` chunk per method, constructor, compact constructor or initializer block, including Javadoc and annotations. Symbol: `ClassName#method`; constructors use the type name (`Order#Order`). Overloads get `ClassName#method(ParamType,...)`.
+3. Methods shorter than `small-method-lines` (4) are merged, measured without their Javadoc. One chunk per **run** of adjacent small methods: `ClassName#small-methods`, `ClassName#small-methods-2`, ... A bigger method or a nested type ends a run; fields and comments between small methods are included. (Not one chunk per class: a min/max range with a big method in the middle would claim lines it does not contain, or duplicate that method.)
+4. A chunk longer than `app.chunking.max-chunk-lines` is split into windows of that size with 10 lines of overlap (`LineWindows`). Symbol suffix `#part2`, ...
+5. Files JavaParser cannot parse, and files without a type (`package-info.java`), fall back to `TextChunker` (`TEXT`).
+
+**TextChunker** (yml, properties, xml, sql, md, Dockerfile, ...): a block is a run of non-blank lines. Blank lines are allowed cut points: blocks are packed into one chunk until the next would pass `max-chunk-lines`. Forced cut points: a YAML top-level key that opens a section (`spring:`, not `server.port: 8080`), a YAML `---`, a Markdown heading outside a code fence. A single block over the limit is cut into overlapping windows. Types: yaml/properties `CONFIG`, sql `SQL`, markdown `DOC`, everything else `TEXT`. No symbol.
 
 **Embedding text** (what gets embedded, not what gets stored): a header plus content.
 ```
@@ -334,10 +336,10 @@ Method: refund
 **Token estimate:** `ceil(chars / 4)`, implemented once in `common.TokenEstimator`. Good enough for budgeting.
 
 ### 6.7 SecretRedactor
-Runs on every chunk before it is stored, so neither embeddings nor prompts ever see secrets. It replaces matches with `<REDACTED:type>`:
-- AWS access keys `AKIA[0-9A-Z]{16}`, private key blocks, `ghp_`/`github_pat_` tokens, `sk-ant-...` and `sk-...` style keys, JWT-looking strings (`eyJ...\.eyJ...\....`).
-- `password|secret|token|api[-_]?key` assignments in yml/properties when the value is not a `${...}` placeholder.
-Unit test it with positive and negative cases.
+Runs on **every file before it is chunked** (task 1.5; it was "every chunk" before): a secret that a chunk window would cut in half is still seen whole, and the type header, built from the same text, never sees one either. It returns a `RedactedFile`, a final class whose constructor only `SecretRedactor` can call, and the chunkers accept nothing else, so skipping redaction is a compile error. It replaces matches with `<REDACTED:type>` and **never changes the number of lines**: a multi-line private key block becomes one marker plus the same number of line breaks.
+- In every file: private key blocks (`-----BEGIN ... PRIVATE KEY-----` to the END line, or to the end of the file if there is none), AWS access keys `AKIA[0-9A-Z]{16}`, GitHub tokens (`ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_`, `github_pat_`), `sk-ant-...` and other `sk-...` style keys, JWT-looking strings (`eyJ...\.eyJ...\....`).
+- In yml/properties: `password|secret|token|api[-_]?key` assignments, also indented, commented out, or as `- KEY=value` list items (Docker Compose `environment:`). `${NAME}` is kept; in `${NAME:default}` the default is a hard-coded value and is redacted (`${DB_PASSWORD:<REDACTED:password>}`). Numbers, booleans, durations and empty values are kept (`max-tokens: 1024`, `token-expiry: 15m`).
+Unit tested with positive and negative cases; fake tokens in test code are built by string concatenation so no secret scanner sees one.
 
 ### 6.8 EmbeddingService
 - Uses Spring AI `EmbeddingModel` (Ollama in `local`, `FakeEmbeddingModel` in tests).
