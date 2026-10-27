@@ -68,7 +68,7 @@ ri
 │   ├── embed/              # EmbeddingService
 │   ├── store/              # CodeFile + CodeFileRepository (JPA), ChunkStore (JdbcTemplate + pgvector),
 │   │                       # PendingChunk, ChunkEmbedding, RetrievedChunk
-│   ├── map/                # RepoMapBuilder
+│   ├── map/                # RepoMapBuilder, JavaOutline, RepoFile
 │   └── retrieve/           # Retriever, RetrievedContext
 ├── project/                # project aggregate + analysis orchestration
 │   ├── Project.java, ProjectRepository.java, ProjectService.java
@@ -353,16 +353,25 @@ Unit tested with positive and negative cases; fake tokens in test code are built
 - `FakeEmbeddingModel` (test only, the "hashing trick"): drop the task prefix, split camelCase (`RefundRequest` → `refund request`), lowercase, split into words; each distinct word adds 1 to one of 768 slots chosen by `String.hashCode`, then the vector is scaled to length 1. Texts that share words get a higher cosine similarity. It knows nothing about meaning, so tests prove the machinery and the evals (task 1.17) measure search quality (D-012). On the fixture, `refund` ranks the 4-line `OrderController#refund` first and `refund a paid order` ranks `OrderService#refund` first.
 
 ### 6.9 RepoMapBuilder
-Builds a text outline within `app.repo-map.max-tokens` (12K):
+`RepoMapBuilder.build(List<RepoFile>)` (`codebase.map`, task 1.7) builds a text outline within `app.repo-map.max-tokens` (12K) for the summary and interview-plan prompts. `RepoFile(RedactedFile file, FileRole role)`: the map goes into prompts, so it is built from redacted text. The planner may only point at paths and symbols it sees here.
 ```
 src/main/java/com/acme/shop/payment/
-  PaymentService [SERVICE] @Service @Transactional
-    + refund(UUID orderId, Money amount): Refund
-    + charge(ChargeCommand cmd): Payment
+  PaymentService [SERVICE] @Service
+    + refund(UUID orderId, Money amount): Refund @Transactional
+    + charge(ChargeCommand cmd): Payment @Transactional
   StripeWebhookController [CONTROLLER] @RestController @RequestMapping("/webhooks")
-    + handle(String payload, String signature): ResponseEntity<Void>
+    + handle(String payload, String signature): ResponseEntity<Void> @PostMapping
 ```
-Priority order when the budget runs out: CONTROLLER, SERVICE, ENTITY, SECURITY, MESSAGING, CONFIG, REPOSITORY, BUILD, MIGRATION, DTO, OTHER, TEST, DOC. Lower-priority files are collapsed to a single line (`  12 more DTO classes`). Build files (`pom.xml` dependencies only) and the README (first 150 lines) are passed to the summary prompt separately.
+Layout: folders sorted by path (`./` for the root), files sorted by name inside. A non-Java file, or Java that does not parse, is one line: `application.yml [CONFIG]`. Java files are outlined by `JavaOutline`, one entry per top-level type:
+- **Type line:** `Name [ROLE]`, the type's annotations, then `extends` / `implements`. A record shows `record(Type a, Type b)`, an enum its constants (first 20, then `+N more`).
+- **Methods:** public ones (in an interface, every non-private one), as `+ name(Type a, Type b): Return` followed by the method's annotations, because `@PostMapping` and `@Transactional` are what interviewers ask about. Left out: constructors, plain getters and setters, `equals` / `hashCode` / `toString`. In TEST files, `@Test`-style methods are shown even when package-private (no `+`).
+- **Fields:** only for ENTITY: `- id: UUID @Id @GeneratedValue`.
+- **Nested types:** one line each, for example `enum Status { PAID, REFUNDED }`.
+- Annotations are printed on one line and cut at 100 characters with `…`. Parameter annotations and `@Override` / `@SuppressWarnings` are left out.
+
+**Budget:** when the map does not fit, roles are shrunk one at a time, least important first: DOC, TEST, OTHER, DTO, MIGRATION, BUILD, REPOSITORY, CONFIG, MESSAGING, SECURITY, ENTITY, SERVICE, CONTROLLER. Each role in two steps, checking the size after each: first **names only** (type lines stay, member lines go, so the paths stay visible to the planner), then **count** (its files in each folder become one line, `  12 more DTO files`). If even the all-counts map is too big, the last lines are cut and `... (repo map truncated)` is added, so the result is always within budget. Size is `TokenEstimator` (`ceil(chars / 4)`).
+
+Build files (`pom.xml` dependencies only) and the README (first 150 lines) are not part of the map; they are passed to the summary prompt separately (task 1.9).
 
 ### 6.10 StaleAnalysisRecovery
 On `ApplicationReadyEvent`: projects in `CLONING`, `PARSING`, `EMBEDDING` or `SUMMARIZING` whose `updated_at` is older than 15 minutes → `FAILED` with reason "Analysis was interrupted. Use reanalyzeProject to retry."
