@@ -213,7 +213,7 @@ Spring for GraphQL turns `Window<T>` into the `ProjectConnection` shape. The cur
 Controllers map entities to `api` view records (`ProjectView`, `QuestionView`, ...). `Project.name` is `owner/repo`. `DateTime` fields must be `OffsetDateTime` (or `ZonedDateTime`) in views: the extended-scalars `DateTime` cannot serialize `Instant` or `LocalDateTime`. `QuestionView` never contains the rubric. `AnswerEvaluationView.idealAnswerOutline` is read from the question, only once the answer exists.
 
 ### 5.4 Other GraphQL settings
-- GraphiQL on in `local` profile only (`spring.graphql.graphiql.enabled`).
+- GraphiQL on in the `dev` and `stage` environments only (`spring.graphql.graphiql.enabled`); off in `application.yml` and prod.
 - Schema inspection report on (`spring.graphql.schema.inspection.enabled=true`): it logs schema fields with no resolver. The `interviewEvents` subscription is expected to show up there until Phase 2.
 - WebSocket path for subscriptions: `/graphql-ws` (task 1.18).
 - Phase 4: max query depth and complexity instrumentation.
@@ -529,6 +529,8 @@ public record AppProperties(Repo repo, Chunking chunking, Embedding embedding, R
                             RepoMap repoMap, Analysis analysis, Interview interview, Llm llm) { ... }
 ```
 Lives in `common.config`, registered by `@ConfigurationPropertiesScan` on the application class. All keys and defaults are in `src/main/resources/application.yml`.
+
+- **Environments (D-015):** `application.yml` is the default every environment starts from; `application-dev.yml`, `src/test/resources/application-test.yml`, `application-stage.yml` and `application-prod.yml` override it, and environment variables override both. The default has no database or Ollama fallback. `NoEnvironmentGuard` (`@Profile("default")`, a `BeanFactoryPostProcessor`) stops startup with a clear message when no environment is chosen. `./mvnw spring-boot:run` uses dev (Maven property `spring-boot.run.profiles`); the jar has no default.
 
 - **Startup validation:** field constraints (`@Positive`, `@NotBlank`, `@DurationMin`, question counts `@Min(1) @Max(8)` to match the `ck_session_count` DB check) plus cross-field `@AssertTrue` checks: `min ≤ default ≤ max` question count, `follow-up-score-min ≤ max`, `max-calls-per-session ≤ max-calls-per-day`. Every nested section is `@Valid`, or its constraints are skipped.
 - **Strict keys:** `ignoreUnknownFields = false`, so a misspelled `app.*` key fails startup. A new YAML key must be added to the record in the same change.

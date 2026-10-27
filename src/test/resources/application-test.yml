@@ -1,0 +1,14 @@
+# test: the automated tests (./mvnw verify, locally and in CI), activated by @IntegrationTest.
+# Lives on the test classpath, so none of this ships in the application jar.
+# The database comes from Testcontainers (@ServiceConnection in TestcontainersConfiguration), which
+# replaces spring.datasource.*. No test calls a real model or Ollama: FakeLlmGateway and FakeEmbeddingModel.
+
+spring:
+  graphql:
+    graphiql:
+      enabled: false
+  ai:
+    anthropic:
+      api-key: test-key-not-used   # only satisfies auto-configuration
+    ollama:
+      base-url: http://localhost:11434   # never called; only satisfies auto-configuration

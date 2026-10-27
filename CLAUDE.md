@@ -17,7 +17,7 @@ Java 21 · Spring Boot 4.1.x · Spring for GraphQL · Spring AI 2.0.x (Anthropic
 
 ## Commands
 - Start infrastructure: `docker compose up -d` (Postgres on localhost:5433). Ollama runs natively on macOS (`brew services start ollama`, port 11434), or in Docker with `docker compose --profile ollama up -d` (DECISIONS.md D-013). Phase 2: `docker compose --profile kafka up -d`
-- Run the app: `./mvnw spring-boot:run` → GraphiQL at http://localhost:8080/graphiql
+- Run the app: `./mvnw spring-boot:run` (dev environment) → GraphiQL at http://localhost:8080/graphiql. Environments: dev → test → stage → prod over the defaults in `application.yml` (DECISIONS.md D-015).
 - Tests: `./mvnw test` · full check (tests + ArchUnit): `./mvnw verify`
 - Opt-in evals with real model calls (costs money, ask first): `./mvnw verify -Pevals`
 - Secrets: copy `.env.example` to `.env`. Never print, log or commit `ANTHROPIC_API_KEY`.

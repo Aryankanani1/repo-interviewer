@@ -1,0 +1,12 @@
+# stage: production-like, the last check before prod. Same settings as prod except where noted.
+# Connection settings come from environment variables (Kubernetes ConfigMap and Secret in Phase 3):
+#   SPRING_PROFILES_ACTIVE=stage, DB_URL, DB_USER, DB_PASSWORD, OLLAMA_BASE_URL, ANTHROPIC_API_KEY
+
+spring:
+  graphql:
+    graphiql:
+      enabled: true   # for manual checks before a release; off in prod
+
+app:
+  llm:
+    max-calls-per-day: 100   # stage spends real money too: a lower cap than prod

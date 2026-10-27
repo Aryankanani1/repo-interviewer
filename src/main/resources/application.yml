@@ -1,4 +1,14 @@
-# Repo Interviewer configuration.
+# Repo Interviewer configuration: the default (base) settings that every environment starts from.
+#
+# Environments, in promotion order (DECISIONS.md D-015):
+#   dev    application-dev.yml                    your machine; the default for ./mvnw spring-boot:run
+#   test   src/test/resources/application-test.yml automated tests (./mvnw verify, CI)
+#   stage  application-stage.yml                  production-like, before release
+#   prod   application-prod.yml                   live
+# Spring reads this file first, then the active environment's file on top (its values win), then
+# environment variables on top of both. This file has no localhost fallbacks for the database or Ollama,
+# so an app started without an environment fails at startup instead of quietly using the wrong one.
+#
 # Spring AI 2.0 property names: verify against the Spring AI 2.0 reference docs during task 0.1.
 # Secrets come from environment variables or a local .env file (gitignored). Never commit keys.
 
@@ -11,9 +21,9 @@ spring:
     virtual:
       enabled: true
   datasource:
-    url: jdbc:postgresql://localhost:${DB_PORT:5433}/repo_interviewer   # host port from docker-compose.yml
-    username: ${DB_USER:ri}
-    password: ${DB_PASSWORD:ri}
+    url: ${DB_URL}
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
   jpa:
     open-in-view: false
     hibernate:
@@ -22,7 +32,7 @@ spring:
     enabled: true
   graphql:
     graphiql:
-      enabled: true
+      enabled: false   # on in dev and stage only
     schema:
       inspection:
         enabled: true
@@ -39,7 +49,7 @@ spring:
           model: claude-sonnet-5   # default; the gateway overrides per purpose (app.llm.models)
           max-tokens: 2048
     ollama:
-      base-url: http://localhost:11434
+      base-url: ${OLLAMA_BASE_URL}
       embedding:
         options:
           model: nomic-embed-text
@@ -112,15 +122,3 @@ app:
     max-calls-per-session: 30
     max-calls-per-day: 300
     timeout: 60s
-
----
-spring:
-  config:
-    activate:
-      on-profile: test
-  graphql:
-    graphiql:
-      enabled: false
-  ai:
-    anthropic:
-      api-key: test-key-not-used   # tests use FakeLlmGateway; this only satisfies auto-configuration

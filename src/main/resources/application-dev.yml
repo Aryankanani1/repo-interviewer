@@ -1,0 +1,19 @@
+# dev: your machine. Infrastructure from docker-compose.yml (Postgres on host port 5433) and native
+# Ollama (DECISIONS.md D-013). The default for ./mvnw spring-boot:run (pom.xml spring-boot.run.profiles).
+# The credentials below are the compose defaults for a local throwaway database, not real secrets.
+
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:${DB_PORT:5433}/repo_interviewer
+    username: ${DB_USER:ri}
+    password: ${DB_PASSWORD:ri}
+  graphql:
+    graphiql:
+      enabled: true   # http://localhost:8080/graphiql
+  ai:
+    ollama:
+      base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+
+logging:
+  level:
+    com.aryankanani.repointerviewer: DEBUG

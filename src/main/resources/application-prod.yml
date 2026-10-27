@@ -1,0 +1,11 @@
+# prod: live. Connection settings come from environment variables (Kubernetes ConfigMap and Secret in
+# Phase 3): SPRING_PROFILES_ACTIVE=prod, DB_URL, DB_USER, DB_PASSWORD, OLLAMA_BASE_URL, ANTHROPIC_API_KEY.
+# Do not deploy publicly before Phase 4 adds authentication (DECISIONS.md D-010).
+
+spring:
+  graphql:
+    graphiql:
+      enabled: false
+    schema:
+      inspection:
+        enabled: false   # the startup report about unmapped fields is a development aid
