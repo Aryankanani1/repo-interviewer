@@ -5,6 +5,8 @@ import com.aryankanani.repointerviewer.common.error.DomainException;
 import com.aryankanani.repointerviewer.interview.InterviewService;
 import com.aryankanani.repointerviewer.interview.StartInterviewCommand;
 import com.aryankanani.repointerviewer.interview.StartResult;
+import com.aryankanani.repointerviewer.interview.SubmitAnswerCommand;
+import com.aryankanani.repointerviewer.interview.SubmitAnswerResult;
 import com.aryankanani.repointerviewer.project.ProjectService;
 import java.util.List;
 import java.util.UUID;
@@ -15,8 +17,8 @@ import org.springframework.graphql.data.method.annotation.SchemaMapping;
 import org.springframework.stereotype.Controller;
 
 /**
- * Resolvers for {@code Mutation.startInterview}, {@code Query.interviewSession} and the fields that link sessions,
- * projects and questions.
+ * Resolvers for {@code Mutation.startInterview}, {@code Mutation.submitAnswer}, {@code Query.interviewSession} and
+ * the fields that link sessions, projects, questions and answers.
  *
  * <p>The {@code @SchemaMapping} resolvers below run once per parent object: a list of 20 sessions asking for their
  * project runs 20 queries (the N+1 problem). That is on purpose for now: task 1.13 measures it and replaces them
@@ -50,6 +52,25 @@ class InterviewController {
 		}
 	}
 
+	/**
+	 * {@code submitAnswer(input): SubmitAnswerPayload!}. Grades the answer and returns the next question, or the
+	 * completed session. Safe to send again with the same text.
+	 */
+	@MutationMapping
+	SubmitAnswerPayload submitAnswer(@Argument SubmitAnswerInput input) {
+		try {
+			SubmitAnswerResult result = interviewService.submitAnswer(
+					new SubmitAnswerCommand(input.questionId(), input.text()));
+			return new SubmitAnswerPayload(AnswerView.from(result.answer(), result.question()),
+					result.nextQuestion() == null ? null : QuestionView.from(result.nextQuestion()),
+					InterviewSessionView.from(result.session()),
+					result.error() == null ? List.of() : List.of(UserErrorMapper.toUserError(result.error())));
+		}
+		catch (DomainException ex) {
+			return new SubmitAnswerPayload(null, null, null, List.of(UserErrorMapper.toUserError(ex)));
+		}
+	}
+
 	/** {@code interviewSession(id: ID!): InterviewSession}. Not found returns null. */
 	@QueryMapping
 	InterviewSessionView interviewSession(@Argument UUID id) {
@@ -72,6 +93,21 @@ class InterviewController {
 			return null;
 		}
 		return interviewService.question(session.currentQuestionId()).map(QuestionView::from).orElse(null);
+	}
+
+	@SchemaMapping(typeName = "Question")
+	AnswerView answer(QuestionView question) {
+		return interviewService.answerOf(question.id())
+				.map(answer -> AnswerView.from(answer, interviewService.question(question.id()).orElseThrow()))
+				.orElse(null);
+	}
+
+	@SchemaMapping(typeName = "Question")
+	QuestionView parent(QuestionView question) {
+		if (question.parentQuestionId() == null) {
+			return null;
+		}
+		return interviewService.question(question.parentQuestionId()).map(QuestionView::from).orElse(null);
 	}
 
 	@SchemaMapping(typeName = "Project")

@@ -50,7 +50,23 @@ public class Retriever {
 				.forEach(chunk -> merged.putIfAbsent(chunk.id(), chunk));
 		chunkStore.search(projectId, embeddingService.embedQuery(query.text()), topK, query.includeTests())
 				.forEach(chunk -> merged.putIfAbsent(chunk.id(), chunk));
+		return withinBudget(merged, maxTokens);
+	}
 
+	/**
+	 * The code that given line ranges point at ({@link ChunkStore#chunksOverlapping}), in the order of the ranges:
+	 * grading an answer and writing a follow-up see the same code the question was about. No search by meaning.
+	 */
+	public RetrievedContext forRanges(UUID projectId, List<LineRange> ranges, int maxTokens) {
+		Map<UUID, RetrievedChunk> merged = new LinkedHashMap<>();
+		for (LineRange range : ranges) {
+			chunkStore.chunksOverlapping(projectId, range.path(), range.startLine(), range.endLine())
+					.forEach(chunk -> merged.putIfAbsent(chunk.id(), chunk));
+		}
+		return withinBudget(merged, maxTokens);
+	}
+
+	private static RetrievedContext withinBudget(Map<UUID, RetrievedChunk> merged, int maxTokens) {
 		List<RetrievedChunk> selected = new ArrayList<>();
 		int total = 0;
 		for (RetrievedChunk chunk : merged.values()) {

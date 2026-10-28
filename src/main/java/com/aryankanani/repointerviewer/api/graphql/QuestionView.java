@@ -10,8 +10,9 @@ import java.util.UUID;
 
 /**
  * GraphQL type {@code Question}. Deliberately without the rubric and the ideal outline: they would give the answer
- * away (they appear only on {@code AnswerEvaluation}, after answering). {@code answer} and {@code parent} stay null
- * until task 1.11; {@code CodeRef.snippet} until 1.13.
+ * away (they appear only on {@code AnswerEvaluation}, after answering). {@code answer} and {@code parent} have
+ * resolvers in {@link InterviewController}, which use {@code parentQuestionId} (not a schema field).
+ * {@code CodeRef.snippet} stays null until task 1.13.
  */
 record QuestionView(
 		UUID id,
@@ -20,11 +21,13 @@ record QuestionView(
 		String text,
 		boolean isFollowUp,
 		List<CodeRef> codeRefs,
-		OffsetDateTime askedAt) {
+		OffsetDateTime askedAt,
+		UUID parentQuestionId) {
 
 	static QuestionView from(Question question) {
 		return new QuestionView(question.getId(), question.getOrderIndex(), question.getCategory(), question.getText(),
-				question.isFollowUp(), question.getCodeRefs(), question.getAskedAt().atOffset(ZoneOffset.UTC));
+				question.isFollowUp(), question.getCodeRefs(), question.getAskedAt().atOffset(ZoneOffset.UTC),
+				question.getParentQuestionId());
 	}
 
 }

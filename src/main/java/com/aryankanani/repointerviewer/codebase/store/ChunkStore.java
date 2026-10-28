@@ -145,6 +145,25 @@ public class ChunkStore {
 		}, ChunkStore::retrievedChunk);
 	}
 
+	/**
+	 * The chunks a line range of one file falls in, in file order: the code a question's ref points at. Method,
+	 * config and other chunks hold exactly their lines, so they are preferred; only when none overlaps (for
+	 * example a ref on a field) is the type's condensed TYPE_HEADER returned instead.
+	 */
+	public List<RetrievedChunk> chunksOverlapping(UUID projectId, String path, int startLine, int endLine) {
+		String sql = """
+				SELECT id, path, symbol, start_line, end_line, content, token_estimate, 1.0 AS similarity
+				FROM code_chunk
+				WHERE project_id = ? AND path = ? AND start_line <= ? AND end_line >= ? AND chunk_type %s 'TYPE_HEADER'
+				ORDER BY start_line
+				""";
+		List<RetrievedChunk> exact = jdbc.query(sql.formatted("<>"), ChunkStore::retrievedChunk, projectId, path, endLine,
+				startLine);
+		return exact.isEmpty()
+				? jdbc.query(sql.formatted("="), ChunkStore::retrievedChunk, projectId, path, endLine, startLine)
+				: exact;
+	}
+
 	/** Every symbol in the project ({@code Order}, {@code Order#markRefunded}, ...), for checking a plan. */
 	public List<String> symbols(UUID projectId) {
 		return jdbc.queryForList("SELECT DISTINCT symbol FROM code_chunk WHERE project_id = ? AND symbol IS NOT NULL",

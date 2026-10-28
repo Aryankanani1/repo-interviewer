@@ -82,10 +82,10 @@ ri
 │   └── StaleAnalysisRecovery.java
 ├── interview/              # sessions, topics, questions, answers, scoring, report
 │   ├── InterviewService.java       # use cases: start, submitAnswer, end
-│   ├── InterviewSession, InterviewTopic, Question (+ repositories), CodeRef, Rubric, enums
+│   ├── InterviewSession, InterviewTopic, Question, Answer (+ repositories), CodeRef, Rubric, enums
 │   ├── planning/   QuestionPlanner, TopicValidator, SummaryText
 │   ├── question/   QuestionGenerator, CodeRefValidator, GeneratedQuestion, QuestionPrefetcher
-│   ├── evaluation/ AnswerEvaluator, FollowUpPolicy, Scoring
+│   ├── evaluation/ AnswerEvaluator, FollowUpPolicy, Scoring, Evaluation, RubricText
 │   └── report/     ReportWriter
 └── api/                    # GraphQL controllers, input/output mapping, error mapping
     ├── graphql/    ProjectController, InterviewController, SubscriptionController
@@ -523,21 +523,24 @@ A `DomainException` after the session exists (plan or question failed, `LLM_UNAV
 GraphQL (task 1.10): `startInterview`, `interviewSession(id)`, and plain `@SchemaMapping` resolvers for `InterviewSession.project`, `.questions` (asked ones, in order), `.currentQuestion` and `Project.sessions` — one query per parent, on purpose: task 1.13 measures the N+1 and replaces them with `@BatchMapping`. `Question.answer`, `.parent`, `CodeRef.snippet` and `InterviewSession.report` stay null until tasks 1.11–1.13. `QuestionView` has no rubric or ideal outline.
 
 ### 9.2 `InterviewService.submitAnswer(SubmitAnswerCommand cmd)`
-Every step is resumable. Re-sending the same `(questionId, text)` continues from where it stopped.
+Every step is resumable: its result is saved before the next one starts. Re-sending the same `(questionId, text)` continues from where it stopped, and a step already done is not done again (no extra model call).
 
-1. Validate text: blank → `ANSWER_EMPTY`; over 4000 characters → `ANSWER_TOO_LONG`.
-2. Load question and session. Session not `IN_PROGRESS` → `SESSION_NOT_ACTIVE`. `session.currentQuestionId != questionId` → if the question already has an answer with the same `text_sha`, **resume** (go to step 4 or return the stored result); otherwise `NOT_CURRENT_QUESTION`.
-3. Tx: insert the answer with a null evaluation. Unique violation on `question_id` → if `text_sha` matches, resume; otherwise `ALREADY_ANSWERED`.
-4. If not yet evaluated: retrieve the same chunks as the question's `code_refs` (exact lookup by path and line overlap) → EVALUATION call → `Scoring.verdict(score)` → tx: save the evaluation and mark the question `ANSWERED`.
-5. Decide next with `FollowUpPolicy.shouldFollowUp(evaluation, topic, session)`:
-   - `followUpNeeded` is true **and** `score` is within `[follow-up-score-min, follow-up-score-max]` (3..7) **and** `topic.followUpCount < max-follow-ups-per-topic` (1) **and** the budget allows.
-6. If follow-up: FOLLOW_UP call → validate refs (§9.3) → tx: insert as `ASKED`, `parent_question_id` set, `topic.followUpCount++`.
-   Else: topic → `DONE`; next `PENDING` topic: use its `PREPARED` question if one exists, otherwise generate it now → tx: `ASKED`.
-   If no topics are left: `ReportWriter.write(session)` → session `COMPLETED`.
-7. Tx (with `@Version` check on the session): set `current_question_id` and the next `order_index` (max + 1).
-8. Return `{answer + evaluation, nextQuestion, session}`.
+1. Validate text (trimmed): blank → `ANSWER_EMPTY`; over `app.interview.answer-max-chars` (4000) → `ANSWER_TOO_LONG` (field `text`). Unknown question → `NOT_FOUND`.
+2. Look for the question's answer **first** (task 1.11 order): it exists with the same `text_sha` (SHA-256 of the trimmed text) → resume with it; with another `text_sha` → `ALREADY_ANSWERED`. Only for a new answer: session not `IN_PROGRESS` → `SESSION_NOT_ACTIVE`; `session.currentQuestionId != questionId` → `NOT_CURRENT_QUESTION`. Checking the answer first means re-sending the last answer of a completed interview returns its stored result.
+3. Tx: insert the answer with a null evaluation. Unique violation on `question_id` (`uq_answer_question`) → re-read: same `text_sha` → resume; otherwise `ALREADY_ANSWERED`.
+4. If not yet evaluated and the session is `IN_PROGRESS`: `AnswerEvaluator` (`Retriever.forRanges` on the question's `code_refs`: the chunks each range falls in, the TYPE_HEADER only when no exact chunk does) → EVALUATION call (rubric as text, answer inside `<candidate_answer>`) → `Scoring.verdict(score)` → tx: lock the answer row (`SELECT ... FOR UPDATE`), save the evaluation only if still unevaluated, mark the question `ANSWERED`.
+5. If the question is still the session's current one, decide next with `FollowUpPolicy.shouldFollowUp(evaluation, followUpsOnTopic, callsUsed, topicsLeft)`, all of:
+   - `followUpNeeded` is true **and** `score` is within `[follow-up-score-min, follow-up-score-max]` (3..7) **and** `topic.followUpCount < max-follow-ups-per-topic` (1);
+   - **and** the budget allows: `max-calls-per-session - llm_call_count ≥ 3 (the follow-up: write with one retry, grade) + 3 × topics still PENDING + 1 (report)`. A follow-up only uses calls the rest of the interview does not need.
+6. If follow-up: `QuestionGenerator.generateFollowUp` (FOLLOW_UP call on the parent's code, refs checked and one retry, §9.3); none valid → no follow-up. Else: next `PENDING` topic: generate its main question (a topic without one is `SKIPPED`, the next is tried). If no topics are left: session `COMPLETED` (`current_question_id` null, `completed_at`); the report is written there in task 1.12.
+7. One tx for the whole step, run only if the session's `@Version` still equals the value read before the model calls: insert the question as `ASKED` with order `max + 1` (and `parent_question_id`, `topic.followUpCount++` for a follow-up; previous topic `DONE` and next topic `ASKED` otherwise), set `current_question_id`. A version change means another request already moved the session on: its result is returned.
+8. Return `SubmitAnswerResult(answer, question, nextQuestion = the question with the next order_index, session, error)`.
+
+Failures never lose the answer: grading failed (`LLM_UNAVAILABLE`, `BUDGET_EXCEEDED`) → the stored, ungraded answer and the error; the next question failed → the graded answer and the error. The session stays `IN_PROGRESS`, and sending the same text again finishes the job. Two identical requests at the same instant may cost one extra model call, but the row lock and the version check keep the data right.
 
 **Never hold a database transaction open across an LLM call.** Pattern: short tx → LLM call (no tx) → short tx with a version check.
+
+GraphQL (task 1.11): `submitAnswer` returns the answer with its `AnswerEvaluation` (where `idealAnswerOutline` appears, after answering), the next question and the session; `Question.answer` and `Question.parent` have plain resolvers (batched in task 1.13).
 
 ### 9.3 `QuestionGenerator` and `CodeRefValidator`
 1. `Retriever.forTopic(projectId, TopicQuery(topic.title + ". " + topic.rationale, paths, symbols, category == TESTING), app.retrieval.max-context-tokens)`.
@@ -554,7 +557,7 @@ After a main question becomes `ASKED`, generate the next `PENDING` topic's main 
 
 ```java
 verdict(score):  8..10 STRONG | 5..7 ADEQUATE | 1..4 WEAK | 0 OFF_TOPIC
-weight(q):       main question 1.0, follow-up 0.5
+weight(q):       main question 1.0, follow-up 0.5        (task 1.12)
 overall:         round1( Σ weight·score / Σ weight ) over answered questions
 categoryScores:  per category, plain average of answered questions, with the count
 ```

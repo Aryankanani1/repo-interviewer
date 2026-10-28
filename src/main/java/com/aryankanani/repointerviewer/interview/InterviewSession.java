@@ -110,6 +110,21 @@ public class InterviewSession {
 		this.currentQuestionId = firstQuestionId;
 	}
 
+	/** IN_PROGRESS: the next question is on screen. */
+	void advance(UUID nextQuestionId) {
+		if (status != SessionStatus.IN_PROGRESS) {
+			throw new IllegalStateException("Session " + id + " is " + status + ", expected IN_PROGRESS");
+		}
+		this.currentQuestionId = nextQuestionId;
+	}
+
+	/** IN_PROGRESS → COMPLETED: the last topic is done. */
+	void complete() {
+		transitionTo(SessionStatus.COMPLETED);
+		this.currentQuestionId = null;
+		this.completedAt = Instant.now();
+	}
+
 	/** PLANNING → FAILED. The reason is shown to the user. */
 	void fail(String reason) {
 		transitionTo(SessionStatus.FAILED);
@@ -151,6 +166,11 @@ public class InterviewSession {
 
 	public int getLlmCallCount() {
 		return llmCallCount;
+	}
+
+	/** For the manual optimistic-lock check across a model call (LLD §9.2 step 7). */
+	public long getVersion() {
+		return version;
 	}
 
 	public Instant getStartedAt() {

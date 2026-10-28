@@ -85,6 +85,31 @@ public class Question {
 		return question;
 	}
 
+	/** A follow-up on {@code parent}: same session, topic and category. */
+	static Question followUp(Question parent, String text, List<CodeRef> codeRefs, Rubric rubric,
+			List<String> idealAnswerOutline, String promptVersion) {
+		Question question = new Question();
+		question.sessionId = parent.sessionId;
+		question.topicId = parent.topicId;
+		question.parentQuestionId = parent.id;
+		question.category = parent.category;
+		question.text = text;
+		question.followUp = true;
+		question.codeRefs = List.copyOf(codeRefs);
+		question.rubric = rubric;
+		question.idealAnswerOutline = List.copyOf(idealAnswerOutline);
+		question.status = QuestionStatus.PREPARED;
+		question.promptVersion = promptVersion;
+		return question;
+	}
+
+	/** ASKED → ANSWERED, once its answer is graded. */
+	void answered() {
+		if (status == QuestionStatus.ASKED) {
+			status = QuestionStatus.ANSWERED;
+		}
+	}
+
 	/** PREPARED → ASKED: shown to the candidate as question number {@code orderIndex}. */
 	void ask(int orderIndex) {
 		if (status != QuestionStatus.PREPARED) {

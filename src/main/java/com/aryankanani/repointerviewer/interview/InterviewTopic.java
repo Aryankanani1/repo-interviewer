@@ -68,6 +68,18 @@ public class InterviewTopic {
 		status = TopicStatus.ASKED;
 	}
 
+	/** One more follow-up asked on this topic; it stays ASKED. */
+	void followUpAsked() {
+		requireStatus(TopicStatus.ASKED);
+		followUpCount++;
+	}
+
+	/** ASKED → DONE: its main question and any follow-up are answered. */
+	void done() {
+		requireStatus(TopicStatus.ASKED);
+		status = TopicStatus.DONE;
+	}
+
 	/** PENDING → SKIPPED: no grounded question could be written for it. */
 	void skip() {
 		requireStatus(TopicStatus.PENDING);

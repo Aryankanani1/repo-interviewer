@@ -112,6 +112,32 @@ class RetrieverTest {
 		assertThat(symbols(context)).startsWith("OrderServiceTest");
 	}
 
+	@Test
+	void aLineRangeGetsTheChunksItFallsInNotTheTypeHeader() {
+		RetrievedContext context = retriever.forRanges(project, List.of(new LineRange(ORDER + "OrderService.java", 30, 35)),
+				6000);
+
+		assertThat(symbols(context)).containsExactly("OrderService#refund");
+	}
+
+	@Test
+	void aLineRangeOnFieldsFallsBackToTheTypeHeader() {
+		RetrievedContext context = retriever.forRanges(project, List.of(new LineRange(ORDER + "Order.java", 20, 25)), 6000);
+
+		assertThat(symbols(context)).containsExactly("Order");   // no method chunk covers the fields
+	}
+
+	@Test
+	void severalRangesKeepTheirOrderAndEachChunkOnce() {
+		RetrievedContext context = retriever.forRanges(project, List.of(
+				new LineRange(ORDER + "OrderController.java", 27, 30),
+				new LineRange(ORDER + "OrderService.java", 17, 42),
+				new LineRange(ORDER + "OrderController.java", 28, 29)), 6000);
+
+		assertThat(symbols(context)).containsExactly("OrderController#refund", "OrderService#find",
+				"OrderService#place", "OrderService#refund");
+	}
+
 	private static TopicQuery query(String text, List<String> paths, List<String> symbols) {
 		return new TopicQuery(text, paths, symbols, false);
 	}
