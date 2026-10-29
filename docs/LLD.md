@@ -194,22 +194,28 @@ Schema: `src/main/resources/graphql/schema.graphqls` (source of truth).
 |---|---|---|
 | `Query.project` | `ProjectController.project(@Argument UUID id)` | `ProjectService.find` |
 | `Query.projects` | `ProjectController.projects(ScrollSubrange)` returning `Window<ProjectView>` | `ProjectService.page` (keyset on `created_at, id`) |
-| `Query.interviewSession` | `InterviewController.session(id)` | `InterviewService.findSession` |
+| `Query.interviewSession` | `InterviewController.interviewSession(id)` | `InterviewService.find` |
 | `Mutation.submitProject` | `ProjectController.submitProject(@Argument SubmitProjectInput input)` | `ProjectService.submit` |
 | `Mutation.reanalyzeProject` | `ProjectController.reanalyze` | `ProjectService.reanalyze` |
 | `Mutation.startInterview` | `InterviewController.startInterview` | `InterviewService.start` |
 | `Mutation.submitAnswer` | `InterviewController.submitAnswer` | `InterviewService.submitAnswer` |
-| `Mutation.endInterview` | `InterviewController.endInterview` | `InterviewService.end` |
-| `Project.sessions` | `@BatchMapping` | `InterviewService.sessionsByProjectIds` |
+| `Mutation.endInterview` | `InterviewController.endInterview` | `InterviewService.endInterview` |
+| `Project.sessions` | `@BatchMapping` → `List` | `InterviewService.sessionsByProjectIds` |
 | `Project.files` | `@SchemaMapping` (arguments: role, first) | `CodeFileQueries.list` |
-| `InterviewSession.project` | `@BatchMapping` | `ProjectService.findByIds` |
-| `InterviewSession.questions` | `@BatchMapping` | `InterviewService.askedQuestionsBySessionIds` |
-| `Question.answer` | `@BatchMapping` | `InterviewService.answersByQuestionIds` |
-| `Question.parent` | `@BatchMapping` | `InterviewService.questionsByIds` |
-| `CodeRef.snippet` | `@BatchMapping` | `ChunkStore.snippets(refs)` (one query for all refs) |
+| `InterviewSession.project` | `@BatchMapping` → `List` | `ProjectService.findByIds` |
+| `InterviewSession.questions` | `@BatchMapping` → `List` | `InterviewService.askedQuestionsBySessionIds` |
+| `InterviewSession.currentQuestion` | `@BatchMapping` → `Map` | `InterviewService.questionsByIds` |
+| `InterviewSession.report` | property of the view | stored JSONB `InterviewReport` |
+| `Question.answer` | `@BatchMapping` → `Map` | `InterviewService.answersByQuestionIds` + `questionsByIds` (ideal outlines) |
+| `Question.parent` | `@BatchMapping` → `Map` | `InterviewService.questionsByIds` |
+| `CodeRef.snippet` | `@BatchMapping` → `Map` | `InterviewService.projectIdsBySessionIds` + `CodebaseQueries.snippets` → `ChunkStore.snippets(refs)` (one query for all refs) |
 | `Subscription.projectAnalysisProgress` | `SubscriptionController` returning `Flux<AnalysisProgressEvent>` | `AnalysisEvents` (Reactor `Sinks.Many` per project) |
 
 Spring for GraphQL turns `Window<T>` into the `ProjectConnection` shape. The cursor encodes `(createdAt, id)`.
+
+**Batch loading (task 1.13).** A `@BatchMapping` method is called once per field and query level with every parent object (the DataLoader pattern) and makes one `IN (...)` query, so a field costs one query however many parents there are. Fields that always have a value return a `List` in the parents' order; nullable fields return a `Map` from parent to value with missing parents meaning null, because Spring streams the values through Reactor, which rejects null elements. `NPlusOneTest` counts SQL statements (test `SqlStatementCounter`, a `DelegatingDataSource` with dynamic-proxy connections): a session query with every nested field costs 10 statements for 3 questions and for 8 (before: 11 and 21).
+
+`CodeRef.snippet` is cut from the stored chunks: `ChunkStore.snippets` sends all refs as parallel arrays (`unnest(?::uuid[], ?::text[], ?::int[], ?::int[]) WITH ORDINALITY`) joined to the overlapping non-TYPE_HEADER chunks, which hold their lines exactly. Lines only a TYPE_HEADER covers (fields) are not stored verbatim and show as one `…` per gap; no stored line → null.
 
 ### 5.2 Error handling
 - **Expected failures** (`DomainException` with an `ErrorCode`) are caught in the controller and returned as `payload.errors`. The payload's main field is `null`.

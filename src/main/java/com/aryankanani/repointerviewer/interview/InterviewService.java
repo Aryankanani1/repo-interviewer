@@ -20,7 +20,9 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HexFormat;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -260,26 +262,47 @@ public class InterviewService {
 		return sessions.findById(sessionId);
 	}
 
-	/** Newest first. */
-	@Transactional(readOnly = true)
-	public List<InterviewSession> sessionsOf(UUID projectId) {
-		return sessions.findByProjectIdOrderByStartedAtDesc(projectId);
-	}
-
 	/** The questions shown so far, in order. Prepared (prefetched) ones are never returned. */
 	@Transactional(readOnly = true)
 	public List<Question> askedQuestions(UUID sessionId) {
 		return questions.findBySessionIdAndOrderIndexNotNullOrderByOrderIndex(sessionId);
 	}
 
+	// Batch reads for GraphQL (@BatchMapping, task 1.13): one query for many parents, keyed by the parent's id.
+
+	/** Project id to its sessions, newest first. One query. */
 	@Transactional(readOnly = true)
-	public Optional<Question> question(UUID questionId) {
-		return questions.findById(questionId);
+	public Map<UUID, List<InterviewSession>> sessionsByProjectIds(Collection<UUID> projectIds) {
+		return sessions.findByProjectIdInOrderByStartedAtDesc(projectIds).stream()
+				.collect(Collectors.groupingBy(InterviewSession::getProjectId, LinkedHashMap::new, Collectors.toList()));
 	}
 
+	/** Session id to its asked questions, in order. One query. */
 	@Transactional(readOnly = true)
-	public Optional<Answer> answerOf(UUID questionId) {
-		return answers.findByQuestionId(questionId);
+	public Map<UUID, List<Question>> askedQuestionsBySessionIds(Collection<UUID> sessionIds) {
+		return questions.findBySessionIdInAndOrderIndexNotNullOrderByOrderIndex(sessionIds).stream()
+				.collect(Collectors.groupingBy(Question::getSessionId, LinkedHashMap::new, Collectors.toList()));
+	}
+
+	/** Question id to question. One query. */
+	@Transactional(readOnly = true)
+	public Map<UUID, Question> questionsByIds(Collection<UUID> questionIds) {
+		return questions.findAllById(questionIds).stream()
+				.collect(Collectors.toMap(Question::getId, Function.identity()));
+	}
+
+	/** Question id to its answer, for the questions that have one. One query. */
+	@Transactional(readOnly = true)
+	public Map<UUID, Answer> answersByQuestionIds(Collection<UUID> questionIds) {
+		return answers.findByQuestionIdIn(questionIds).stream()
+				.collect(Collectors.toMap(Answer::getQuestionId, Function.identity()));
+	}
+
+	/** Session id to its project id. One query. */
+	@Transactional(readOnly = true)
+	public Map<UUID, UUID> projectIdsBySessionIds(Collection<UUID> sessionIds) {
+		return sessions.findAllById(sessionIds).stream()
+				.collect(Collectors.toMap(InterviewSession::getId, InterviewSession::getProjectId));
 	}
 
 	private List<InterviewTopic> saveTopics(UUID sessionId, List<PlannedTopic> plan) {

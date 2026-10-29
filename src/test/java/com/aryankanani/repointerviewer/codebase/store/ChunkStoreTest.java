@@ -9,6 +9,7 @@ import com.aryankanani.repointerviewer.LocalDirectoryRepoFetcher;
 import com.aryankanani.repointerviewer.codebase.chunk.Chunk;
 import com.aryankanani.repointerviewer.codebase.chunk.ChunkType;
 import com.aryankanani.repointerviewer.codebase.scan.FileRole;
+import java.nio.file.Files;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -123,6 +124,27 @@ class ChunkStoreTest {
 		List<UUID> idsOfA = jdbc.queryForList("SELECT id FROM code_chunk WHERE project_id = ?", UUID.class, projectA);
 		assertThat(results).hasSize(count(projectA, "chunk_type <> 'DOC'"));
 		assertThat(results).extracting(RetrievedChunk::id).allMatch(idsOfA::contains);
+	}
+
+	/** Task 1.13: the cited lines come back as written, in one query for all refs, in the order asked. */
+	@Test
+	void snippetsAreTheStoredSourceLines() throws Exception {
+		UUID project = fixture.newProject();
+		fixture.index(project);
+		String order = "src/main/java/com/example/shop/order/Order.java";
+		List<String> file = Files.readAllLines(LocalDirectoryRepoFetcher.fixtureRoot().resolve(order));
+
+		List<String> snippets = chunkStore.snippets(List.of(
+				new SnippetRef(project, order, 48, 53),              // markRefunded: a METHOD chunk holds these lines
+				new SnippetRef(project, order, 20, 25),              // fields: only in the condensed TYPE_HEADER
+				new SnippetRef(project, order, 38, 44),              // partly stored: gaps become one "…" each
+				new SnippetRef(UUID.randomUUID(), order, 48, 53)));  // another project: nothing
+
+		assertThat(snippets.get(0)).isEqualTo(String.join("\n", file.subList(47, 53)));
+		assertThat(snippets.get(1)).isNull();
+		assertThat(snippets.get(2)).isEqualTo(String.join("\n", "…", file.get(39), file.get(40), "…", file.get(42),
+				file.get(43)));
+		assertThat(snippets.get(3)).isNull();
 	}
 
 	@Test

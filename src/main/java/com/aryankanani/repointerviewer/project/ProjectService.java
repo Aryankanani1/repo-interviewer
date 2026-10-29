@@ -5,8 +5,12 @@ import com.aryankanani.repointerviewer.codebase.fetch.RemoteHead;
 import com.aryankanani.repointerviewer.codebase.fetch.RepoFetcher;
 import com.aryankanani.repointerviewer.common.error.DomainException;
 import com.aryankanani.repointerviewer.common.error.ErrorCode;
+import java.util.Collection;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
@@ -46,6 +50,13 @@ public class ProjectService {
 	@Transactional(readOnly = true)
 	public Optional<Project> find(UUID id) {
 		return projectRepository.findById(id);
+	}
+
+	/** Project id to project, in one query (GraphQL batch loading, task 1.13). Unknown ids are left out. */
+	@Transactional(readOnly = true)
+	public Map<UUID, Project> findByIds(Collection<UUID> ids) {
+		return projectRepository.findAllById(ids).stream()
+				.collect(Collectors.toMap(Project::getId, Function.identity()));
 	}
 
 	/** For other modules, which may not use the {@link Project} entity (LLD §2). */

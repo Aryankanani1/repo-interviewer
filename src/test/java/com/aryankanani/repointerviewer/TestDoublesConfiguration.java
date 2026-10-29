@@ -14,6 +14,15 @@ import org.springframework.context.annotation.Primary;
 @TestConfiguration(proxyBeanMethods = false)
 public class TestDoublesConfiguration {
 
+	/**
+	 * Static: a BeanPostProcessor must exist before the beans it changes (here the DataSource), so Spring creates it
+	 * without creating this configuration first.
+	 */
+	@Bean
+	static SqlStatementCounter sqlStatementCounter() {
+		return new SqlStatementCounter();
+	}
+
 	@Bean
 	@Primary
 	LocalDirectoryRepoFetcher localDirectoryRepoFetcher() {

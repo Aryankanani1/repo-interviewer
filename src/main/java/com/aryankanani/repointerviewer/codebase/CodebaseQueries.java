@@ -2,7 +2,9 @@ package com.aryankanani.repointerviewer.codebase;
 
 import com.aryankanani.repointerviewer.codebase.store.ChunkStore;
 import com.aryankanani.repointerviewer.codebase.store.CodeFileRepository;
+import com.aryankanani.repointerviewer.codebase.store.SnippetRef;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.stereotype.Component;
@@ -48,6 +50,11 @@ public class CodebaseQueries {
 	@Transactional(readOnly = true)
 	public Set<String> paths(UUID projectId) {
 		return Set.copyOf(codeFiles.findPathsByProjectId(projectId));
+	}
+
+	/** The source text of each ref, in the same order, in one query ({@link ChunkStore#snippets}). */
+	public List<String> snippets(List<SnippetRef> refs) {
+		return chunkStore.snippets(refs);
 	}
 
 	/** Every chunk symbol in the project: {@code Order}, {@code Order.Status}, {@code Order#markRefunded}, ... */

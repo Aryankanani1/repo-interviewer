@@ -6,6 +6,7 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.TreeMap;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -26,6 +27,9 @@ public class ChunkStore {
 
 	/** Rows per JDBC batch: one round trip to Postgres per this many rows instead of one per row. */
 	private static final int JDBC_BATCH_SIZE = 500;
+
+	/** Shown in a snippet for lines no exact chunk holds ({@link #snippets}). */
+	static final String GAP = "…";
 
 	private final JdbcTemplate jdbc;
 
@@ -162,6 +166,74 @@ public class ChunkStore {
 		return exact.isEmpty()
 				? jdbc.query(sql.formatted("="), ChunkStore::retrievedChunk, projectId, path, endLine, startLine)
 				: exact;
+	}
+
+	/**
+	 * The source text of many line ranges in <b>one</b> query (task 1.13: {@code CodeRef.snippet} for every ref of a
+	 * GraphQL response at once). The ranges go in as four parallel arrays that {@code unnest(...) WITH ORDINALITY}
+	 * turns into rows (one per range, numbered), joined to the chunks they overlap.
+	 *
+	 * <p>Only chunks that hold exactly their lines are used (all but TYPE_HEADER, see {@code Chunk}), so each line
+	 * comes back as written. Lines no such chunk holds (a class's fields live only in its condensed header) are
+	 * shown as one {@value #GAP} line per gap.
+	 *
+	 * @return one entry per ref, in the same order; null when none of its lines is stored
+	 */
+	public List<String> snippets(List<SnippetRef> refs) {
+		if (refs.isEmpty()) {
+			return List.of();
+		}
+		List<TreeMap<Integer, String>> lines = new ArrayList<>();
+		refs.forEach(ref -> lines.add(new TreeMap<>()));
+		jdbc.query(connection -> {
+			var statement = connection.prepareStatement("""
+					SELECT r.idx, c.start_line, c.content
+					FROM unnest(?::uuid[], ?::text[], ?::int[], ?::int[])
+					     WITH ORDINALITY AS r(project_id, path, start_line, end_line, idx)
+					JOIN code_chunk c ON c.project_id = r.project_id AND c.path = r.path
+					     AND c.start_line <= r.end_line AND c.end_line >= r.start_line AND c.chunk_type <> 'TYPE_HEADER'
+					""");
+			statement.setArray(1, connection.createArrayOf("uuid", refs.stream().map(SnippetRef::projectId).toArray()));
+			statement.setArray(2, connection.createArrayOf("text", refs.stream().map(SnippetRef::path).toArray()));
+			statement.setArray(3, connection.createArrayOf("integer", refs.stream().map(SnippetRef::startLine).toArray()));
+			statement.setArray(4, connection.createArrayOf("integer", refs.stream().map(SnippetRef::endLine).toArray()));
+			return statement;
+		}, row -> {
+			int index = (int) row.getLong("idx") - 1;   // ORDINALITY counts from 1
+			SnippetRef ref = refs.get(index);
+			String[] content = row.getString("content").split("\n", -1);
+			for (int i = 0; i < content.length; i++) {
+				int line = row.getInt("start_line") + i;
+				if (line >= ref.startLine() && line <= ref.endLine()) {
+					lines.get(index).put(line, content[i]);
+				}
+			}
+		});
+		List<String> snippets = new ArrayList<>(refs.size());
+		for (int i = 0; i < refs.size(); i++) {
+			snippets.add(render(refs.get(i), lines.get(i)));
+		}
+		return snippets;
+	}
+
+	private static String render(SnippetRef ref, TreeMap<Integer, String> lines) {
+		if (lines.isEmpty()) {
+			return null;
+		}
+		List<String> out = new ArrayList<>();
+		boolean inGap = false;
+		for (int line = ref.startLine(); line <= ref.endLine(); line++) {
+			String text = lines.get(line);
+			if (text != null) {
+				out.add(text);
+				inGap = false;
+			}
+			else if (!inGap) {
+				out.add(GAP);
+				inGap = true;
+			}
+		}
+		return String.join("\n", out);
 	}
 
 	/** Every symbol in the project ({@code Order}, {@code Order#markRefunded}, ...), for checking a plan. */
