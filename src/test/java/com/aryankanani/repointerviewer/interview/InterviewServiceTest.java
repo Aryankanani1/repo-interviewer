@@ -13,6 +13,7 @@ import com.aryankanani.repointerviewer.common.error.ErrorCode;
 import com.aryankanani.repointerviewer.llm.LlmPurpose;
 import com.aryankanani.repointerviewer.llm.LlmRequest;
 import com.aryankanani.repointerviewer.llm.LlmUnavailableException;
+import com.aryankanani.repointerviewer.llm.PromptMarkup;
 import com.aryankanani.repointerviewer.llm.output.CodeRefOutput;
 import com.aryankanani.repointerviewer.llm.output.PlanOutput;
 import com.aryankanani.repointerviewer.llm.output.PlannedTopic;
@@ -116,7 +117,7 @@ class InterviewServiceTest {
 		assertThat(plan.variables()).containsEntry("difficulty", "JUNIOR").containsEntry("questionCount", 5);
 		assertThat((String) plan.variables().get("summary")).startsWith("One-liner: A small order service");
 		LlmRequest<?> question = llm.requests().get(1);
-		assertThat((String) question.variables().get("codeChunks")).contains("<code_chunk path=\"" + ORDER
+		assertThat(((PromptMarkup) question.variables().get("codeChunks")).text()).contains("<code_chunk path=\"" + ORDER
 				+ "OrderController.java\" lines=\"27-30\" symbol=\"OrderController#refund\">");
 		assertThat(question.variables().get("retryFeedback")).isNull();
 	}

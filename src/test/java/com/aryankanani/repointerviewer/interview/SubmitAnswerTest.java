@@ -12,6 +12,7 @@ import com.aryankanani.repointerviewer.common.error.ErrorCode;
 import com.aryankanani.repointerviewer.llm.LlmPurpose;
 import com.aryankanani.repointerviewer.llm.LlmRequest;
 import com.aryankanani.repointerviewer.llm.LlmUnavailableException;
+import com.aryankanani.repointerviewer.llm.PromptMarkup;
 import com.aryankanani.repointerviewer.llm.output.CodeRefOutput;
 import com.aryankanani.repointerviewer.llm.output.EvaluationOutput;
 import com.aryankanani.repointerviewer.llm.output.QuestionOutput;
@@ -105,7 +106,7 @@ class SubmitAnswerTest {
 		LlmRequest<?> grading = llm.requests().getFirst();
 		assertThat(grading.purpose()).isEqualTo(LlmPurpose.EVALUATION);
 		assertThat(grading.sessionId()).isEqualTo(session.getId());
-		assertThat((String) grading.variables().get("codeChunks")).startsWith("<code_chunk path=\"" + ORDER
+		assertThat(((PromptMarkup) grading.variables().get("codeChunks")).text()).startsWith("<code_chunk path=\"" + ORDER
 				+ "OrderController.java\" lines=\"27-30\" symbol=\"OrderController#refund\">");
 		assertThat((String) grading.variables().get("rubric")).startsWith("Must mention:\n- Validation happens first");
 		assertThat(grading.variables()).containsEntry("answer", "It is validated first.");

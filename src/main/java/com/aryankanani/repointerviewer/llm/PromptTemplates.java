@@ -35,7 +35,8 @@ import org.springframework.stereotype.Component;
  * </ul>
  * Values: null and an empty list become {@value #NOT_PROVIDED}, a list becomes one {@code - item} line per
  * element, anything else its {@code toString()}. Values are inserted as text and never read as template code, so
- * code with braces in it is safe.
+ * code with braces in it is safe. Every value except a {@link PromptMarkup} also has the untrusted tags broken up
+ * ({@link PromptMarkup#neutralize}): a candidate who writes {@code </candidate_answer>} cannot leave the tag.
  *
  * <p>{@code prompt_version} ({@link #version}) is the template name plus the first 8 hex characters of the
  * SHA-256 of the system prompt and the template together, for example {@code repo-summary@1a2b3c4d}. Editing
@@ -114,12 +115,19 @@ public class PromptTemplates {
 	}
 
 	static String asText(Object value) {
+		if (value instanceof PromptMarkup markup) {
+			return markup.text();
+		}
+		return PromptMarkup.neutralize(plainText(value));
+	}
+
+	private static String plainText(Object value) {
 		if (value == null) {
 			return NOT_PROVIDED;
 		}
 		if (value instanceof Collection<?> items) {
 			return items.isEmpty() ? NOT_PROVIDED
-					: items.stream().map(item -> "- " + asText(item)).collect(Collectors.joining("\n"));
+					: items.stream().map(item -> "- " + plainText(item)).collect(Collectors.joining("\n"));
 		}
 		return value.toString();
 	}

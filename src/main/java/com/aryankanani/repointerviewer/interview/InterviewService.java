@@ -10,6 +10,8 @@ import com.aryankanani.repointerviewer.interview.evaluation.FollowUpPolicy;
 import com.aryankanani.repointerviewer.interview.planning.QuestionPlanner;
 import com.aryankanani.repointerviewer.interview.question.GeneratedQuestion;
 import com.aryankanani.repointerviewer.interview.question.QuestionGenerator;
+import com.aryankanani.repointerviewer.interview.report.ReportWriter;
+import com.aryankanani.repointerviewer.interview.report.TranscriptEntry;
 import com.aryankanani.repointerviewer.llm.output.PlannedTopic;
 import com.aryankanani.repointerviewer.project.AnalysisStatus;
 import com.aryankanani.repointerviewer.project.ProjectContext;
@@ -21,9 +23,12 @@ import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Consumer;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -35,7 +40,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * Interview use cases (LLD §9): {@link #start} (task 1.10) and {@link #submitAnswer} (task 1.11); the report in 1.12.
+ * Interview use cases (LLD §9): {@link #start} (task 1.10), {@link #submitAnswer} (task 1.11) and
+ * {@link #endInterview} with the report (task 1.12).
  *
  * <p>Never holds a database transaction across a model call (CLAUDE.md): short transaction → model call with no
  * transaction → short transaction with a version check. The use cases themselves are therefore not
@@ -67,6 +73,8 @@ public class InterviewService {
 
 	private final FollowUpPolicy followUpPolicy;
 
+	private final ReportWriter reportWriter;
+
 	private final TransactionTemplate transaction;
 
 	private final AppProperties.Interview settings;
@@ -74,7 +82,8 @@ public class InterviewService {
 	InterviewService(ProjectService projectService, InterviewSessionRepository sessions,
 			InterviewTopicRepository topics, QuestionRepository questions, AnswerRepository answers,
 			QuestionPlanner planner, QuestionGenerator generator, AnswerEvaluator evaluator,
-			FollowUpPolicy followUpPolicy, PlatformTransactionManager transactionManager, AppProperties properties) {
+			FollowUpPolicy followUpPolicy, ReportWriter reportWriter, PlatformTransactionManager transactionManager,
+			AppProperties properties) {
 		this.projectService = projectService;
 		this.sessions = sessions;
 		this.topics = topics;
@@ -84,6 +93,7 @@ public class InterviewService {
 		this.generator = generator;
 		this.evaluator = evaluator;
 		this.followUpPolicy = followUpPolicy;
+		this.reportWriter = reportWriter;
 		this.transaction = new TransactionTemplate(transactionManager);
 		this.settings = properties.interview();
 	}
@@ -200,7 +210,45 @@ public class InterviewService {
 					log.info("Another request moved the session on first; returning its result");
 				}
 			}
-			return result(question.getId(), answer.getId(), null);
+			// The session may have just completed, or a re-sent last answer finds its report still missing.
+			return result(question.getId(), answer.getId(), writeReportIfMissing(session.getId()));
+		}
+		finally {
+			MDC.remove("sessionId");
+		}
+	}
+
+	/**
+	 * Ends an interview early (LLD §9.6): asked questions without a graded answer become SKIPPED and the session
+	 * ABANDONED, then the report is written from the graded answers (none: no report). On an interview that already
+	 * ended it only writes a missing report, so calling it again is safe and retries a report that failed.
+	 *
+	 * @throws DomainException NOT_FOUND, or SESSION_NOT_ACTIVE for a session that is still PLANNING or FAILED
+	 */
+	public EndResult endInterview(EndInterviewCommand command) {
+		InterviewSession session = sessions.findById(command.sessionId())
+				.orElseThrow(() -> new DomainException(ErrorCode.NOT_FOUND, "Interview not found.", "sessionId"));
+		if (session.getStatus() == SessionStatus.PLANNING || session.getStatus() == SessionStatus.FAILED) {
+			throw new DomainException(ErrorCode.SESSION_NOT_ACTIVE,
+					"This interview is " + session.getStatus() + " and cannot be ended.", "sessionId");
+		}
+		UUID sessionId = session.getId();
+		MDC.put("sessionId", sessionId.toString());
+		try {
+			for (int attempt = 1;; attempt++) {
+				try {
+					transaction.executeWithoutResult(status -> abandonIfRunning(sessionId));
+					break;
+				}
+				catch (OptimisticLockingFailureException ex) {
+					if (attempt == 2) {
+						throw ex;
+					}
+					// A submitAnswer moved the session on between our read and our write: look again.
+				}
+			}
+			DomainException reportError = writeReportIfMissing(sessionId);   // first: the session read below must see it
+			return new EndResult(sessions.findById(sessionId).orElseThrow(), reportError);
 		}
 		finally {
 			MDC.remove("sessionId");
@@ -263,6 +311,71 @@ public class InterviewService {
 			session.fail(reason);
 			return session;
 		});
+	}
+
+	private void abandonIfRunning(UUID sessionId) {
+		InterviewSession session = sessions.findById(sessionId).orElseThrow();
+		if (session.getStatus() == SessionStatus.IN_PROGRESS) {
+			questions.findBySessionIdAndOrderIndexNotNullOrderByOrderIndex(sessionId).forEach(Question::skip);
+			session.abandon();
+		}
+	}
+
+	/**
+	 * The report step, after a session ended. Ending and reporting are separate on purpose: the status change
+	 * never waits for the model, and a failed REPORT call leaves an ended session without a report, which the next
+	 * {@code endInterview} or re-sent last answer retries. Model call outside any transaction, then one short
+	 * transaction that attaches the report only if none is there yet.
+	 *
+	 * @return the error when the report could not be written; null when it was written or is not needed
+	 */
+	private DomainException writeReportIfMissing(UUID sessionId) {
+		InterviewSession session = sessions.findById(sessionId).orElseThrow();
+		boolean ended = session.getStatus() == SessionStatus.COMPLETED || session.getStatus() == SessionStatus.ABANDONED;
+		if (!ended || session.getReport() != null) {
+			return null;
+		}
+		List<TranscriptEntry> transcript = transcript(sessionId);
+		if (transcript.stream().noneMatch(entry -> entry.score() != null)) {
+			return null;   // nothing was graded: nothing to report on
+		}
+		String repoName = projectService.context(session.getProjectId()).map(ProjectContext::name).orElse("the project");
+		try {
+			InterviewReport report = reportWriter.write(session.getProjectId(), sessionId, repoName,
+					session.getDifficulty(), transcript);
+			transaction.executeWithoutResult(status -> {
+				InterviewSession row = sessions.findById(sessionId).orElseThrow();
+				if (row.getReport() == null) {
+					row.attachReport(report);
+				}
+			});
+			log.info("Report written, overall score {}", report.overallScore());
+			return null;
+		}
+		catch (DomainException ex) {
+			log.warn("Report not written: {}", ex.getMessage());
+			return ex;
+		}
+		catch (OptimisticLockingFailureException ex) {
+			return null;   // another request attached its report first
+		}
+	}
+
+	/** Every asked question in order, with its answer only when graded. */
+	private List<TranscriptEntry> transcript(UUID sessionId) {
+		List<Question> asked = askedQuestions(sessionId);
+		Map<UUID, Answer> graded = answers.findByQuestionIdIn(asked.stream().map(Question::getId).toList()).stream()
+				.filter(Answer::isEvaluated)
+				.collect(Collectors.toMap(Answer::getQuestionId, Function.identity()));
+		Map<UUID, Integer> orders = asked.stream().collect(Collectors.toMap(Question::getId, Question::getOrderIndex));
+		return asked.stream().map(question -> {
+			Answer answer = graded.get(question.getId());
+			return new TranscriptEntry(question.getOrderIndex(), question.getCategory(),
+					question.getParentQuestionId() == null ? null : orders.get(question.getParentQuestionId()),
+					question.getText(), answer == null ? null : answer.getText(),
+					answer == null ? null : answer.getScore(), answer == null ? null : answer.getVerdict(),
+					answer == null ? null : answer.getMissedPoints());
+		}).toList();
 	}
 
 	/** The stored answer when the same text comes again; a new one only for the current question of a live session. */
@@ -363,7 +476,7 @@ public class InterviewService {
 
 		inSession(sessionId, version, current -> {
 			topics.findById(topic.getId()).orElseThrow().done();
-			current.complete();   // the report is written here in task 1.12
+			current.complete();   // the report follows, after this transaction (writeReportIfMissing)
 		});
 		log.info("Interview COMPLETED");
 	}

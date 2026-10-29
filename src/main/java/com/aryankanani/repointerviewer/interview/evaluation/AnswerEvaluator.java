@@ -8,6 +8,7 @@ import com.aryankanani.repointerviewer.interview.Question;
 import com.aryankanani.repointerviewer.llm.LlmGateway;
 import com.aryankanani.repointerviewer.llm.LlmPurpose;
 import com.aryankanani.repointerviewer.llm.LlmRequest;
+import com.aryankanani.repointerviewer.llm.PromptMarkup;
 import com.aryankanani.repointerviewer.llm.output.EvaluationOutput;
 import java.util.HashMap;
 import java.util.Map;
@@ -42,7 +43,7 @@ public class AnswerEvaluator {
 		variables.put("difficulty", difficulty.name());
 		variables.put("question", question.getText());
 		variables.put("rubric", RubricText.render(question.getRubric()));
-		variables.put("codeChunks", context.render());
+		variables.put("codeChunks", new PromptMarkup(context.render()));   // our tags; content already neutralized
 		variables.put("answer", answerText);
 		EvaluationOutput output = llm.call(
 				new LlmRequest<>(LlmPurpose.EVALUATION, variables, EvaluationOutput.class, projectId, sessionId));

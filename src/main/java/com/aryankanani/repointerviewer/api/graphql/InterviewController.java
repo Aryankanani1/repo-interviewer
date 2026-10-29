@@ -2,6 +2,8 @@ package com.aryankanani.repointerviewer.api.graphql;
 
 import com.aryankanani.repointerviewer.api.error.UserErrorMapper;
 import com.aryankanani.repointerviewer.common.error.DomainException;
+import com.aryankanani.repointerviewer.interview.EndInterviewCommand;
+import com.aryankanani.repointerviewer.interview.EndResult;
 import com.aryankanani.repointerviewer.interview.InterviewService;
 import com.aryankanani.repointerviewer.interview.StartInterviewCommand;
 import com.aryankanani.repointerviewer.interview.StartResult;
@@ -17,7 +19,8 @@ import org.springframework.graphql.data.method.annotation.SchemaMapping;
 import org.springframework.stereotype.Controller;
 
 /**
- * Resolvers for {@code Mutation.startInterview}, {@code Mutation.submitAnswer}, {@code Query.interviewSession} and
+ * Resolvers for {@code Mutation.startInterview}, {@code .submitAnswer}, {@code .endInterview},
+ * {@code Query.interviewSession} and
  * the fields that link sessions, projects, questions and answers.
  *
  * <p>The {@code @SchemaMapping} resolvers below run once per parent object: a list of 20 sessions asking for their
@@ -68,6 +71,22 @@ class InterviewController {
 		}
 		catch (DomainException ex) {
 			return new SubmitAnswerPayload(null, null, null, List.of(UserErrorMapper.toUserError(ex)));
+		}
+	}
+
+	/**
+	 * {@code endInterview(input): EndInterviewPayload!}. Stops early and writes the report from the graded answers.
+	 * Safe to call again: on an ended session it only retries a missing report.
+	 */
+	@MutationMapping
+	EndInterviewPayload endInterview(@Argument EndInterviewInput input) {
+		try {
+			EndResult result = interviewService.endInterview(new EndInterviewCommand(input.sessionId()));
+			return new EndInterviewPayload(InterviewSessionView.from(result.session()),
+					result.error() == null ? List.of() : List.of(UserErrorMapper.toUserError(result.error())));
+		}
+		catch (DomainException ex) {
+			return new EndInterviewPayload(null, List.of(UserErrorMapper.toUserError(ex)));
 		}
 	}
 

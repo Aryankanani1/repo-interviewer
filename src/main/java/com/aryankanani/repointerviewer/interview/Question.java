@@ -110,6 +110,13 @@ public class Question {
 		}
 	}
 
+	/** ASKED → SKIPPED: the interview ended before it was answered and graded. */
+	void skip() {
+		if (status == QuestionStatus.ASKED) {
+			status = QuestionStatus.SKIPPED;
+		}
+	}
+
 	/** PREPARED → ASKED: shown to the candidate as question number {@code orderIndex}. */
 	void ask(int orderIndex) {
 		if (status != QuestionStatus.PREPARED) {

@@ -14,6 +14,7 @@ import com.aryankanani.repointerviewer.interview.Rubric;
 import com.aryankanani.repointerviewer.llm.LlmGateway;
 import com.aryankanani.repointerviewer.llm.LlmPurpose;
 import com.aryankanani.repointerviewer.llm.LlmRequest;
+import com.aryankanani.repointerviewer.llm.PromptMarkup;
 import com.aryankanani.repointerviewer.llm.output.QuestionOutput;
 import java.util.HashMap;
 import java.util.List;
@@ -71,7 +72,7 @@ public class QuestionGenerator {
 					variables.put("topicTitle", topic.getTitle());
 					variables.put("category", topic.getCategory().name());
 					variables.put("rationale", topic.getRationale());
-					variables.put("codeChunks", context.render());
+					variables.put("codeChunks", new PromptMarkup(context.render()));
 					variables.put("previousQuestions", previousQuestions);
 					variables.put("retryFeedback", retryFeedback);
 					return variables;
@@ -96,7 +97,7 @@ public class QuestionGenerator {
 					variables.put("answer", answer);
 					variables.put("missedPoints", missedPoints);
 					variables.put("followUpReason", followUpReason);
-					variables.put("codeChunks", context.render());
+					variables.put("codeChunks", new PromptMarkup(context.render()));
 					variables.put("retryFeedback", retryFeedback);
 					return variables;
 				});

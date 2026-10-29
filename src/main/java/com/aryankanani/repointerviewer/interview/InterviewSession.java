@@ -8,6 +8,8 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -22,7 +24,7 @@ import org.hibernate.type.SqlTypes;
 /**
  * One interview about one project (table {@code interview_session}). Linked to its project, topics and questions
  * by plain ids, not JPA relationships: nothing is loaded lazily behind your back, and the GraphQL layer loads
- * related rows explicitly. {@code overall_score} and {@code report} arrive in task 1.12.
+ * related rows explicitly.
  */
 @Entity
 @Table(name = "interview_session")
@@ -56,6 +58,13 @@ public class InterviewSession {
 	private UUID currentQuestionId;
 
 	private String failureReason;
+
+	/** Copied from the report for queries and sorting; {@code NUMERIC(4,2)}. Null until the report exists. */
+	private BigDecimal overallScore;
+
+	/** Written after the session ends (COMPLETED or ABANDONED), when at least one answer was graded. */
+	@JdbcTypeCode(SqlTypes.JSON)
+	private InterviewReport report;
 
 	/**
 	 * Read-only here. {@code LlmBudget} counts calls with an atomic UPDATE; if Hibernate wrote this column, a
@@ -125,6 +134,25 @@ public class InterviewSession {
 		this.completedAt = Instant.now();
 	}
 
+	/** IN_PROGRESS → ABANDONED: the candidate stopped early ({@code endInterview}). */
+	void abandon() {
+		transitionTo(SessionStatus.ABANDONED);
+		this.currentQuestionId = null;
+		this.completedAt = Instant.now();
+	}
+
+	/** The report of an ended session, written once. */
+	void attachReport(InterviewReport report) {
+		if (status != SessionStatus.COMPLETED && status != SessionStatus.ABANDONED) {
+			throw new IllegalStateException("Session " + id + " is " + status + ": only an ended session gets a report");
+		}
+		if (this.report != null) {
+			throw new IllegalStateException("Session " + id + " already has a report");
+		}
+		this.report = report;
+		this.overallScore = BigDecimal.valueOf(report.overallScore()).setScale(2, RoundingMode.HALF_UP);
+	}
+
 	/** PLANNING → FAILED. The reason is shown to the user. */
 	void fail(String reason) {
 		transitionTo(SessionStatus.FAILED);
@@ -162,6 +190,14 @@ public class InterviewSession {
 
 	public String getFailureReason() {
 		return failureReason;
+	}
+
+	public BigDecimal getOverallScore() {
+		return overallScore;
+	}
+
+	public InterviewReport getReport() {
+		return report;
 	}
 
 	public int getLlmCallCount() {
