@@ -76,7 +76,8 @@ class EnvironmentProfilesTest {
 	}
 
 	@Test
-	void stageCapsDailyLlmCallsBelowProd() {
+	void devAndStageCapDailyLlmCallsBelowProd() {
+		run("dev", context -> assertThat(context.getBean(AppProperties.class).llm().maxCallsPerDay()).isEqualTo(60));
 		run("stage", context -> assertThat(context.getBean(AppProperties.class).llm().maxCallsPerDay()).isEqualTo(100));
 		run("prod", context -> assertThat(context.getBean(AppProperties.class).llm().maxCallsPerDay()).isEqualTo(300));
 	}

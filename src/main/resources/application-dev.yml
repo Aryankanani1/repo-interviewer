@@ -17,3 +17,9 @@ spring:
 logging:
   level:
     com.aryankanani.repointerviewer: DEBUG
+
+app:
+  llm:
+    # Your own prepaid credits pay for dev calls. 60 calls is about $2 a day at worst (Sonnet 5 at max output),
+    # so a bug or a loop cannot burn through a small top-up in one afternoon. Raise it on purpose when needed.
+    max-calls-per-day: 60
