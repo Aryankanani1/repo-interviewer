@@ -362,5 +362,8 @@ enum ErrorCode {
   ANSWER_TOO_LONG
   BUDGET_EXCEEDED
   LLM_UNAVAILABLE
+  "The input itself is malformed: too long, or a value that cannot be read (for example an ID that is not a UUID)."
+  INVALID_INPUT
+  "A bug or an outage on our side. Only as a top-level error, with a correlationId to quote."
   INTERNAL
 }

@@ -1,5 +1,6 @@
 package com.aryankanani.repointerviewer.api.graphql;
 
+import com.aryankanani.repointerviewer.api.error.InputValidator;
 import com.aryankanani.repointerviewer.api.error.UserErrorMapper;
 import com.aryankanani.repointerviewer.codebase.CodebaseQueries;
 import com.aryankanani.repointerviewer.codebase.store.SnippetRef;
@@ -48,11 +49,14 @@ class InterviewController {
 
 	private final CodebaseQueries codebaseQueries;
 
+	private final InputValidator inputValidator;
+
 	InterviewController(InterviewService interviewService, ProjectService projectService,
-			CodebaseQueries codebaseQueries) {
+			CodebaseQueries codebaseQueries, InputValidator inputValidator) {
 		this.interviewService = interviewService;
 		this.projectService = projectService;
 		this.codebaseQueries = codebaseQueries;
+		this.inputValidator = inputValidator;
 	}
 
 	/** {@code startInterview(input): StartInterviewPayload!}. Can take several seconds: two or more model calls. */
@@ -77,6 +81,10 @@ class InterviewController {
 	 */
 	@MutationMapping
 	SubmitAnswerPayload submitAnswer(@Argument SubmitAnswerInput input) {
+		var invalid = inputValidator.firstError(input);
+		if (invalid.isPresent()) {
+			return new SubmitAnswerPayload(null, null, null, List.of(invalid.get()));
+		}
 		try {
 			SubmitAnswerResult result = interviewService.submitAnswer(
 					new SubmitAnswerCommand(input.questionId(), input.text()));

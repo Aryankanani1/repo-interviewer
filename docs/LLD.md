@@ -90,7 +90,7 @@ ri
 └── api/                    # GraphQL controllers, input/output mapping, error mapping
     ├── graphql/    ProjectController, InterviewController, SubscriptionController
     ├── scalar/     ScalarConfig
-    └── error/      UserErrorMapper, GraphQlExceptionResolver
+    └── error/      UserError, UserErrorMapper, InputValidator, GraphQlExceptionResolver
 ```
 
 ### Dependency rules (ArchUnit, task 0.4)
@@ -218,9 +218,12 @@ Spring for GraphQL turns `Window<T>` into the `ProjectConnection` shape. The cur
 `CodeRef.snippet` is cut from the stored chunks: `ChunkStore.snippets` sends all refs as parallel arrays (`unnest(?::uuid[], ?::text[], ?::int[], ?::int[]) WITH ORDINALITY`) joined to the overlapping non-TYPE_HEADER chunks, which hold their lines exactly. Lines only a TYPE_HEADER covers (fields) are not stored verbatim and show as one `…` per gap; no stored line → null.
 
 ### 5.2 Error handling
-- **Expected failures** (`DomainException` with an `ErrorCode`) are caught in the controller and returned as `payload.errors`. The payload's main field is `null`.
-- **Unexpected failures** go through a `DataFetcherExceptionResolverAdapter` that logs with a correlation id and returns a top-level GraphQL error with `extensions.code = INTERNAL`. Never leak stack traces or prompt text.
-- Input validation: Bean Validation on input records (`@NotBlank`, `@Size`) plus domain validation (`GithubUrl.parse`). Validation errors become `UserError` with `field = ["input", "<name>"]`.
+- **Expected failures** (`DomainException` with an `ErrorCode`) are caught in the controller and returned as `payload.errors`. The payload's main field is `null` (or the stored object, when the failure happened after it was saved).
+- **Everything else** goes through `api.error.GraphQlExceptionResolver` (a `DataFetcherExceptionResolverAdapter`) and becomes one top-level GraphQL error:
+  - a `DomainException` that escaped a resolver keeps its message, `extensions.code` and `extensions.field` (`ErrorType.NOT_FOUND` for `NOT_FOUND`, else `BAD_REQUEST`);
+  - input Spring could not bind (`BindException`, `TypeMismatchException`, `ConstraintViolationException`), such as an `ID` that is not a UUID: `INVALID_INPUT`, message `Invalid value for <path>.`, `field` = the argument path (`["id"]`, `["input", "projectId"]`). The rejected value is not echoed;
+  - anything else: `ErrorType.INTERNAL_ERROR`, `code = INTERNAL`, the fixed message `Something went wrong on our side. Reference: <id>` and `extensions.correlationId`. The correlation id is the GraphQL execution id, so Spring's own log lines for the request carry it too. The exception goes to the log at ERROR with its stack trace and that id; its message (which can hold SQL, paths or prompt text) never reaches the client.
+- **Input validation**, two layers. `api.error.InputValidator` runs Bean Validation (`@Size`) on mutation inputs before any work: generous outer limits against absurd payloads (URL 300, `goal`/`domain`/`targetRole` 2000, answer 20 000 characters). A violation becomes `UserError(INVALID_INPUT, "<name> <message>.", ["input", "<name>"])`, the first one by field name. The business rules with their own codes stay in the services and the domain (`GithubUrl.parse` → `INVALID_URL`, 4000 characters → `ANSWER_TOO_LONG`).
 
 ### 5.3 Mapping rule
 Controllers map entities to `api` view records (`ProjectView`, `QuestionView`, ...). `Project.name` is `owner/repo`. `DateTime` fields must be `OffsetDateTime` (or `ZonedDateTime`) in views: the extended-scalars `DateTime` cannot serialize `Instant` or `LocalDateTime`. `QuestionView` never contains the rubric. `AnswerEvaluationView.idealAnswerOutline` is read from the question, only once the answer exists.

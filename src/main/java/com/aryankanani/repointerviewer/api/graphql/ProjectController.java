@@ -1,5 +1,6 @@
 package com.aryankanani.repointerviewer.api.graphql;
 
+import com.aryankanani.repointerviewer.api.error.InputValidator;
 import com.aryankanani.repointerviewer.api.error.UserErrorMapper;
 import com.aryankanani.repointerviewer.common.error.DomainException;
 import com.aryankanani.repointerviewer.project.ProjectService;
@@ -27,8 +28,11 @@ class ProjectController {
 
 	private final ProjectService projectService;
 
-	ProjectController(ProjectService projectService) {
+	private final InputValidator inputValidator;
+
+	ProjectController(ProjectService projectService, InputValidator inputValidator) {
 		this.projectService = projectService;
+		this.inputValidator = inputValidator;
 	}
 
 	/** {@code project(id: ID!): Project}. Not found returns null (the field is nullable), not an error. */
@@ -55,6 +59,10 @@ class ProjectController {
 	 */
 	@MutationMapping
 	SubmitProjectPayload submitProject(@Argument SubmitProjectInput input) {
+		var invalid = inputValidator.firstError(input);
+		if (invalid.isPresent()) {
+			return SubmitProjectPayload.failure(invalid.get());
+		}
 		var command = new SubmitProjectCommand(input.githubUrl(), input.goal(), input.domain(), input.targetRole());
 		try {
 			return SubmitProjectPayload.success(ProjectView.from(projectService.submit(command)));

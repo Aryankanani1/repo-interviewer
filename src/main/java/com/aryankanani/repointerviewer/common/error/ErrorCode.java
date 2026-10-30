@@ -16,5 +16,8 @@ public enum ErrorCode {
 	ANSWER_TOO_LONG,
 	BUDGET_EXCEEDED,
 	LLM_UNAVAILABLE,
+	/** Malformed input: over a size limit, or a value that cannot be read (an ID that is not a UUID). */
+	INVALID_INPUT,
+	/** A bug or an outage. Only in top-level GraphQL errors, never in a payload. */
 	INTERNAL
 }
