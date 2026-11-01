@@ -35,10 +35,13 @@ public class FakeLlmGateway implements LlmGateway {
 
 	private final Map<LlmPurpose, Deque<Object>> queued = new EnumMap<>(LlmPurpose.class);
 
+	private final Map<LlmPurpose, Runnable> duringNextCall = new EnumMap<>(LlmPurpose.class);
+
 	private final List<LlmRequest<?>> requests = new CopyOnWriteArrayList<>();
 
 	public synchronized void reset() {
 		queued.clear();
+		duringNextCall.clear();
 		requests.clear();
 	}
 
@@ -50,6 +53,15 @@ public class FakeLlmGateway implements LlmGateway {
 	/** The next call for this purpose throws {@code failure}, for example an {@code LlmUnavailableException}. */
 	public synchronized void enqueueFailure(LlmPurpose purpose, RuntimeException failure) {
 		queued.computeIfAbsent(purpose, key -> new ArrayDeque<>()).add(failure);
+	}
+
+	/**
+	 * The next call for this purpose runs {@code action} before it returns, as if something else happened while the
+	 * model was writing: for example a prefetch racing {@code submitAnswer} (task 1.16). The call takes its own output
+	 * first, so calls made by {@code action} get the outputs queued after it.
+	 */
+	public synchronized void duringNextCall(LlmPurpose purpose, Runnable action) {
+		duringNextCall.put(purpose, action);
 	}
 
 	public List<LlmRequest<?>> requests() {
@@ -64,6 +76,10 @@ public class FakeLlmGateway implements LlmGateway {
 	public <T extends LlmOutput<T>> T call(LlmRequest<T> request) {
 		requests.add(request);
 		Object next = next(request.purpose());
+		Runnable action = takeDuringNextCall(request.purpose());
+		if (action != null) {
+			action.run();
+		}
 		if (next instanceof RuntimeException failure) {
 			throw failure;
 		}
@@ -78,6 +94,10 @@ public class FakeLlmGateway implements LlmGateway {
 	private synchronized Object next(LlmPurpose purpose) {
 		Deque<Object> queue = queued.get(purpose);
 		return queue == null || queue.isEmpty() ? canned(purpose) : queue.poll();
+	}
+
+	private synchronized Runnable takeDuringNextCall(LlmPurpose purpose) {
+		return duringNextCall.remove(purpose);
 	}
 
 	private static LlmOutput<?> canned(LlmPurpose purpose) {

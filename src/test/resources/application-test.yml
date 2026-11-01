@@ -12,3 +12,9 @@ spring:
       api-key: test-key-not-used   # only satisfies auto-configuration
     ollama:
       base-url: http://localhost:11434   # never called; only satisfies auto-configuration
+
+app:
+  interview:
+    # Off so each test controls the order of the fake model replies. QuestionPrefetcherTest calls prepare() itself
+    # and turns it on for the one test of the background start.
+    prefetch-enabled: false

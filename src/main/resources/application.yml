@@ -111,7 +111,7 @@ app:
     follow-up-score-min: 3
     follow-up-score-max: 7
     answer-max-chars: 4000
-    prefetch-enabled: false   # task 1.16 turns this on
+    prefetch-enabled: true    # write the next topic's question while the candidate answers (task 1.16)
   llm:
     models:
       summary: claude-haiku-4-5

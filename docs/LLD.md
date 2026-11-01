@@ -82,9 +82,10 @@ ri
 │   └── StaleAnalysisRecovery.java
 ├── interview/              # sessions, topics, questions, answers, scoring, report
 │   ├── InterviewService.java       # use cases: start, submitAnswer, end
+│   ├── QuestionPrefetcher.java     # next topic's question in the background (here, not in question/: it saves questions)
 │   ├── InterviewSession, InterviewTopic, Question, Answer (+ repositories), CodeRef, Rubric, enums
 │   ├── planning/   QuestionPlanner, TopicValidator, SummaryText
-│   ├── question/   QuestionGenerator, CodeRefValidator, GeneratedQuestion, QuestionPrefetcher
+│   ├── question/   QuestionGenerator, CodeRefValidator, GeneratedQuestion
 │   ├── evaluation/ AnswerEvaluator, FollowUpPolicy, Scoring, Evaluation, RubricText
 │   └── report/     ReportWriter, TranscriptText, TranscriptEntry
 └── api/                    # GraphQL controllers, input/output mapping, error mapping
@@ -544,7 +545,7 @@ Every step is resumable: its result is saved before the next one starts. Re-send
 5. If the question is still the session's current one, decide next with `FollowUpPolicy.shouldFollowUp(evaluation, followUpsOnTopic, callsUsed, topicsLeft)`, all of:
    - `followUpNeeded` is true **and** `score` is within `[follow-up-score-min, follow-up-score-max]` (3..7) **and** `topic.followUpCount < max-follow-ups-per-topic` (1);
    - **and** the budget allows: `max-calls-per-session - llm_call_count ≥ 3 (the follow-up: write with one retry, grade) + 3 × topics still PENDING + 1 (report)`. A follow-up only uses calls the rest of the interview does not need.
-6. If follow-up: `QuestionGenerator.generateFollowUp` (FOLLOW_UP call on the parent's code, refs checked and one retry, §9.3); none valid → no follow-up. Else: next `PENDING` topic: generate its main question (a topic without one is `SKIPPED`, the next is tried). If no topics are left: session `COMPLETED` (`current_question_id` null, `completed_at`), then the report step (§9.6).
+6. If follow-up: `QuestionGenerator.generateFollowUp` (FOLLOW_UP call on the parent's code, refs checked and one retry, §9.3); none valid → no follow-up. Else: next `PENDING` topic: its `PREPARED` question if the prefetch saved one (§9.4), else generate its main question (a topic without one is `SKIPPED`, the next is tried). If no topics are left: session `COMPLETED` (`current_question_id` null, `completed_at`), then the report step (§9.6).
 7. One tx for the whole step, run only if the session's `@Version` still equals the value read before the model calls: insert the question as `ASKED` with order `max + 1` (and `parent_question_id`, `topic.followUpCount++` for a follow-up; previous topic `DONE` and next topic `ASKED` otherwise), set `current_question_id`. A version change means another request already moved the session on: its result is returned.
 8. Return `SubmitAnswerResult(answer, question, nextQuestion = the question with the next order_index, session, error)`.
 
@@ -563,7 +564,15 @@ GraphQL (task 1.11): `submitAnswer` returns the answer with its `AnswerEvaluatio
 6. The generator saves nothing and opens no transaction; it returns a `GeneratedQuestion` (text, refs, rubric, ideal outline, `prompt_version` from `LlmGateway.promptVersion`) and the caller persists it.
 
 ### 9.4 `QuestionPrefetcher` (task 1.16)
-After a main question becomes `ASKED`, generate the next `PENDING` topic's main question in the background and store it as `PREPARED`. The partial unique index makes a racing duplicate fail. Catch it and discard. Prefetch failures are logged only; the synchronous path generates later.
+After a main question becomes `ASKED` (in `start` and in `submitAnswer`, not after a follow-up), generate the next `PENDING` topic's main question in the background and store it as `PREPARED`: no `order_index`, so no query that returns asked questions sees it. On by default (`app.interview.prefetch-enabled`); off in the test profile, where tests call `prepare(sessionId)` on the test thread.
+
+1. `prefetchNext(sessionId)` returns at once and runs `prepare` on a virtual thread.
+2. `prepare` reads: the session must be `IN_PROGRESS`; the first `PENDING` topic must have no main question yet (only one topic ahead). Then `QuestionGenerator.generate` with no transaction open (same call, budget and ref checks as §9.3).
+3. Short tx: lock the topic row (`SELECT ... FOR UPDATE`), check again (topic still `PENDING`, session `IN_PROGRESS`, no main question), insert the question `PREPARED`. Otherwise discard ours: `submitAnswer` or the end of the interview got there first. The prefetch never writes the session row, so it never trips the session's `@Version` check.
+4. `submitAnswer` (§9.2 step 6–7): a topic with a `PREPARED` question needs no QUESTION call. Its step transaction locks the same topic row and asks the saved question if there is one, else saves its own. So of a prefetch and `submitAnswer` racing on one topic, the second waits for the first and uses its question: no error for the candidate. The partial unique index `uq_question_main_per_topic` is only the backstop.
+5. Failures (model error, budget, no grounded question) are logged only; the topic stays `PENDING` and the synchronous path generates later.
+
+Known limits: a prefetched question cannot see a follow-up asked after it was written (`previousQuestions`). If the synchronous path finds no grounded question and skips the topic while a prefetch is saving one, that prepared question stays unused (hidden, harmless).
 
 ### 9.5 Scoring (pure functions, unit tested)
 

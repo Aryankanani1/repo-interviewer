@@ -15,7 +15,7 @@ Measured from the app log (stage start/end lines, `Analysis READY in 159031 ms`)
 | Setup | p50 next question | p95 next question | Input tokens / session | Output tokens / session | Cached tokens | Date / commit |
 |---|---|---|---|---|---|---|
 | Phase 1, no prefetch | 34.9 s | 41.5 s | 120 873 | 21 731 | — | 2026-10-31 / `39f98ec` |
-| Phase 1, prefetch | | | | | — | |
+| Phase 1, prefetch | 18.1 s | 26.8 s | 95 024 | 20 414 | — | 2026-10-31 / `36ddfce` + task 1.16 |
 | Phase 4, prompt caching | | | | | | |
 
 Useful query:
@@ -36,6 +36,14 @@ How the Phase 1 row was measured (task 1.15, one JUNIOR interview, 5 topics, 6 q
 - **Next question** = time from sending an answer to getting the next question: grading plus generating the question. n = 5: 25.1, 28.2, 34.9, 35.6 and about 43 s (the last one includes a retry after the output cap; the client got a 503 at 30 s, see problem 2). p95 by `percentile_cont`, so with n = 5 it is close to the slowest run.
 - **First question** (`startInterview`: plan + question) took 29 s. The report after the last answer took 34.4 s (grading + report).
 - **Tokens per session**: the 17 calls with this `session_id` (summary not included), 3 failed calls included. The failed calls (problem 1) used 17 645 input and 3 900 output tokens: 15% and 18% of the session.
+
+How the prefetch row was measured (task 1.16, same repo and commit, no re-analysis, one JUNIOR interview, 4 topics, 7 questions, answers pasted by Aryan after at least 20 s per question):
+- **Next question** = `answer.submitted_at` → next question's `asked_at` (client times matched within 0.3 s). n = 6, three of each kind:
+  - **Main question, prefetched**: 15.9, 17.2 and 13.8 s, p50 15.9 s, p95 17.1 s. Each equals its grading time (15.8, 16.7, 13.8 s): the question was already `PREPARED`, so only the grade was waited for. Every prefetch was saved 15–26 s after the previous main question was asked (19.4, 14.9, 26.3 s), minutes before the answer it was waiting for.
+  - **Follow-up** (score 4, 7, 4: a follow-up cannot be prefetched, it depends on the answer): 19.0, 25.5 and 27.2 s, p50 25.5 s, p95 27.1 s, grading plus FOLLOW_UP.
+  - The mix matters: 1.15 had one follow-up in five steps, this run three in six. Both runs are n ≤ 6.
+- **Calls**: 16, none failed. QUESTION 4 = 1 in `startInterview` + 3 prefetched, none wasted (no `PREPARED` question left unused). EVALUATION 7, FOLLOW_UP 3, PLAN 1, REPORT 1. Latency per call like 1.15 (EVALUATION p50 14.2 s, QUESTION 18.3 s, FOLLOW_UP 8.8 s), largest output 1 942 tokens (QUESTION), below every cap.
+- **What is left**: the HLD target (p95 < 12 s; < 6 s) needs grading out of the request: async evaluation, task 2.5. The report after the last answer took 29.4 s (grading + report).
 
 Per call (`llm_call` for this project, same day):
 

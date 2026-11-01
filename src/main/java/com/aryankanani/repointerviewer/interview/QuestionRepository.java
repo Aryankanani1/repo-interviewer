@@ -17,4 +17,7 @@ interface QuestionRepository extends JpaRepository<Question, UUID> {
 	/** Backed by the unique constraint {@code uq_question_order (session_id, order_index)}. */
 	Optional<Question> findBySessionIdAndOrderIndex(UUID sessionId, Integer orderIndex);
 
+	/** The topic's main question, PREPARED or later. Backed by the partial unique index {@code uq_question_main_per_topic}. */
+	Optional<Question> findByTopicIdAndFollowUpFalse(UUID topicId);
+
 }

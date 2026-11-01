@@ -43,7 +43,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Interview use cases (LLD §9): {@link #start} (task 1.10), {@link #submitAnswer} (task 1.11) and
- * {@link #endInterview} with the report (task 1.12).
+ * {@link #endInterview} with the report (task 1.12). After each main question is asked, {@link QuestionPrefetcher}
+ * writes the next topic's question in the background (task 1.16).
  *
  * <p>Never holds a database transaction across a model call (CLAUDE.md): short transaction → model call with no
  * transaction → short transaction with a version check. The use cases themselves are therefore not
@@ -77,6 +78,8 @@ public class InterviewService {
 
 	private final ReportWriter reportWriter;
 
+	private final QuestionPrefetcher prefetcher;
+
 	private final TransactionTemplate transaction;
 
 	private final AppProperties.Interview settings;
@@ -84,8 +87,8 @@ public class InterviewService {
 	InterviewService(ProjectService projectService, InterviewSessionRepository sessions,
 			InterviewTopicRepository topics, QuestionRepository questions, AnswerRepository answers,
 			QuestionPlanner planner, QuestionGenerator generator, AnswerEvaluator evaluator,
-			FollowUpPolicy followUpPolicy, ReportWriter reportWriter, PlatformTransactionManager transactionManager,
-			AppProperties properties) {
+			FollowUpPolicy followUpPolicy, ReportWriter reportWriter, QuestionPrefetcher prefetcher,
+			PlatformTransactionManager transactionManager, AppProperties properties) {
 		this.projectService = projectService;
 		this.sessions = sessions;
 		this.topics = topics;
@@ -96,6 +99,7 @@ public class InterviewService {
 		this.evaluator = evaluator;
 		this.followUpPolicy = followUpPolicy;
 		this.reportWriter = reportWriter;
+		this.prefetcher = prefetcher;
 		this.transaction = new TransactionTemplate(transactionManager);
 		this.settings = properties.interview();
 	}
@@ -137,6 +141,7 @@ public class InterviewService {
 					Question first = transaction.execute(status -> askFirst(sessionId, topic.getId(), generated.get()));
 					log.info("Interview started: {} topics, first question on topic {}", planned.size(),
 							topic.getOrderIndex());
+					prefetcher.prefetchNext(sessionId);
 					return new StartResult(sessions.findById(sessionId).orElseThrow(), first, null);
 				}
 				transaction.executeWithoutResult(status -> topics.findById(topic.getId()).orElseThrow().skip());
@@ -478,20 +483,25 @@ public class InterviewService {
 
 		List<String> previous = askedQuestions(sessionId).stream().map(Question::getText).toList();
 		for (InterviewTopic nextTopic : pending) {
-			Optional<GeneratedQuestion> generated = generator.generate(session.getProjectId(), sessionId,
-					session.getDifficulty(), nextTopic, previous);
-			if (generated.isPresent()) {
+			// A question the prefetch already saved for this topic needs no model call.
+			boolean prefetched = questions.findByTopicIdAndFollowUpFalse(nextTopic.getId()).isPresent();
+			Optional<GeneratedQuestion> generated = prefetched ? Optional.empty()
+					: generator.generate(session.getProjectId(), sessionId, session.getDifficulty(), nextTopic, previous);
+			if (prefetched || generated.isPresent()) {
 				inSession(sessionId, version, current -> {
 					int order = nextOrder(sessionId);
 					topics.findById(topic.getId()).orElseThrow().done();
-					InterviewTopic upcoming = topics.findById(nextTopic.getId()).orElseThrow();
-					Question question = questions.save(Question.prepared(upcoming, generated.get().text(),
-							generated.get().codeRefs(), generated.get().rubric(), generated.get().idealAnswerOutline(),
-							generated.get().promptVersion()));
+					// Locked like the prefetch locks it: a question it saved while we wrote ours wins, ours is dropped.
+					InterviewTopic upcoming = topics.findByIdForUpdate(nextTopic.getId()).orElseThrow();
+					Question question = questions.findByTopicIdAndFollowUpFalse(upcoming.getId())
+							.orElseGet(() -> questions.save(Question.prepared(upcoming, generated.get().text(),
+									generated.get().codeRefs(), generated.get().rubric(),
+									generated.get().idealAnswerOutline(), generated.get().promptVersion())));
 					question.ask(order);
 					upcoming.asked();
 					current.advance(question.getId());
 				});
+				prefetcher.prefetchNext(sessionId);
 				return;
 			}
 			transaction.executeWithoutResult(status -> topics.findById(nextTopic.getId()).orElseThrow().skip());

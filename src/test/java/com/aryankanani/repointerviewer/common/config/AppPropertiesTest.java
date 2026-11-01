@@ -30,7 +30,7 @@ class AppPropertiesTest {
 			assertThat(app.repo().workDir()).isEqualTo(Path.of(System.getProperty("java.io.tmpdir"), "repo-interviewer"));
 			assertThat(app.embedding().dimensions()).isEqualTo(768);
 			assertThat(app.analysis().staleAfter()).isEqualTo(Duration.ofMinutes(15));
-			assertThat(app.interview().prefetchEnabled()).isFalse();
+			assertThat(app.interview().prefetchEnabled()).isTrue();
 			assertThat(app.llm().models().followUp()).isEqualTo("claude-sonnet-5");
 			assertThat(app.llm().maxOutputTokens().followUp()).isEqualTo(2000);
 			// The two caps that cut replies off in the first real run (task 1.15): 1500 and 1200.
