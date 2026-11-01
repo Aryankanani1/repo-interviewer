@@ -174,10 +174,11 @@ public record RetrievedChunk(UUID id, String path, String symbol, int startLine,
 
 ## 4. Database
 
-DDL lives in `src/main/resources/db/migration/V1__init.sql`. Notes:
+DDL lives in `src/main/resources/db/migration/V1__init.sql`, plus `V2__code_file_content.sql` (one nullable column). Notes:
 
 - `project (github_url, commit_sha)` is unique. That is how FR-2 (dedupe) works.
 - `code_chunk.path` is denormalized from `code_file` so ref validation is a single indexed query.
+- `code_file.content` (V2) is the whole file after `SecretRedactor`, with the repository's line numbers. It feeds `CodeRef` snippets only; search and ref validation use the chunks. NULL for files analyzed before V2.
 - `code_chunk.embedding vector(768)` matches `nomic-embed-text`. Changing the embedding model means a new migration and re-embedding.
 - **No ANN index in V1.** Every search filters by `project_id`, and one project has fewer than 10K chunks, so an exact scan takes milliseconds with perfect recall. The HNSW index is commented in the migration for later.
 - `question.order_index` is NULL while a question is `PREPARED` (prefetched) and assigned when it becomes `ASKED`.
@@ -216,7 +217,7 @@ Spring for GraphQL turns `Window<T>` into the `ProjectConnection` shape. The cur
 
 **Batch loading (task 1.13).** A `@BatchMapping` method is called once per field and query level with every parent object (the DataLoader pattern) and makes one `IN (...)` query, so a field costs one query however many parents there are. Fields that always have a value return a `List` in the parents' order; nullable fields return a `Map` from parent to value with missing parents meaning null, because Spring streams the values through Reactor, which rejects null elements. `NPlusOneTest` counts SQL statements (test `SqlStatementCounter`, a `DelegatingDataSource` with dynamic-proxy connections): a session query with every nested field costs 10 statements for 3 questions and for 8 (before: 11 and 21).
 
-`CodeRef.snippet` is cut from the stored chunks: `ChunkStore.snippets` sends all refs as parallel arrays (`unnest(?::uuid[], ?::text[], ?::int[], ?::int[]) WITH ORDINALITY`) joined to the overlapping non-TYPE_HEADER chunks, which hold their lines exactly. Lines only a TYPE_HEADER covers (fields) are not stored verbatim and show as one `…` per gap; no stored line → null.
+`CodeRef.snippet` is cut from the stored file (`CodebaseQueries.snippets`, fix for 1.15 problem 3): one `CodeFileRepository.findByProjectIdAndPathIn` query per project loads the cited files, and lines `startLine..endLine` are taken from `code_file.content`, split with `String.lines()` like `SourceLines`, cut at the last line (a range that starts after it → null). So header-only lines (class annotations, fields) show exactly, and a ref across fields and methods has no gaps. Files analyzed before V2 have no content and fall back to `ChunkStore.snippets`: all their refs as parallel arrays (`unnest(?::uuid[], ?::text[], ?::int[], ?::int[]) WITH ORDINALITY`) joined to the overlapping non-TYPE_HEADER chunks; lines only a TYPE_HEADER covers show as one `…` per gap, and no stored line → null. Either way the batch stays one query per kind, whatever the number of questions (`NPlusOneTest`: 10 statements for 3 or 8 questions).
 
 ### 5.2 Error handling
 - **Expected failures** (`DomainException` with an `ErrorCode`) are caught in the controller and returned as `payload.errors`. The payload's main field is `null` (or the stored object, when the failure happened after it was saved).
@@ -337,7 +338,7 @@ Java rules look at the file's main type: the type named like the file, else the 
 ### 6.6 Chunking
 `Chunk(path, chunkType, symbol, startLine, endLine, content, tokenEstimate)`. Line numbers are 1-based and inclusive and come from JavaParser `Range`. Chunkers take a `RedactedFile` (§6.7), never raw content.
 
-**Line-range rule (task 1.5):** every chunk except `TYPE_HEADER` holds exactly the source lines `startLine..endLine`, one content line per source line. The model sees `lines="40-88"` next to the content and cites code by those numbers, and `CodeRefValidator` and the `CodeRef` snippets work on them, so they must be true. A `TYPE_HEADER` is a condensed outline; its range is the whole type. `Chunk` rejects ranges the `ck_chunk_lines` check would reject.
+**Line-range rule (task 1.5):** every chunk except `TYPE_HEADER` holds exactly the source lines `startLine..endLine`, one content line per source line. The model sees `lines="40-88"` next to the content and cites code by those numbers, and `CodeRefValidator` and the `CodeRef` snippets work on them, so they must be true. A `TYPE_HEADER` is a condensed outline; its range is the whole type. Its lines are not stored verbatim in any chunk, which is why snippets come from `code_file.content` (V2). `Chunk` rejects ranges the `ck_chunk_lines` check would reject.
 
 **JavaChunker** (per top-level and nested type; parsing via `JavaParsing`, the same `JAVA_25` level as `FileClassifier`):
 1. One `TYPE_HEADER` chunk: package, a condensed import list (first 15 imports, then `// +N more imports`), type annotations and declaration (enum constants kept), fields with annotations, and **signatures** of all methods and constructors (no bodies, no comments); nested types appear as `public enum Status { ... }`. Symbol: `ClassName`; nested types `Outer.Inner`.
@@ -372,7 +373,7 @@ Unit tested with positive and negative cases; fake tokens in test code are built
 - `embedQuery(text)`: the same model with the `search_query:` prefix.
 - Every vector is checked against `app.embedding.dimensions` (768) before anything is written. Another size means the wrong model is configured (D-005): `IllegalStateException` with a clear message, not Postgres' "expected 768 dimensions".
 - `ChunkStore` (`codebase.store`, `JdbcTemplate` only, D-004): `insert(projectId, fileId, chunks)` (JDBC batch, embedding NULL), `findUnembedded(projectId, limit)`, `saveEmbeddings(List<ChunkEmbedding>)`, `search(projectId, float[] query, limit)` (the §7 step 2 SQL, returns `RetrievedChunk`). Vectors travel as pgvector text, `[0.12,-0.03,...]`, cast with `?::vector`, so no pgvector Java library is needed.
-- `code_file` rows are `CodeFile` entities (`CodeFileRepository`). `projectId` is a plain UUID column, not a `@ManyToOne`, because `codebase` may not depend on `project`.
+- `code_file` rows are `CodeFile` entities (`CodeFileRepository`). `projectId` is a plain UUID column, not a `@ManyToOne`, because `codebase` may not depend on `project`. Its `content` is set only from a `RedactedFile` (constructor parameter), so raw text cannot be stored.
 - `FakeEmbeddingModel` (test only, the "hashing trick"): drop the task prefix, split camelCase (`RefundRequest` → `refund request`), lowercase, split into words; each distinct word adds 1 to one of 768 slots chosen by `String.hashCode`, then the vector is scaled to length 1. Texts that share words get a higher cosine similarity. It knows nothing about meaning, so tests prove the machinery and the evals (task 1.17) measure search quality (D-012). On the fixture, `refund` ranks the 4-line `OrderController#refund` first and `refund a paid order` ranks `OrderService#refund` first.
 
 ### 6.9 RepoMapBuilder
@@ -643,7 +644,7 @@ The eval reports and does not judge: each target prints PASS or MISS, and the te
 
 ## 13. Phase 2 preview (Kafka)
 
-### 13.1 Outbox (V2 migration)
+### 13.1 Outbox (V3 migration)
 
 ```sql
 CREATE TABLE outbox_event (

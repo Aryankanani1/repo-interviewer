@@ -103,8 +103,8 @@ public class FixtureIndexer {
 	public List<Chunk> index(UUID projectId) {
 		List<Chunk> saved = new ArrayList<>();
 		for (ScannedFile file : scanner.scan(LocalDirectoryRepoFetcher.fixtureRoot()).files()) {
-			CodeFile codeFile = files.save(new CodeFile(projectId, file, classifier.classify(file)));
 			RedactedFile redacted = redactor.redact(file);
+			CodeFile codeFile = files.save(new CodeFile(projectId, file, classifier.classify(file), redacted));
 			List<Chunk> chunks = file.language().equals("java") ? javaChunker.chunk(redacted)
 					: textChunker.chunk(redacted);
 			chunkStore.insert(projectId, codeFile.getId(), chunks);

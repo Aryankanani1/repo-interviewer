@@ -1,5 +1,6 @@
 package com.aryankanani.repointerviewer.codebase.store;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -10,6 +11,9 @@ import org.springframework.data.repository.query.Param;
 public interface CodeFileRepository extends JpaRepository<CodeFile, UUID> {
 
 	List<CodeFile> findByProjectId(UUID projectId);
+
+	/** The cited files of one project, with their text: one query for all the refs of a GraphQL batch. */
+	List<CodeFile> findByProjectIdAndPathIn(UUID projectId, Collection<String> paths);
 
 	@Query("select f.path from CodeFile f where f.projectId = :projectId")
 	List<String> findPathsByProjectId(@Param("projectId") UUID projectId);

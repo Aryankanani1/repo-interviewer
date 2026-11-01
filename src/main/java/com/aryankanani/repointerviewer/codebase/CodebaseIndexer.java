@@ -112,7 +112,7 @@ public class CodebaseIndexer {
 		// so it has no reason to write early). The chunk rows below are plain JDBC and point at code_file, so the
 		// files must reach the database first, or the foreign key fails.
 		List<CodeFile> saved = codeFiles.saveAllAndFlush(
-				files.stream().map(file -> new CodeFile(projectId, file.scanned(), file.role())).toList());
+				files.stream().map(file -> new CodeFile(projectId, file.scanned(), file.role(), file.redacted())).toList());
 		for (int i = 0; i < files.size(); i++) {
 			chunkStore.insert(projectId, saved.get(i).getId(), files.get(i).chunks());
 		}
