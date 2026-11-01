@@ -125,7 +125,7 @@ app:
     max-output-tokens:
       summary: 3000      # 1430 measured
       plan: 3000         # 1425
-      question: 4000     # 2060 (1500 cut it off)
+      question: 7000     # 3276 in the 1.17 eval (1500 cut it off in 1.15)
       follow-up: 2000    # 751
       evaluation: 3000   # 1571 (1200 cut it off twice)
       report: 3000       # 1075

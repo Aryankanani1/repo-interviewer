@@ -84,7 +84,7 @@ Findings:
 1. **Every HLD target met except one**: Q1's own ideal outline, used as the answer, scored 7 (target ≥ 8). One miss in four; not enough to change a prompt. Watch it on the four repos of task 5.1. The grader was consistent on the middling answers (largest gap 1 point), and gave 0 to every injection and every "I don't know."
 2. **Header-only refs (problem 3 of 1.15) did not appear**: all 8 questions had a ref that shows code, against 2 of 6 in 1.15. With n = 8 this is luck, not a fix; the grounding metric now catches it when it comes back.
 3. **Every main question got a follow-up**: half-outline answers scored 4–6, inside the 3–7 follow-up range, as designed. So 8 questions (4 follow-ups) from 4 topics.
-4. **QUESTION output is close to its cap**: the largest reply was 3 276 tokens of a 4 000 cap, 1.2×, below the "at least 2× the largest output" rule from the 1.15 fix (largest then: 2 060). A reply cut off at the cap is unreadable JSON. Not changed here.
+4. **QUESTION output is close to its cap**: the largest reply was 3 276 tokens of a 4 000 cap, 1.2×, below the "at least 2× the largest output" rule from the 1.15 fix (largest then: 2 060). A reply cut off at the cap is unreadable JSON. Raised to 7 000 right after this run (Status log, 2026-11-01).
 5. **Calls**: 35, none failed: EVALUATION 24 (p50 6.6 s; the short adversarial answers grade fast), QUESTION 4 (p50 27.1 s), FOLLOW_UP 4, PLAN, SUMMARY and REPORT 1 each. 174 721 input and 32 181 output tokens, about $0.65.
 
 Prompt changes because of this run: none.
