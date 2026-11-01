@@ -32,7 +32,10 @@ class AppPropertiesTest {
 			assertThat(app.analysis().staleAfter()).isEqualTo(Duration.ofMinutes(15));
 			assertThat(app.interview().prefetchEnabled()).isFalse();
 			assertThat(app.llm().models().followUp()).isEqualTo("claude-sonnet-5");
-			assertThat(app.llm().maxOutputTokens().followUp()).isEqualTo(1000);
+			assertThat(app.llm().maxOutputTokens().followUp()).isEqualTo(2000);
+			// The two caps that cut replies off in the first real run (task 1.15): 1500 and 1200.
+			assertThat(app.llm().maxOutputTokens().question()).isEqualTo(4000);
+			assertThat(app.llm().maxOutputTokens().evaluation()).isEqualTo(3000);
 		});
 	}
 

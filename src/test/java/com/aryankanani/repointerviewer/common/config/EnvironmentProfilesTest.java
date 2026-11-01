@@ -3,10 +3,12 @@ package com.aryankanani.repointerviewer.common.config;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.time.Duration;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.test.context.ConfigDataApplicationContextInitializer;
 import org.springframework.boot.test.context.assertj.AssertableApplicationContext;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -80,6 +82,19 @@ class EnvironmentProfilesTest {
 		run("dev", context -> assertThat(context.getBean(AppProperties.class).llm().maxCallsPerDay()).isEqualTo(60));
 		run("stage", context -> assertThat(context.getBean(AppProperties.class).llm().maxCallsPerDay()).isEqualTo(100));
 		run("prod", context -> assertThat(context.getBean(AppProperties.class).llm().maxCallsPerDay()).isEqualTo(300));
+	}
+
+	/**
+	 * {@code submitAnswer} grades the answer and writes the next question in one request: 25-43 s in the first
+	 * real run (task 1.15), past Tomcat's 30 s default, which answered HTTP 503 while the work went on.
+	 */
+	@ParameterizedTest
+	@ValueSource(strings = { "dev", "test", "stage", "prod" })
+	void requestsMayRunLongerThanTomcatsDefaultAsyncTimeout(String environment) {
+		// Bound the way Boot binds spring.mvc.* (Environment.getProperty cannot read "120s" as a Duration).
+		run(environment, context -> assertThat(Binder.get(context.getEnvironment())
+				.bind("spring.mvc.async.request-timeout", Duration.class).orElse(null))
+				.isEqualTo(Duration.ofSeconds(120)));
 	}
 
 	@Test

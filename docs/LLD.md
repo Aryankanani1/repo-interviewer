@@ -232,6 +232,7 @@ Controllers map entities to `api` view records (`ProjectView`, `QuestionView`, .
 - GraphiQL on in the `dev` and `stage` environments only (`spring.graphql.graphiql.enabled`); off in `application.yml` and prod.
 - Schema inspection report on (`spring.graphql.schema.inspection.enabled=true`): it logs schema fields with no resolver. The `interviewEvents` subscription is expected to show up there until Phase 2.
 - WebSocket path for subscriptions: `/graphql-ws` (task 1.18).
+- Request timeout 120 s (`spring.mvc.async.request-timeout`). GraphQL over HTTP runs as an async request, and Tomcat's default 30 s is shorter than `submitAnswer` (grading + next question, 25-43 s in task 1.15). A request that still times out keeps running on the server; sending the same answer again returns its result (§9.2).
 - Phase 4: max query depth and complexity instrumentation.
 
 ## 6. Analysis pipeline
@@ -453,7 +454,7 @@ The template comes from the purpose (`LlmPurpose.template()`), so the two can ne
 
 `SpringAiLlmGateway.call` (task 1.8):
 0. Inside a database transaction → `IllegalStateException`. The rule "never call the LLM inside a transaction" is enforced in code (`TransactionSynchronizationManager.isActualTransactionActive()`).
-1. Render `system-interviewer.st` and the purpose template (`PromptTemplates`, §8.3). Model = `app.llm.models.<purpose>`, max tokens = `app.llm.max-output-tokens.<purpose>`, timeout = `app.llm.timeout`.
+1. Render `system-interviewer.st` and the purpose template (`PromptTemplates`, §8.3). Model = `app.llm.models.<purpose>`, max tokens = `app.llm.max-output-tokens.<purpose>`, timeout = `app.llm.timeout`. Each output cap is at least 2× the largest output measured for that purpose (RESULTS.md, task 1.15): a reply cut off at its cap is unreadable JSON, and the second attempt hits the same cap.
 2. Per attempt (at most 2): `LlmBudget.reserve(sessionId)`. The daily cap counts today's `llm_call` rows (UTC day; soft: concurrent calls can overshoot by a few). The session cap is an atomic `UPDATE interview_session SET llm_call_count = llm_call_count + 1 WHERE id = ? AND llm_call_count < ?` (exact). Either fails with `BUDGET_EXCEEDED` before the model is called, and no ledger row is written. A failed attempt keeps its slot: it can cost tokens too.
 3. Call `ChatClient` with `.options(AnthropicChatOptions.builder().model(..).maxTokens(..).timeout(..).outputSchema(schema))`, where `schema` is `BeanOutputConverter(outputType).getJsonSchema()` (`additionalProperties: false`, every property required). This is Anthropic's **native structured output**: the API makes the reply match the schema. ChatClient merges these options into a copy of the model's default options (`getOptions().mutate().combineWith(..)`); with `AnthropicChatOptions` defaults the schema survives the merge (checked in `SpringAiLlmGatewayTest`).
 4. Read the reply with `converter.convert(text)` (our code, not `.entity()`), then `normalized()` (§8.2). Two failure kinds stay apart:

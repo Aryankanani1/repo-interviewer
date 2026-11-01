@@ -122,7 +122,7 @@ class SpringAiLlmGatewayTest {
 				.contains("Repository: acme/shop");
 		assertThat(sent.getOptions()).isInstanceOfSatisfying(AnthropicChatOptions.class, options -> {
 			assertThat(options.getModel()).isEqualTo("claude-haiku-4-5");
-			assertThat(options.getMaxTokens()).isEqualTo(2000);
+			assertThat(options.getMaxTokens()).isEqualTo(3000);
 			assertThat(options.getOutputSchema()).contains("\"oneLiner\"", "\"additionalProperties\":false");
 		});
 	}
@@ -143,7 +143,7 @@ class SpringAiLlmGatewayTest {
 		assertThat(claude.prompts().getFirst().getOptions()).isInstanceOfSatisfying(AnthropicChatOptions.class,
 				options -> {
 					assertThat(options.getModel()).isEqualTo("claude-sonnet-5");
-					assertThat(options.getMaxTokens()).isEqualTo(1200);
+					assertThat(options.getMaxTokens()).isEqualTo(3000);
 				});
 	}
 
