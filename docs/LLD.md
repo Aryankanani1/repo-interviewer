@@ -53,7 +53,8 @@ ri
 ├── common/                 # shared kernel: ids, clock, errors, token estimator, JSON helpers
 │   ├── error/              # DomainException, ErrorCode (mirrors GraphQL enum)
 │   ├── config/             # AppProperties (@ConfigurationProperties "app")
-│   └── messaging/          # Phase 2: Topics (names), KafkaTopicConfig (NewTopic beans, kafka profile only)
+│   └── messaging/          # Phase 2: Topics, KafkaTopicConfig (kafka profile), OutboxWriter, OutboxRelay
+│                           #   (kafka profile), EventEnvelope, AggregateType; OutboxEvent entity stays inside
 ├── llm/                    # the ONLY way to call a chat model
 │   ├── LlmGateway.java             # interface; LlmRequest, LlmPurpose (purpose → template)
 │   ├── SpringAiLlmGateway.java     # Spring AI ChatClient implementation
@@ -600,7 +601,8 @@ categoryScores:  per category in enum order, plain (unweighted) average of grade
 @Validated
 @ConfigurationProperties(prefix = "app", ignoreUnknownFields = false)
 public record AppProperties(Repo repo, Chunking chunking, Embedding embedding, Retrieval retrieval,
-                            RepoMap repoMap, Analysis analysis, Interview interview, Llm llm) { ... }
+                            RepoMap repoMap, Analysis analysis, Interview interview, Llm llm,
+                            Outbox outbox) { ... }   // outbox: poll-interval, batch-size (task 2.2)
 ```
 Lives in `common.config`, registered by `@ConfigurationPropertiesScan` on the application class. All keys and defaults are in `src/main/resources/application.yml`.
 
@@ -654,7 +656,9 @@ The eval reports and does not judge: each target prints PASS or MISS, and the te
 - Tests: `KafkaContainerConfiguration` (`@ServiceConnection KafkaContainer`, same image) with `@ActiveProfiles({"test", "kafka"})`; `KafkaTopicsTest` reads the created topics back with `KafkaAdmin.describeTopics`.
 - The `<topic>.DLT` topics are declared in task 2.4, with the error handler that writes to them.
 
-### 13.1 Outbox (V3 migration)
+### 13.1 Outbox (V3 migration, task 2.2)
+
+The schema below is `V3__outbox.sql`, plus `version SMALLINT NOT NULL DEFAULT 1` (the envelope's version, §13.2) and a check on `aggregate_type`. `processed_event` is created here for the consumers of task 2.3.
 
 ```sql
 CREATE TABLE outbox_event (
@@ -677,7 +681,11 @@ CREATE TABLE processed_event (
 );
 ```
 
-`OutboxRelay` polls every 500 ms: `SELECT ... WHERE published_at IS NULL ORDER BY created_at LIMIT 100 FOR UPDATE SKIP LOCKED`, sends with the key, waits for the ack, sets `published_at`. Delivery is at-least-once, so consumers must be idempotent: insert into `processed_event` in the same transaction as their state change, and skip on a duplicate key.
+- **`OutboxWriter.write(topic, aggregateType, aggregateId, type, payload)`** (`common.messaging`, public): `@Transactional(propagation = MANDATORY)`, so it joins the caller's transaction and throws `IllegalTransactionStateException` without one; an event is never saved apart from its state change. The topic must be in `Topics.ALL`. The payload is written as JSON with Boot's Jackson 3 `JsonMapper`. Returns the event id (UUIDv7, also the envelope's `eventId`). Plain database work, so it exists without the `kafka` profile.
+- **`OutboxRelay`** (`@Profile("kafka")`, `@Scheduled(fixedDelayString = "${app.outbox.poll-interval}")`, 500 ms; scheduling is enabled on the application class): one transaction locks up to `app.outbox.batch-size` (100) rows with `SELECT * FROM outbox_event WHERE published_at IS NULL ORDER BY created_at, id LIMIT ? FOR UPDATE SKIP LOCKED` (native query; `id` breaks ties because UUIDv7 is time-ordered), then sends them one by one in that order with key = `aggregate_id` and value = the envelope JSON, waits for each ack, and sets `published_at`. The first failed send ends the batch, so a later event of the same aggregate never overtakes it. It holds the row locks while it sends, on purpose (DECISIONS.md D-017); producer timeouts cap a send at 10 s (`max.block.ms` and `request.timeout.ms` 5 s, `delivery.timeout.ms` 10 s).
+- **Delivery is at-least-once** (a crash after the ack and before the commit sends again), so consumers must be idempotent: insert into `processed_event` in the same transaction as their state change, and skip on a duplicate key (task 2.3).
+- **Tests** (`@KafkaIntegrationTest`: one cached context with the broker; the relay's timer set to 1 h so tests call `publishBatch()` themselves, and `OutboxRelayTest` checks the timer is wired): a committed state change + event publishes exactly one event; a rolled-back one publishes none; a row another transaction locks is skipped, not waited for; one aggregate's events arrive in write order; a failed send ends the batch. "Nothing arrived" is proven with a committed **sentinel** event with the same key: it lands on the same partition after the event under test, so once it arrives, any earlier event of that aggregate has arrived too. Breaking `SKIP LOCKED` or the stop-at-first-failure rule fails those tests (checked).
+- Not yet: deleting old published rows (the table grows; one row per event).
 
 ### 13.2 Event envelope
 

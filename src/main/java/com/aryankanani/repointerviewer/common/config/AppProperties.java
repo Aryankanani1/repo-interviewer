@@ -30,7 +30,8 @@ public record AppProperties(
 		@Valid @NotNull RepoMap repoMap,
 		@Valid @NotNull Analysis analysis,
 		@Valid @NotNull Interview interview,
-		@Valid @NotNull Llm llm) {
+		@Valid @NotNull Llm llm,
+		@Valid @NotNull Outbox outbox) {
 
 	public record Repo(
 			@NotBlank String allowedHost,
@@ -56,6 +57,10 @@ public record AppProperties(
 	}
 
 	public record Analysis(@NotNull @DurationMin(minutes = 1) Duration staleAfter) {
+	}
+
+	/** {@code OutboxRelay} (task 2.2, kafka profile only): how often it polls, and how many rows one poll locks. */
+	public record Outbox(@NotNull @DurationMin(millis = 100) Duration pollInterval, @Positive int batchSize) {
 	}
 
 	/** Question counts are capped at 8 because of the {@code ck_session_count} check in V1__init.sql. */

@@ -36,6 +36,13 @@ spring:
   kafka:
     admin:
       fail-fast: true   # with the kafka profile, an unreachable broker stops the startup instead of failing later
+    producer:
+      # OutboxRelay sends while it holds its row locks (DECISIONS.md D-017), so a send must give up quickly when
+      # Kafka is down: 5 s to get metadata or an answer, 10 s per send in total (at least linger.ms + 5 s).
+      properties:
+        max.block.ms: 5000
+        request.timeout.ms: 5000
+        delivery.timeout.ms: 10000
   graphql:
     graphiql:
       enabled: false   # on in dev and stage only
@@ -108,6 +115,9 @@ app:
     max-tokens: 12000
   analysis:
     stale-after: 15m
+  outbox:                # OutboxRelay, kafka profile only (task 2.2, LLD §13.1)
+    poll-interval: 500ms
+    batch-size: 100
   interview:
     default-question-count: 5
     min-question-count: 3
