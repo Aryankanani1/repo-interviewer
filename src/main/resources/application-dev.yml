@@ -13,6 +13,9 @@ spring:
   ai:
     ollama:
       base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+  kafka:
+    # docker compose --profile kafka up -d. Used only with the kafka profile (-Dspring-boot.run.profiles=dev,kafka).
+    bootstrap-servers: localhost:${KAFKA_PORT:9094}
 
 logging:
   level:

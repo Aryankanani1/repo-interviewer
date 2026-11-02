@@ -16,7 +16,7 @@ Java 21 · Spring Boot 4.1.x · Spring for GraphQL · Spring AI 2.0.x (Anthropic
 **Versions move fast.** Before adding or changing a dependency, check the official docs or Maven Central for the current artifact ID and version. Spring AI 2.0 renamed artifacts and properties compared with 1.x. Never guess an artifact ID or an API method; look it up.
 
 ## Commands
-- Start infrastructure: `docker compose up -d` (Postgres on localhost:5433). Ollama runs natively on macOS (`brew services start ollama`, port 11434), or in Docker with `docker compose --profile ollama up -d` (DECISIONS.md D-013). Phase 2: `docker compose --profile kafka up -d`
+- Start infrastructure: `docker compose up -d` (Postgres on localhost:5433). Ollama runs natively on macOS (`brew services start ollama`, port 11434), or in Docker with `docker compose --profile ollama up -d` (DECISIONS.md D-013). Phase 2: `docker compose --profile kafka up -d` (Kafka on localhost:9094, Kafka UI at http://localhost:8090), and run the app with Kafka: `./mvnw spring-boot:run -Dspring-boot.run.profiles=dev,kafka`
 - Run the app: `./mvnw spring-boot:run` (dev environment) → GraphiQL at http://localhost:8080/graphiql. Environments: dev → test → stage → prod over the defaults in `application.yml` (DECISIONS.md D-015).
 - Tests: `./mvnw test` · full check (tests + ArchUnit): `./mvnw verify`
 - Opt-in evals with real model calls (costs money, ask first): `./mvnw verify -Pevals`

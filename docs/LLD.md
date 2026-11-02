@@ -34,6 +34,8 @@ Checked on start.spring.io, Maven Central, and the Spring AI autoconfigure jars.
 | `graphql-java-extended-scalars` | 24.0 | Newest release, built against graphql-java 24.1. Boot manages 25.1. If `DateTime` breaks, replace it with a small custom scalar. |
 | `archunit-junit5` | 1.5.1 | Test scope |
 | Managed by Boot 4.1.2 | graphql-java 25.1, Spring for GraphQL 2.0.6, Hibernate 7.4.13, Flyway 12.4.0, Testcontainers 2.0.5, JUnit Jupiter 6.0.3, PostgreSQL driver 42.7.14 | |
+| Phase 2, managed by Boot 4.1.2 (checked 2026-11-02, task 2.1) | `spring-boot-starter-kafka` → Spring for Apache Kafka 4.1.2, kafka-clients 4.2.2; `testcontainers-kafka` 2.0.5 (test) | `spring-boot-kafka` holds `ApacheKafkaContainerConnectionDetailsFactory`, so `@ServiceConnection` works on `org.testcontainers.kafka.KafkaContainer` (the `org.testcontainers.containers.KafkaContainer` one is the older Confluent image). |
+| Docker images, Phase 2 | `apache/kafka:4.2.2`, `kafbat/kafka-ui:v1.5.0` | Broker = the client version. Newest broker on Docker Hub was 4.4.0. |
 
 Boot 4 artifact names that differ from Boot 3: `spring-boot-starter-webmvc` (not `-web`), `spring-boot-starter-flyway` (plus `flyway-database-postgresql`), and one test starter per module (`spring-boot-starter-graphql-test`, `-data-jpa-test`, ...). Testcontainers 2 uses `testcontainers-postgresql` and the class `org.testcontainers.postgresql.PostgreSQLContainer`.
 
@@ -50,7 +52,8 @@ ri
 ├── RepoInterviewerApplication.java
 ├── common/                 # shared kernel: ids, clock, errors, token estimator, JSON helpers
 │   ├── error/              # DomainException, ErrorCode (mirrors GraphQL enum)
-│   └── config/             # AppProperties (@ConfigurationProperties "app")
+│   ├── config/             # AppProperties (@ConfigurationProperties "app")
+│   └── messaging/          # Phase 2: Topics (names), KafkaTopicConfig (NewTopic beans, kafka profile only)
 ├── llm/                    # the ONLY way to call a chat model
 │   ├── LlmGateway.java             # interface; LlmRequest, LlmPurpose (purpose → template)
 │   ├── SpringAiLlmGateway.java     # Spring AI ChatClient implementation
@@ -643,6 +646,13 @@ Fixture repo: `src/test/resources/fixtures/sample-repo/`, a tiny Spring Boot ord
 The eval reports and does not judge: each target prints PASS or MISS, and the test fails only when the run breaks. With about five main questions, a hard threshold would pass or fail by chance.
 
 ## 13. Phase 2 preview (Kafka)
+
+### 13.0 Running with Kafka (task 2.1)
+- `docker compose --profile kafka up -d`: one KRaft node (broker and controller) on `localhost:9094` and Kafka UI on http://localhost:8090 (`KAFKA_PORT`, `KAFKA_UI_PORT`; not 9092 and 8081, which other local projects hold). Containers reach the broker at `kafka:29092` (INTERNAL); the app on the host uses EXTERNAL, which listens and advertises the same host port, because a client connects once and then uses the address the broker advertises. The broker never auto-creates topics.
+- Kafka is behind the `kafka` Spring profile (DECISIONS.md D-016): `./mvnw spring-boot:run -Dspring-boot.run.profiles=dev,kafka`. Only then does `KafkaTopicConfig` declare the topics (one `KafkaAdmin.NewTopics` bean: every `Topics.ALL` name, 3 partitions, 1 replica), which `KafkaAdmin` creates at startup if missing. Without the profile nothing declares a topic, so nothing connects to Kafka.
+- `spring.kafka.admin.fail-fast: true` (application.yml): with the profile and no reachable broker, startup stops with `Could not configure topics` after the admin timeout (about 30 s). The broker address is set only in `application-dev.yml` (`localhost:${KAFKA_PORT:9094}`); stage and prod set `SPRING_KAFKA_BOOTSTRAP_SERVERS`.
+- Tests: `KafkaContainerConfiguration` (`@ServiceConnection KafkaContainer`, same image) with `@ActiveProfiles({"test", "kafka"})`; `KafkaTopicsTest` reads the created topics back with `KafkaAdmin.describeTopics`.
+- The `<topic>.DLT` topics are declared in task 2.4, with the error handler that writes to them.
 
 ### 13.1 Outbox (V3 migration)
 
