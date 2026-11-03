@@ -1,22 +1,24 @@
-package com.aryankanani.repointerviewer.project;
+package com.aryankanani.repointerviewer.common.messaging;
 
-import com.aryankanani.repointerviewer.common.messaging.EventEnvelope;
-import com.aryankanani.repointerviewer.common.messaging.InvalidEventException;
+import java.util.List;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.json.JsonMapper;
 
-/** Reads a stage's Kafka message, and accepts only the event type that stage handles, at a version it knows. */
+/**
+ * Reads a consumer's Kafka message, and accepts only the event types that consumer handles, at a version it knows
+ * (tasks 2.3 and 2.4; shared by {@code project} and {@code interview} since task 2.5).
+ */
 @Component
 @Profile("kafka")
-class StageEvents {
+public class EventReader {
 
 	private static final int KNOWN_VERSION = 1;
 
 	private final JsonMapper json;
 
-	StageEvents(JsonMapper json) {
+	EventReader(JsonMapper json) {
 		this.json = json;
 	}
 
@@ -24,7 +26,7 @@ class StageEvents {
 	 * @throws InvalidEventException for anything else: a consumer must not guess what it means, and the error handler
 	 *         sends it straight to the dead-letter topic (task 2.4)
 	 */
-	EventEnvelope read(String message, String expectedType) {
+	public EventEnvelope read(String message, String... expectedTypes) {
 		if (message == null) {
 			throw new InvalidEventException("Message without a value");
 		}
@@ -38,11 +40,23 @@ class StageEvents {
 		if (event.eventId() == null || event.aggregateId() == null) {
 			throw new InvalidEventException("Event without eventId or aggregateId");
 		}
-		if (!expectedType.equals(event.type()) || event.version() != KNOWN_VERSION) {
+		if (!List.of(expectedTypes).contains(event.type()) || event.version() != KNOWN_VERSION) {
 			throw new InvalidEventException("Event " + event.eventId() + ": type " + event.type() + " version "
-					+ event.version() + ", expected " + expectedType + " version " + KNOWN_VERSION);
+					+ event.version() + ", expected " + String.join(" or ", expectedTypes) + " version "
+					+ KNOWN_VERSION);
 		}
 		return event;
+	}
+
+	/** The event's payload as {@code type}. @throws InvalidEventException when it does not fit */
+	public <T> T payload(EventEnvelope event, Class<T> type) {
+		try {
+			return json.treeToValue(event.payload(), type);
+		}
+		catch (JacksonException | IllegalArgumentException ex) {
+			throw new InvalidEventException("Event " + event.eventId() + ": payload is not a " + type.getSimpleName(),
+					ex);
+		}
 	}
 
 }

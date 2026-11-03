@@ -33,7 +33,8 @@ public class InterviewSession {
 	/** The session state machine (LLD §3.2). */
 	private static final Map<SessionStatus, Set<SessionStatus>> ALLOWED = Map.of(
 			SessionStatus.PLANNING, Set.of(SessionStatus.IN_PROGRESS, SessionStatus.FAILED),
-			SessionStatus.IN_PROGRESS, Set.of(SessionStatus.COMPLETED, SessionStatus.ABANDONED),
+			// FAILED from IN_PROGRESS only on Kafka: an answer that could not be graded or followed (task 2.5).
+			SessionStatus.IN_PROGRESS, Set.of(SessionStatus.COMPLETED, SessionStatus.ABANDONED, SessionStatus.FAILED),
 			SessionStatus.COMPLETED, Set.of(),
 			SessionStatus.ABANDONED, Set.of(),
 			SessionStatus.FAILED, Set.of());
@@ -153,7 +154,10 @@ public class InterviewSession {
 		this.overallScore = BigDecimal.valueOf(report.overallScore()).setScale(2, RoundingMode.HALF_UP);
 	}
 
-	/** PLANNING → FAILED. The reason is shown to the user. */
+	/**
+	 * PLANNING → FAILED, or IN_PROGRESS → FAILED when a Kafka worker gave up on an answer (task 2.5). The reason is
+	 * shown to the user.
+	 */
 	void fail(String reason) {
 		transitionTo(SessionStatus.FAILED);
 		this.failureReason = reason;

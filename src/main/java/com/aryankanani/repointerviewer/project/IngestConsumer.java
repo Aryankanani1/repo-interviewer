@@ -2,6 +2,7 @@ package com.aryankanani.repointerviewer.project;
 
 import com.aryankanani.repointerviewer.common.messaging.AggregateType;
 import com.aryankanani.repointerviewer.common.messaging.EventEnvelope;
+import com.aryankanani.repointerviewer.common.messaging.EventReader;
 import com.aryankanani.repointerviewer.common.messaging.OutboxWriter;
 import com.aryankanani.repointerviewer.common.messaging.ProcessedEvents;
 import com.aryankanani.repointerviewer.common.messaging.Topics;
@@ -23,7 +24,7 @@ class IngestConsumer {
 
 	static final String NAME = "analysis-ingest";
 
-	private final StageEvents events;
+	private final EventReader events;
 
 	private final AnalysisStages stages;
 
@@ -31,7 +32,7 @@ class IngestConsumer {
 
 	private final OutboxWriter outbox;
 
-	IngestConsumer(StageEvents events, AnalysisStages stages, ProcessedEvents processed, OutboxWriter outbox) {
+	IngestConsumer(EventReader events, AnalysisStages stages, ProcessedEvents processed, OutboxWriter outbox) {
 		this.events = events;
 		this.stages = stages;
 		this.processed = processed;

@@ -1,6 +1,7 @@
 package com.aryankanani.repointerviewer.project;
 
 import com.aryankanani.repointerviewer.common.messaging.EventEnvelope;
+import com.aryankanani.repointerviewer.common.messaging.EventReader;
 import com.aryankanani.repointerviewer.common.messaging.ProcessedEvents;
 import com.aryankanani.repointerviewer.common.messaging.Topics;
 import java.util.UUID;
@@ -20,13 +21,13 @@ class SummaryConsumer {
 
 	static final String NAME = "analysis-summary";
 
-	private final StageEvents events;
+	private final EventReader events;
 
 	private final AnalysisStages stages;
 
 	private final ProcessedEvents processed;
 
-	SummaryConsumer(StageEvents events, AnalysisStages stages, ProcessedEvents processed) {
+	SummaryConsumer(EventReader events, AnalysisStages stages, ProcessedEvents processed) {
 		this.events = events;
 		this.stages = stages;
 		this.processed = processed;

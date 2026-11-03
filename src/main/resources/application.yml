@@ -60,8 +60,13 @@ spring:
     schema:
       inspection:
         enabled: true
-    websocket:
-      path: /graphql-ws
+    # Subscriptions over Server-Sent Events on /graphql (Accept: text/event-stream; task 2.5, DECISIONS.md D-020).
+    # An interview stream stays open for many answers, so not the 120 s request timeout below: an hour, with a
+    # keep-alive comment every 15 s so proxies do not close a quiet stream.
+    http:
+      sse:
+        timeout: 1h
+        keep-alive: 15s
   mvc:
     async:
       # GraphQL requests run async. submitAnswer grades the answer and writes the next question in one

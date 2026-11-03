@@ -56,7 +56,8 @@ ri
 │   └── messaging/          # Phase 2: Topics, KafkaTopicConfig (kafka profile), OutboxWriter, OutboxRelay
 │                           #   (kafka profile), EventEnvelope, AggregateType; OutboxEvent entity stays inside;
 │                           #   ProcessedEvents, EventAlreadyProcessed (idempotent consumers, task 2.3);
-│                           #   KafkaErrorHandlingConfig, RetryableEventException, InvalidEventException (task 2.4)
+│                           #   KafkaErrorHandlingConfig, RetryableEventException, InvalidEventException (task 2.4);
+│                           #   EventReader (reads and checks an envelope; was project.StageEvents, task 2.5)
 ├── llm/                    # the ONLY way to call a chat model
 │   ├── LlmGateway.java             # interface; LlmRequest, LlmPurpose (purpose → template)
 │   ├── SpringAiLlmGateway.java     # Spring AI ChatClient implementation
@@ -87,12 +88,15 @@ ri
 │   ├── AnalysisStages.java         # the stages, written once for both pipelines (task 2.3)
 │   ├── AnalysisJob.java, SummaryValidator.java
 │   ├── KafkaAnalysisPipeline.java  # Phase 2 implementation (kafka profile, task 2.3)
-│   ├── IngestConsumer, EmbedConsumer, SummaryConsumer, StageEvents   # one consumer per stage
+│   ├── IngestConsumer, EmbedConsumer, SummaryConsumer   # one consumer per stage
 │   ├── AnalysisRetryListener.java  # marks a project FAILED when its event went to the DLT (task 2.4)
 │   └── StaleAnalysisRecovery.java
 ├── interview/              # sessions, topics, questions, answers, scoring, report
 │   ├── InterviewService.java       # use cases: start, submitAnswer, end
 │   ├── QuestionPrefetcher.java     # next topic's question in the background (here, not in question/: it saves questions)
+│   ├── AnswerPipeline, InProcessAnswerPipeline, KafkaAnswerPipeline   # after an answer is saved (task 2.5)
+│   ├── AnswerEvaluationConsumer, InterviewOrchestrator, AnswerFlowOutbox, InterviewRetryListener   # Kafka workers
+│   ├── InterviewEventsFanOut, InterviewEventStream, InterviewEvent, InterviewEventType   # interviewEvents
 │   ├── InterviewSession, InterviewTopic, Question, Answer (+ repositories), CodeRef, Rubric, enums
 │   ├── planning/   QuestionPlanner, TopicValidator, SummaryText
 │   ├── question/   QuestionGenerator, CodeRefValidator, GeneratedQuestion
@@ -156,6 +160,7 @@ stateDiagram-v2
     PLANNING --> FAILED : plan or first question failed
     IN_PROGRESS --> COMPLETED : last topic done
     IN_PROGRESS --> ABANDONED : endInterview
+    IN_PROGRESS --> FAILED : Kafka worker gave up on an answer (task 2.5)
     COMPLETED --> [*]
     ABANDONED --> [*]
 ```
@@ -222,7 +227,8 @@ Schema: `src/main/resources/graphql/schema.graphqls` (source of truth).
 | `Question.answer` | `@BatchMapping` → `Map` | `InterviewService.answersByQuestionIds` + `questionsByIds` (ideal outlines) |
 | `Question.parent` | `@BatchMapping` → `Map` | `InterviewService.questionsByIds` |
 | `CodeRef.snippet` | `@BatchMapping` → `Map` | `InterviewService.projectIdsBySessionIds` + `CodebaseQueries.snippets` → `ChunkStore.snippets(refs)` (one query for all refs) |
-| `Subscription.projectAnalysisProgress` | `SubscriptionController` returning `Flux<AnalysisProgressEvent>` | `AnalysisEvents` (Reactor `Sinks.Many` per project) |
+| `Subscription.projectAnalysisProgress` | `SubscriptionController` returning `Flux<AnalysisProgressEvent>` (task 1.18, not built yet) | `AnalysisEvents` (Reactor `Sinks.Many` per project) |
+| `Subscription.interviewEvents` | `SubscriptionController.interviewEvents` returning `Flux<InterviewEventView>` (task 2.5) | `InterviewEventStream` (one Reactor `Sinks.Many` per instance, filtered by session), fed by `InterviewEventsFanOut` (§13.5) |
 
 Spring for GraphQL turns `Window<T>` into the `ProjectConnection` shape. The cursor encodes `(createdAt, id)`.
 
@@ -243,8 +249,8 @@ Controllers map entities to `api` view records (`ProjectView`, `QuestionView`, .
 
 ### 5.4 Other GraphQL settings
 - GraphiQL on in the `dev` and `stage` environments only (`spring.graphql.graphiql.enabled`); off in `application.yml` and prod.
-- Schema inspection report on (`spring.graphql.schema.inspection.enabled=true`): it logs schema fields with no resolver. The `interviewEvents` subscription is expected to show up there until Phase 2.
-- WebSocket path for subscriptions: `/graphql-ws` (task 1.18).
+- Schema inspection report on (`spring.graphql.schema.inspection.enabled=true`): it logs schema fields with no resolver. `projectAnalysisProgress` is expected to show up there until task 1.18.
+- Subscriptions over **Server-Sent Events** (task 2.5, DECISIONS.md D-020): a POST to `/graphql` with `Accept: text/event-stream`, served by Boot's `GraphQlSseHandler` (no extra dependency); each result is an `event: next`. `spring.graphql.http.sse.timeout` 1 h (an interview stream stays open across answers, longer than the 120 s request timeout) and `keep-alive` 15 s. No WebSocket endpoint; the planned `/graphql-ws` is dropped.
 - Request timeout 120 s (`spring.mvc.async.request-timeout`). GraphQL over HTTP runs as an async request, and Tomcat's default 30 s is shorter than `submitAnswer` (grading + next question, 25-43 s in task 1.15). A request that still times out keeps running on the server; sending the same answer again returns its result (§9.2).
 - Phase 4: max query depth and complexity instrumentation.
 
@@ -567,6 +573,8 @@ Failures never lose the answer: grading failed (`LLM_UNAVAILABLE`, `BUDGET_EXCEE
 
 **Never hold a database transaction open across an LLM call.** Pattern: short tx → LLM call (no tx) → short tx with a version check.
 
+Steps 4 and 5-7 are `InterviewService.grade(answerId)` and `advance(answerId)` (package-private, task 2.5), each safe to run twice. With the `kafka` profile, `submitAnswer` stops after step 3 (`AnswerPipeline.deferred()`): the answer insert also writes `AnswerSubmitted` to the outbox, and it returns the answer with `evaluation: null` and `nextQuestion: null`; Kafka workers run `grade` and `advance` (§13.5). Re-sending the same text returns the stored state and starts nothing new.
+
 GraphQL (task 1.11): `submitAnswer` returns the answer with its `AnswerEvaluation` (where `idealAnswerOutline` appears, after answering), the next question and the session; `Question.answer` and `Question.parent` have plain resolvers (batched in task 1.13).
 
 ### 9.3 `QuestionGenerator` and `CodeRefValidator`
@@ -722,7 +730,7 @@ CREATE TABLE processed_event (
 - 3 partitions each locally. Keying by aggregate id keeps per-project and per-session order.
 - **Errors (task 2.4, DECISIONS.md D-019):** one `DefaultErrorHandler` bean (`KafkaErrorHandlingConfig`), which Boot gives to every listener container. When a listener throws:
   - **Retryable** is only `RetryableEventException` (`defaultFalse()` + `addRetryableExceptions`; the classifier also matches it as a cause, because the container wraps it in `ListenerExecutionFailedException`). The consumer decides: `summarize` throws it for `LlmUnavailableException`. `ExponentialBackOffWithMaxRetries(app.consumer-retry.max-retries = 3)`, starting at `initial-backoff` 1 s and doubling: 4 deliveries with 1 + 2 + 4 = 7 s of waiting. The partition waits meanwhile, which keeps the project's order; each delivery is one gateway call and counts toward the daily cap.
-  - **Everything else** goes to the DLT on its first failure: an `InvalidEventException` from `StageEvents` (not an envelope, another type, an unknown version), a bug, or the database down during `isProcessed`.
+  - **Everything else** goes to the DLT on its first failure: an `InvalidEventException` from `EventReader` (not an envelope, another type, an unknown version), a bug, or the database down during `isProcessed`.
   - **Then** `DeadLetterPublishingRecoverer` writes the record to `Topics.dlt(topic)`, same key and partition, with headers for the original topic, partition and offset and the exception (`kafka_dlt-exception-cause-fqcn` holds ours), and the offset is committed.
   - Every `RetryListener` bean is told about each failed delivery and each dead-lettered record. `AnalysisRetryListener` (`project`) marks the project in the record key FAILED (`AnalysisStages.failDeadLettered`) if it is still CLONING to SUMMARIZING, with the first `DomainException` message in the causes (for example "The AI model is not available right now...") or the stage's general sentence. A SUBMITTED project cannot go to FAILED (§3.2), so a dead-lettered `AnalysisRequested` leaves it SUBMITTED.
   - **Not retried, not dead-lettered:** failures the stage stores as FAILED itself, because the same input fails the same way: repository not found or too large, no Java files, budget exceeded, `LlmOutputException`.
@@ -741,7 +749,7 @@ With the `kafka` profile, `KafkaAnalysisPipeline` replaces `InProcessAnalysisPip
 
 - **Start:** `KafkaAnalysisPipeline` listens to `ProjectSubmittedEvent` with `@TransactionalEventListener(phase = BEFORE_COMMIT)` and writes `AnalysisRequested` with `OutboxWriter` inside `submit`'s or `reanalyze`'s transaction, so the event commits with the SUBMITTED row or not at all. The relay sends it (§13.1).
 - **Payload:** only `{ "projectId": ... }`; the key is the project id (the outbox's `aggregate_id`), so one project's events stay in order on one partition. Everything a stage needs is in the database; that is why V4 stores the summary inputs (DECISIONS.md D-018).
-- **Reading:** `StageEvents.read` parses the envelope (§13.2) and accepts only the type the consumer expects, at version 1. Anything else throws `InvalidEventException` and goes to the DLT (§13.3, task 2.4; in 2.3 it was logged and skipped): a consumer must not guess what an unknown version means, and the DLT keeps the event instead of dropping it.
+- **Reading:** `EventReader.read` (`StageEvents` until task 2.5) parses the envelope (§13.2) and accepts only the type the consumer expects, at version 1. Anything else throws `InvalidEventException` and goes to the DLT (§13.3, task 2.4; in 2.3 it was logged and skipped): a consumer must not guess what an unknown version means, and the DLT keeps the event instead of dropping it.
 - **Idempotency** (delivery is at-least-once, §13.1), three checks:
   1. `ProcessedEvents.isProcessed(eventId, consumer)` before the slow work, so a plain redelivery is skipped without a clone, an embedding or a model call.
   2. `ProcessedEvents.claim` is the `inLastTransaction` step (§6.3): `INSERT ... ON CONFLICT DO NOTHING`, and 0 rows → `EventAlreadyProcessed`, which rolls back the state change and the next event too; the stage ends quietly. If two deliveries race, the second insert waits on the first one's row lock, then sees its row. The result, the next event and the mark commit together or not at all. Plain JDBC, not JPA: with JPA a duplicate key is an exception that marks the transaction rollback-only.
@@ -753,5 +761,24 @@ With the `kafka` profile, `KafkaAnalysisPipeline` replaces `InProcessAnalysisPip
 - **A failed stage** stores FAILED (§6.3) and returns normally: the offset is committed, the event is not marked, and no next event is written. A redelivery finds FAILED and does nothing. `reanalyzeProject` writes a new `AnalysisRequested` with a new event id.
 - **Consumer settings** (`spring.kafka.consumer` and `spring.kafka.listener` in `application.yml`): `auto-offset-reset: earliest` (a new group starts at the oldest event, so events written before it first joined are not skipped); `max-poll-records: 1` and `max.poll.interval.ms` 15 min, the same as `app.analysis.stale-after` (one slow record per poll: embedding a big repo took 243 s in the 1.17 eval, and a consumer that does not poll again in time is dropped from its group and its record goes to another one); `ack-mode: record` (each record's offset is committed once its listener returns).
 - **Errors that escape a listener**, retries and the DLT: §13.3 (task 2.4).
-- **Tests** (`KafkaAnalysisPipelineTest`, `@KafkaIntegrationTest`; the relay's timer is slowed, so the test pumps the outbox with `OutboxPump.publishPending`): the fixture reaches READY through Kafka with exactly three events, all published, all three consumers marked, and the SUMMARY call got the stored build files and README; sending all three events of a finished analysis again (same ids) changes nothing (same chunk count, no embedding or model call, no new event), checked once every group has committed past the end of its topic; the profile replaces the in-process beans. Failures: `AnalysisRetryTest` (task 2.4): the model down on all 4 deliveries → 4 SUMMARY calls, deliveries 1–4 failed, the `Embedded` event (same id) on `project.embedded-dlt` with its original topic header, the project FAILED with the model-unavailable message; the model back on the third delivery → READY after 3 calls, nothing dead-lettered; a malformed message and an unknown version → on the DLT after one delivery; `LlmOutputException` → FAILED after one call, no retry. `StageEventsTest` covers each rejected message. Breaking it fails these tests (checked): without `defaultFalse()` the two validation tests fail, with `FAIL` instead of `RETRY` in `SummaryConsumer` both retry tests fail, and without `failDeadLettered` the project stays SUMMARIZING.
+- **Tests** (`KafkaAnalysisPipelineTest`, `@KafkaIntegrationTest`; the relay's timer is slowed, so the test pumps the outbox with `OutboxPump.publishPending`): the fixture reaches READY through Kafka with exactly three events, all published, all three consumers marked, and the SUMMARY call got the stored build files and README; sending all three events of a finished analysis again (same ids) changes nothing (same chunk count, no embedding or model call, no new event), checked once every group has committed past the end of its topic; the profile replaces the in-process beans. Failures: `AnalysisRetryTest` (task 2.4): the model down on all 4 deliveries → 4 SUMMARY calls, deliveries 1–4 failed, the `Embedded` event (same id) on `project.embedded-dlt` with its original topic header, the project FAILED with the model-unavailable message; the model back on the third delivery → READY after 3 calls, nothing dead-lettered; a malformed message and an unknown version → on the DLT after one delivery; `LlmOutputException` → FAILED after one call, no retry. `EventReaderTest` covers each rejected message. Breaking it fails these tests (checked): without `defaultFalse()` the two validation tests fail, with `FAIL` instead of `RETRY` in `SummaryConsumer` both retry tests fail, and without `failDeadLettered` the project stays SUMMARIZING.
 - Not yet: no stage publishes to `project.analysis.progress`; a periodic stale check or heartbeat, so a project whose ingest was cut off does not wait for a restart; retries for an unavailable embedding model (Ollama errors have no exception type of their own yet) or a database that is briefly down; a tool to replay DLT records (2.8).
+
+### 13.5 Answers on Kafka and the `interviewEvents` subscription (task 2.5)
+
+With the `kafka` profile, `KafkaAnswerPipeline` replaces `InProcessAnswerPipeline` (`AnswerPipeline`, the same profile switch as §13.4), and `submitAnswer` returns right after saving the answer (§9.2). Every event is keyed by the session id; the payload is `AnswerFlowEvent(answerId, questionId, nextQuestionId)`, ids only.
+
+| Consumer (group id) | Reads (topic / type) | Does | Writes (topic / type) |
+|---|---|---|---|
+| `AnswerEvaluationConsumer` (`interview-evaluate`) | `interview.answer.submitted` / `AnswerSubmitted` | `InterviewService.grade` (EVALUATION call) | `interview.answer.evaluated` / `AnswerEvaluated` |
+| `InterviewOrchestrator` (`interview-orchestrate`) | `interview.answer.evaluated` / `AnswerEvaluated` | `InterviewService.advance` (follow-up, next question, or COMPLETED and the report) | `interview.question.ready` / `QuestionReady` or `SessionCompleted` |
+| `InterviewEventsFanOut` (`interview-events`) | both topics above, all types | pushes an `InterviewEvent` into `InterviewEventStream` | nothing |
+
+- **Start:** the answer insert's transaction also writes `AnswerSubmitted` (`AnswerPipeline.answerSaved`), so the event commits with the answer or not at all.
+- **Work first, then one last transaction** (`AnswerFlowOutbox`): `grade` and `advance` commit their own short transactions (as in Phase 1: no transaction across a model call) and are safe to run twice, because each checks the stored state first (already graded; the session no longer on that question, or its `@Version` changed). Then one transaction claims the event in `processed_event` and writes the outgoing event, **worked out from what is stored**: `AnswerEvaluated` if the answer is graded; `QuestionReady` for the question with the answered one's order + 1, else `SessionCompleted` if the session is COMPLETED, else nothing. Unlike §13.4 the state change and the event are not one transaction, and need not be: after a crash between them, the redelivered event finds the work done (no model call) and only writes the event. A duplicate (`EventAlreadyProcessed`) writes nothing.
+- `SessionCompleted` is written after the report (the orchestrator runs `writeReportIfMissing` inside `advance`), so its subscribers see `session.report`. A report that could not be written leaves the session COMPLETED without it; `endInterview` retries it, as in Phase 1.
+- **Failures** (DECISIONS.md D-020): `LlmUnavailableException` → `RetryableEventException`, retried with backoff (§13.3). When the event is dead-lettered, `InterviewRetryListener` (for the two worker topics) marks the session FAILED with the first `DomainException` message in the causes, else "The interview could not continue. Start a new interview.", and writes `SessionFailed`. Any other `DomainException` (budget, `LlmOutputException`) fails the session at once, in the last transaction, with its message. The answer stays saved, ungraded. A FAILED session takes no more answers and cannot be ended (§3.2: IN_PROGRESS → FAILED is new in this task).
+- **Fan-out:** `InterviewEventsFanOut` maps the four types to `InterviewEventType` and publishes to `InterviewEventStream`, a `Sinks.many().multicast().directBestEffort()`: each event goes to the subscriptions open at that moment, none is kept for later ones, and a slow subscriber misses events (it can read `interviewSession`). The listener never throws, so its records never reach the DLT (where `InterviewRetryListener` would fail the session). One fixed group for now; with several API instances each needs its own group (task 2.6).
+- **Subscription:** `SubscriptionController.interviewEvents(sessionId)` = `stream.forSession(id).publishOn(boundedElastic()).map(view)`: the answer, the next question and the session are read from the database when the event is sent, off the Kafka listener thread; nested fields (`codeRefs.snippet`, `currentQuestion`, ...) use the same `@BatchMapping` resolvers as a query. Order: ANSWER_EVALUATED comes before QUESTION_READY because the orchestrator only runs after AnswerEvaluated was published; the two are on different topics, so Kafka itself does not promise that order.
+- **Tests** (`AsyncAnswerTest`, `@KafkaIntegrationTest`, the test pumps the outbox): a subscription gets ANSWER_EVALUATED then QUESTION_READY with the snippet and the moved session, while `submitAnswer` returned `evaluation: null` and made no model call; a client that only polls `interviewSession` sees the grade and then question 2, and re-sending returns the stored result without a new event; both worker events delivered again change nothing (one EVALUATION call, no QUESTION call, three events, two asked questions; `KafkaConsumerLag`); the model down on 4 deliveries → DLT → SESSION_FAILED with the model message, answer kept ungraded; `LlmOutputException` → SESSION_FAILED after one call; three answers → SESSION_COMPLETED with the report; the same subscription over SSE through `MockMvc` (`event:next`, ANSWER_EVALUATED before QUESTION_READY); the profile swaps the pipeline bean. Breaking it fails these tests (checked): `deferred()` false, no claim in `graded`, no `failed` in the retry listener.
+- Not yet: `projectAnalysisProgress` (1.18); a group per instance (2.6); an expired SSE stream (1 h) must be reopened by the client.

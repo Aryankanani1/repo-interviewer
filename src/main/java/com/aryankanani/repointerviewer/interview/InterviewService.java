@@ -44,7 +44,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 /**
  * Interview use cases (LLD §9): {@link #start} (task 1.10), {@link #submitAnswer} (task 1.11) and
  * {@link #endInterview} with the report (task 1.12). After each main question is asked, {@link QuestionPrefetcher}
- * writes the next topic's question in the background (task 1.16).
+ * writes the next topic's question in the background (task 1.16). With the {@code kafka} profile, {@code submitAnswer}
+ * only saves the answer and its event, and Kafka workers run {@link #grade} and {@link #advance} (task 2.5).
  *
  * <p>Never holds a database transaction across a model call (CLAUDE.md): short transaction → model call with no
  * transaction → short transaction with a version check. The use cases themselves are therefore not
@@ -80,6 +81,8 @@ public class InterviewService {
 
 	private final QuestionPrefetcher prefetcher;
 
+	private final AnswerPipeline answerPipeline;
+
 	private final TransactionTemplate transaction;
 
 	private final AppProperties.Interview settings;
@@ -88,7 +91,7 @@ public class InterviewService {
 			InterviewTopicRepository topics, QuestionRepository questions, AnswerRepository answers,
 			QuestionPlanner planner, QuestionGenerator generator, AnswerEvaluator evaluator,
 			FollowUpPolicy followUpPolicy, ReportWriter reportWriter, QuestionPrefetcher prefetcher,
-			PlatformTransactionManager transactionManager, AppProperties properties) {
+			AnswerPipeline answerPipeline, PlatformTransactionManager transactionManager, AppProperties properties) {
 		this.projectService = projectService;
 		this.sessions = sessions;
 		this.topics = topics;
@@ -100,6 +103,7 @@ public class InterviewService {
 		this.followUpPolicy = followUpPolicy;
 		this.reportWriter = reportWriter;
 		this.prefetcher = prefetcher;
+		this.answerPipeline = answerPipeline;
 		this.transaction = new TransactionTemplate(transactionManager);
 		this.settings = properties.interview();
 	}
@@ -170,6 +174,9 @@ public class InterviewService {
 	 * again continues where it stopped: a stored grade is not graded again, and a done next step is not redone.
 	 * The answer is looked up first, so re-sending the last answer of a finished interview returns its result.
 	 *
+	 * <p>With the {@code kafka} profile ({@link AnswerPipeline#deferred}) it stops after saving the answer and its
+	 * event, and returns the answer ungraded; the workers grade it and move on (task 2.5).
+	 *
 	 * @throws DomainException ANSWER_EMPTY, ANSWER_TOO_LONG, NOT_FOUND, ALREADY_ANSWERED (another text was saved),
 	 *         SESSION_NOT_ACTIVE or NOT_CURRENT_QUESTION, before anything is saved or called
 	 */
@@ -188,41 +195,76 @@ public class InterviewService {
 		InterviewSession session = sessions.findById(question.getSessionId()).orElseThrow();
 		MDC.put("sessionId", session.getId().toString());
 		try {
-			Answer answer = existingOrNewAnswer(question, session, text, sha256(text));
-
-			if (!answer.isEvaluated() && session.getStatus() == SessionStatus.IN_PROGRESS) {
-				UUID answerId = answer.getId();
-				try {
-					Evaluation evaluation = evaluator.evaluate(session.getProjectId(), session.getId(),
-							session.getDifficulty(), question, answer.getText());
-					answer = transaction.execute(status -> saveEvaluation(answerId, question.getId(), evaluation));
-				}
-				catch (DomainException ex) {
-					log.warn("Answer saved but not graded: {}", ex.getMessage());
-					return result(question.getId(), answerId, ex);
-				}
+			UUID answerId = existingOrNewAnswer(question, session, text, sha256(text)).getId();
+			if (answerPipeline.deferred()) {
+				return result(question.getId(), answerId, null);
 			}
-
-			InterviewSession current = sessions.findById(session.getId()).orElseThrow();
-			if (answer.isEvaluated() && current.getStatus() == SessionStatus.IN_PROGRESS
-					&& question.getId().equals(current.getCurrentQuestionId())) {
-				try {
-					next(current, question, answer);
-				}
-				catch (DomainException ex) {
-					log.warn("Answer graded but the next question failed: {}", ex.getMessage());
-					return result(question.getId(), answer.getId(), ex);
-				}
-				catch (OptimisticLockingFailureException ex) {
-					log.info("Another request moved the session on first; returning its result");
-				}
+			try {
+				grade(answerId);
 			}
-			// The session may have just completed, or a re-sent last answer finds its report still missing.
-			return result(question.getId(), answer.getId(), writeReportIfMissing(session.getId()));
+			catch (DomainException ex) {
+				log.warn("Answer saved but not graded: {}", ex.getMessage());
+				return result(question.getId(), answerId, ex);
+			}
+			DomainException reportError;
+			try {
+				reportError = advance(answerId);
+			}
+			catch (DomainException ex) {
+				log.warn("Answer graded but the next question failed: {}", ex.getMessage());
+				return result(question.getId(), answerId, ex);
+			}
+			return result(question.getId(), answerId, reportError);
 		}
 		finally {
 			MDC.remove("sessionId");
 		}
+	}
+
+	/**
+	 * Grades a saved answer (LLD §9.2 step 4): the EVALUATION call, the verdict in code, then a short transaction
+	 * that saves it. Does nothing when it is graded already or the session is no longer IN_PROGRESS, so it is safe to
+	 * run twice. Run by {@link #submitAnswer}, and on Kafka by {@code AnswerEvaluationConsumer}.
+	 *
+	 * @return the answer as stored now
+	 * @throws DomainException when grading failed; the answer stays saved and ungraded
+	 */
+	Answer grade(UUID answerId) {
+		Answer answer = answers.findById(answerId).orElseThrow();
+		Question question = questions.findById(answer.getQuestionId()).orElseThrow();
+		InterviewSession session = sessions.findById(question.getSessionId()).orElseThrow();
+		if (answer.isEvaluated() || session.getStatus() != SessionStatus.IN_PROGRESS) {
+			return answer;
+		}
+		Evaluation evaluation = evaluator.evaluate(session.getProjectId(), session.getId(), session.getDifficulty(),
+				question, answer.getText());
+		return transaction.execute(status -> saveEvaluation(answerId, question.getId(), evaluation));
+	}
+
+	/**
+	 * The step after a graded answer (LLD §9.2 steps 5-7): a follow-up, the next topic's question, or COMPLETED and
+	 * then the report. Does nothing when the answer is not graded, or the session is no longer on its question
+	 * (another request or delivery moved it on), so it is safe to run twice. Run by {@link #submitAnswer}, and on
+	 * Kafka by {@code InterviewOrchestrator}.
+	 *
+	 * @return the error when the report could not be written; null otherwise
+	 * @throws DomainException when the next question failed; the graded answer stays saved
+	 */
+	DomainException advance(UUID answerId) {
+		Answer answer = answers.findById(answerId).orElseThrow();
+		Question question = questions.findById(answer.getQuestionId()).orElseThrow();
+		InterviewSession current = sessions.findById(question.getSessionId()).orElseThrow();
+		if (answer.isEvaluated() && current.getStatus() == SessionStatus.IN_PROGRESS
+				&& question.getId().equals(current.getCurrentQuestionId())) {
+			try {
+				next(current, question, answer);
+			}
+			catch (OptimisticLockingFailureException ex) {
+				log.info("Another request moved the session on first; returning its result");
+			}
+		}
+		// The session may have just completed, or a re-sent last answer finds its report still missing.
+		return writeReportIfMissing(current.getId());
 	}
 
 	/**
@@ -421,7 +463,11 @@ public class InterviewService {
 					"This is not the current question. Answer the current question first.", "questionId");
 		}
 		try {
-			return transaction.execute(status -> answers.saveAndFlush(new Answer(question.getId(), text, textSha)));
+			return transaction.execute(status -> {
+				Answer saved = answers.saveAndFlush(new Answer(question.getId(), text, textSha));
+				answerPipeline.answerSaved(saved, session.getId());
+				return saved;
+			});
 		}
 		catch (DataIntegrityViolationException ex) {
 			// Another request saved an answer between our check and our insert (uq_answer_question). Read the winner.
