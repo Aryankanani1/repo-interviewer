@@ -3,7 +3,9 @@ package com.aryankanani.repointerviewer.common.messaging;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.aryankanani.repointerviewer.KafkaIntegrationTest;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 import org.apache.kafka.clients.admin.TopicDescription;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,11 +25,14 @@ class KafkaTopicsTest {
 		this.kafkaAdmin = kafkaAdmin;
 	}
 
+	/** And each has its dead-letter topic, the same shape (task 2.4). */
 	@Test
 	void everyTopicExistsWithThreePartitionsAndOneCopy() {
-		Map<String, TopicDescription> topics = kafkaAdmin.describeTopics(Topics.ALL.toArray(String[]::new));
+		List<String> names = Topics.ALL.stream().flatMap(name -> Stream.of(name, Topics.dlt(name))).toList();
+		Map<String, TopicDescription> topics = kafkaAdmin.describeTopics(names.toArray(String[]::new));
 
-		assertThat(topics).containsOnlyKeys(Topics.ALL);
+		assertThat(topics).containsOnlyKeys(names);
+		assertThat(topics).containsKey("project.embedded-dlt");
 		assertThat(topics.values()).allSatisfy(topic -> {
 			assertThat(topic.partitions()).hasSize(KafkaTopicConfig.PARTITIONS);
 			assertThat(topic.partitions()).allSatisfy(

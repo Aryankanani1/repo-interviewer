@@ -1,6 +1,7 @@
 package com.aryankanani.repointerviewer.project;
 
 import com.aryankanani.repointerviewer.common.messaging.AggregateType;
+import com.aryankanani.repointerviewer.common.messaging.EventEnvelope;
 import com.aryankanani.repointerviewer.common.messaging.OutboxWriter;
 import com.aryankanani.repointerviewer.common.messaging.ProcessedEvents;
 import com.aryankanani.repointerviewer.common.messaging.Topics;
@@ -39,23 +40,22 @@ class IngestConsumer {
 
 	@KafkaListener(topics = Topics.ANALYSIS_REQUESTED, groupId = NAME)
 	void onAnalysisRequested(String message) {
-		events.read(message, KafkaAnalysisPipeline.ANALYSIS_REQUESTED).ifPresent(event -> {
-			UUID projectId = event.aggregateId();
-			MDC.put("projectId", projectId.toString());
-			try {
-				if (processed.isProcessed(event.eventId(), NAME) || !stages.begin(projectId)) {
-					return;
-				}
-				stages.ingest(projectId, project -> {
-					processed.claim(event.eventId(), NAME);
-					outbox.write(Topics.CHUNKS_READY, AggregateType.PROJECT, projectId,
-							KafkaAnalysisPipeline.CHUNKS_READY, new ProjectEvent(projectId));
-				});
+		EventEnvelope event = events.read(message, KafkaAnalysisPipeline.ANALYSIS_REQUESTED);
+		UUID projectId = event.aggregateId();
+		MDC.put("projectId", projectId.toString());
+		try {
+			if (processed.isProcessed(event.eventId(), NAME) || !stages.begin(projectId)) {
+				return;
 			}
-			finally {
-				MDC.remove("projectId");
-			}
-		});
+			stages.ingest(projectId, project -> {
+				processed.claim(event.eventId(), NAME);
+				outbox.write(Topics.CHUNKS_READY, AggregateType.PROJECT, projectId, KafkaAnalysisPipeline.CHUNKS_READY,
+						new ProjectEvent(projectId));
+			});
+		}
+		finally {
+			MDC.remove("projectId");
+		}
 	}
 
 }

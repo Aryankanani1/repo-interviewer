@@ -36,4 +36,12 @@ public final class Topics {
 	private Topics() {
 	}
 
+	/**
+	 * The dead-letter topic of {@code topic} (task 2.4): where the error handler puts an event it gave up on, same
+	 * key and partition. The suffix is Spring Kafka 4's default, {@code -dlt}.
+	 */
+	public static String dlt(String topic) {
+		return topic + "-dlt";
+	}
+
 }

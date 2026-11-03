@@ -31,7 +31,8 @@ public record AppProperties(
 		@Valid @NotNull Analysis analysis,
 		@Valid @NotNull Interview interview,
 		@Valid @NotNull Llm llm,
-		@Valid @NotNull Outbox outbox) {
+		@Valid @NotNull Outbox outbox,
+		@Valid @NotNull ConsumerRetry consumerRetry) {
 
 	public record Repo(
 			@NotBlank String allowedHost,
@@ -61,6 +62,13 @@ public record AppProperties(
 
 	/** {@code OutboxRelay} (task 2.2, kafka profile only): how often it polls, and how many rows one poll locks. */
 	public record Outbox(@NotNull @DurationMin(millis = 100) Duration pollInterval, @Positive int batchSize) {
+	}
+
+	/**
+	 * Kafka consumers (task 2.4, kafka profile only): how often a retryable event is delivered again before it goes to
+	 * the dead-letter topic, and the first wait, which doubles each time.
+	 */
+	public record ConsumerRetry(@Min(0) int maxRetries, @NotNull @DurationMin(millis = 10) Duration initialBackoff) {
 	}
 
 	/** Question counts are capped at 8 because of the {@code ck_session_count} check in V1__init.sql. */

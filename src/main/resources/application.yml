@@ -129,6 +129,9 @@ app:
   outbox:                # OutboxRelay, kafka profile only (task 2.2, LLD §13.1)
     poll-interval: 500ms
     batch-size: 100
+  consumer-retry:        # Kafka consumers, kafka profile only (task 2.4, LLD §13.3)
+    max-retries: 3       # 4 deliveries in all, then the dead-letter topic
+    initial-backoff: 1s  # then 2 s, 4 s
   interview:
     default-question-count: 5
     min-question-count: 3

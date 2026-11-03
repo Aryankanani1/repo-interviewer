@@ -11,9 +11,11 @@ import com.aryankanani.repointerviewer.codebase.fetch.RepoFetcher;
 import com.aryankanani.repointerviewer.common.config.AppProperties;
 import com.aryankanani.repointerviewer.common.error.DomainException;
 import com.aryankanani.repointerviewer.common.messaging.EventAlreadyProcessed;
+import com.aryankanani.repointerviewer.common.messaging.RetryableEventException;
 import com.aryankanani.repointerviewer.llm.LlmGateway;
 import com.aryankanani.repointerviewer.llm.LlmPurpose;
 import com.aryankanani.repointerviewer.llm.LlmRequest;
+import com.aryankanani.repointerviewer.llm.LlmUnavailableException;
 import com.aryankanani.repointerviewer.llm.output.SummaryOutput;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -42,8 +44,9 @@ import org.springframework.transaction.support.TransactionTemplate;
  * </pre>
  *
  * <p>Each stage runs its slow work outside any transaction, stores the result in short transactions, and never
- * throws: a failure marks the project FAILED with a reason the user can read. A stage that finds the project in
- * another status does nothing, so a repeated trigger is harmless.
+ * throws: a failure marks the project FAILED with a reason the user can read. The one exception is an unavailable
+ * model on Kafka ({@link WhenModelUnavailable#RETRY}, task 2.4). A stage that finds the project in another status does
+ * nothing, so a repeated trigger is harmless.
  *
  * <p>{@code inLastTransaction} runs first inside the stage's last transaction. The Kafka consumers claim the event
  * there and write the next one, so the stage's result, its next event and the "processed" mark commit together or
@@ -59,9 +62,20 @@ class AnalysisStages {
 	static final Consumer<Project> NOTHING = project -> {
 	};
 
+	/** What {@link #summarize} does when the model cannot be reached (task 2.4). */
+	enum WhenModelUnavailable {
+		/** Store FAILED, as for any other error: nothing would try again ({@link AnalysisJob}). */
+		FAIL,
+		/** Throw {@link RetryableEventException}, so Kafka's error handler delivers the event again later. */
+		RETRY
+	}
+
 	private static final Logger log = LoggerFactory.getLogger(AnalysisStages.class);
 
 	private static final Set<AnalysisStatus> BEFORE_SUMMARY = Set.of(AnalysisStatus.EMBEDDING, AnalysisStatus.SUMMARIZING);
+
+	private static final Set<AnalysisStatus> RUNNING = Set.of(AnalysisStatus.CLONING, AnalysisStatus.PARSING,
+			AnalysisStatus.EMBEDDING, AnalysisStatus.SUMMARIZING);
 
 	private final ProjectRepository projects;
 
@@ -169,10 +183,13 @@ class AnalysisStages {
 	}
 
 	/**
-	 * (EMBEDDING →) SUMMARIZING → READY. Starts from SUMMARIZING too, so a summary cut off by a crash runs again when
-	 * its trigger comes again. @return true when the project is READY
+	 * (EMBEDDING →) SUMMARIZING → READY. Starts from SUMMARIZING too, so a summary cut off by a crash, or retried
+	 * because the model was unavailable, runs again when its trigger comes again. @return true when the project is
+	 * READY
+	 * @throws RetryableEventException only with {@link WhenModelUnavailable#RETRY}, when the model is unavailable; the
+	 *         project stays SUMMARIZING
 	 */
-	boolean summarize(UUID projectId, Consumer<Project> inLastTransaction) {
+	boolean summarize(UUID projectId, Consumer<Project> inLastTransaction, WhenModelUnavailable whenUnavailable) {
 		Project project = projects.findById(projectId).orElse(null);
 		if (project == null || !BEFORE_SUMMARY.contains(project.getStatus())) {
 			return skipped("summarize", project);
@@ -189,10 +206,33 @@ class AnalysisStages {
 		catch (EventAlreadyProcessed ex) {
 			return duplicate(ex);
 		}
+		catch (LlmUnavailableException ex) {
+			if (whenUnavailable == WhenModelUnavailable.RETRY) {
+				log.warn("Summary not written: model unavailable; the error handler retries or dead-letters it");
+				throw new RetryableEventException(ex);
+			}
+			fail(projectId, AnalysisStatus.SUMMARIZING, ex);
+			return false;
+		}
 		catch (RuntimeException ex) {
 			fail(projectId, AnalysisStatus.SUMMARIZING, ex);
 			return false;
 		}
+	}
+
+	/**
+	 * Kafka (task 2.4): the error handler gave up on an event of this project and sent it to the dead-letter topic. A
+	 * project still in a running stage is marked FAILED, so it does not wait for {@link StaleAnalysisRecovery}. The
+	 * reason is the first {@link DomainException} in {@code ex}'s causes (for example the model is unavailable), else
+	 * the general sentence for the stage.
+	 */
+	void failDeadLettered(UUID projectId, Exception ex) {
+		Project project = projects.findById(projectId).orElse(null);
+		if (project == null || !RUNNING.contains(project.getStatus())) {
+			skipped("dead letter", project);
+			return;
+		}
+		fail(projectId, project.getStatus(), userFacing(ex));
 	}
 
 	private ClonedRepo clone(Project project) {
@@ -250,6 +290,15 @@ class AnalysisStages {
 			// For example the database is down. StaleAnalysisRecovery marks it FAILED on the next start.
 			log.error("Could not mark the project FAILED", secondary);
 		}
+	}
+
+	private static RuntimeException userFacing(Exception ex) {
+		for (Throwable cause = ex; cause != null; cause = cause.getCause()) {
+			if (cause instanceof DomainException domain) {
+				return domain;
+			}
+		}
+		return ex instanceof RuntimeException runtime ? runtime : new IllegalStateException(ex);
 	}
 
 	/** What the user sees. Messages we wrote for users pass through; anything else gets a general sentence. */

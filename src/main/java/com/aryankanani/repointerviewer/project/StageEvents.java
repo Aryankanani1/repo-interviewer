@@ -1,19 +1,16 @@
 package com.aryankanani.repointerviewer.project;
 
 import com.aryankanani.repointerviewer.common.messaging.EventEnvelope;
-import java.util.Optional;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import com.aryankanani.repointerviewer.common.messaging.InvalidEventException;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
+import tools.jackson.core.JacksonException;
 import tools.jackson.databind.json.JsonMapper;
 
-/** Reads a stage's Kafka message, and keeps only the event type that stage handles, at a version it knows. */
+/** Reads a stage's Kafka message, and accepts only the event type that stage handles, at a version it knows. */
 @Component
 @Profile("kafka")
 class StageEvents {
-
-	private static final Logger log = LoggerFactory.getLogger(StageEvents.class);
 
 	private static final int KNOWN_VERSION = 1;
 
@@ -23,15 +20,29 @@ class StageEvents {
 		this.json = json;
 	}
 
-	/** @return empty for another type or an unknown version: a consumer must not guess what it means */
-	Optional<EventEnvelope> read(String message, String expectedType) {
-		EventEnvelope event = json.readValue(message, EventEnvelope.class);
-		if (!expectedType.equals(event.type()) || event.version() != KNOWN_VERSION) {
-			log.warn("Ignored event {}: type {} version {}, expected {} version {}", event.eventId(), event.type(),
-					event.version(), expectedType, KNOWN_VERSION);
-			return Optional.empty();
+	/**
+	 * @throws InvalidEventException for anything else: a consumer must not guess what it means, and the error handler
+	 *         sends it straight to the dead-letter topic (task 2.4)
+	 */
+	EventEnvelope read(String message, String expectedType) {
+		if (message == null) {
+			throw new InvalidEventException("Message without a value");
 		}
-		return Optional.of(event);
+		EventEnvelope event;
+		try {
+			event = json.readValue(message, EventEnvelope.class);
+		}
+		catch (JacksonException ex) {
+			throw new InvalidEventException("Not an event envelope", ex);
+		}
+		if (event.eventId() == null || event.aggregateId() == null) {
+			throw new InvalidEventException("Event without eventId or aggregateId");
+		}
+		if (!expectedType.equals(event.type()) || event.version() != KNOWN_VERSION) {
+			throw new InvalidEventException("Event " + event.eventId() + ": type " + event.type() + " version "
+					+ event.version() + ", expected " + expectedType + " version " + KNOWN_VERSION);
+		}
+		return event;
 	}
 
 }

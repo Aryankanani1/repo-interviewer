@@ -1,5 +1,6 @@
 package com.aryankanani.repointerviewer.project;
 
+import com.aryankanani.repointerviewer.common.messaging.EventEnvelope;
 import com.aryankanani.repointerviewer.common.messaging.ProcessedEvents;
 import com.aryankanani.repointerviewer.common.messaging.Topics;
 import java.util.UUID;
@@ -10,7 +11,8 @@ import org.springframework.stereotype.Component;
 
 /**
  * Stage 3 on Kafka (task 2.3): Embedded → the SUMMARY call → READY. Safe to run again after a crash: a project left
- * in SUMMARIZING is summarized again (one more model call, the only cost).
+ * in SUMMARIZING is summarized again (one more model call, the only cost). While the model is unavailable the event
+ * is retried, then dead-lettered (task 2.4).
  */
 @Component
 @Profile("kafka")
@@ -32,19 +34,21 @@ class SummaryConsumer {
 
 	@KafkaListener(topics = Topics.EMBEDDED, groupId = NAME)
 	void onEmbedded(String message) {
-		events.read(message, KafkaAnalysisPipeline.EMBEDDED).ifPresent(event -> {
-			UUID projectId = event.aggregateId();
-			MDC.put("projectId", projectId.toString());
-			try {
-				if (processed.isProcessed(event.eventId(), NAME)) {
-					return;
-				}
-				stages.summarize(projectId, project -> processed.claim(event.eventId(), NAME));
+		EventEnvelope event = events.read(message, KafkaAnalysisPipeline.EMBEDDED);
+		UUID projectId = event.aggregateId();
+		MDC.put("projectId", projectId.toString());
+		try {
+			if (processed.isProcessed(event.eventId(), NAME)) {
+				return;
 			}
-			finally {
-				MDC.remove("projectId");
-			}
-		});
+			// An unavailable model throws RetryableEventException, and the error handler delivers the event again
+			// or dead-letters it (task 2.4).
+			stages.summarize(projectId, project -> processed.claim(event.eventId(), NAME),
+					AnalysisStages.WhenModelUnavailable.RETRY);
+		}
+		finally {
+			MDC.remove("projectId");
+		}
 	}
 
 }

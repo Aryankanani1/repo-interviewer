@@ -9,7 +9,6 @@ import com.aryankanani.repointerviewer.KafkaIntegrationTest;
 import com.aryankanani.repointerviewer.common.messaging.OutboxPump;
 import com.aryankanani.repointerviewer.common.messaging.Topics;
 import com.aryankanani.repointerviewer.llm.LlmPurpose;
-import com.aryankanani.repointerviewer.llm.LlmUnavailableException;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -31,7 +30,7 @@ import org.springframework.kafka.core.KafkaAdmin;
 /**
  * Task 2.3 acceptance tests: the fixture repository analyzed through Kafka, one consumer per stage, on a real broker
  * (Testcontainers), with the fake model and embeddings. The relay's timer is slowed in Kafka tests, so
- * {@link #analyze} pumps the outbox until the project is done.
+ * {@link #analyze} pumps the outbox until the project is done. Failures and retries: {@link AnalysisRetryTest}.
  */
 @KafkaIntegrationTest
 class KafkaAnalysisPipelineTest {
@@ -122,21 +121,6 @@ class KafkaAnalysisPipelineTest {
 		assertThat(eventTypes(id)).hasSize(3);   // no stage wrote its next event again
 		assertThat(consumersThatProcessed(id)).hasSize(3);
 		assertThat(projects.findById(id).orElseThrow().getStatus()).isEqualTo(AnalysisStatus.READY);
-	}
-
-	/** A failure is stored on the project, and the consumer moves on: one model call, no redelivery loop. */
-	@Test
-	void aFailedSummaryMarksTheProjectFailedWithoutRetrying() {
-		llm.enqueueFailure(LlmPurpose.SUMMARY, new LlmUnavailableException(new RuntimeException("model down")));
-		UUID id = submit();
-
-		Project project = analyze(id);
-		awaitConsumersCaughtUp();
-
-		assertThat(project.getStatus()).isEqualTo(AnalysisStatus.FAILED);
-		assertThat(project.getFailureReason()).isEqualTo(new LlmUnavailableException(new RuntimeException()).getMessage());
-		assertThat(llm.calls(LlmPurpose.SUMMARY)).isEqualTo(1);
-		assertThat(consumersThatProcessed(id)).containsExactlyInAnyOrder(IngestConsumer.NAME, EmbedConsumer.NAME);
 	}
 
 	@Test

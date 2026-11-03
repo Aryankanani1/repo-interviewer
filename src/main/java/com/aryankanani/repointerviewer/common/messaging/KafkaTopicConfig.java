@@ -1,5 +1,6 @@
 package com.aryankanani.repointerviewer.common.messaging;
 
+import java.util.stream.Stream;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -25,9 +26,14 @@ class KafkaTopicConfig {
 	/** One local broker, so one copy. A multi-broker cluster (Phase 3) needs more for safety. */
 	static final int REPLICAS = 1;
 
+	/**
+	 * Every topic and its dead-letter topic (task 2.4). A DLT has the same partition count, because an event goes to
+	 * the DLT partition with its original number; without its DLT, a failed event could never be set aside.
+	 */
 	@Bean
 	KafkaAdmin.NewTopics topics() {
 		return new KafkaAdmin.NewTopics(Topics.ALL.stream()
+				.flatMap(name -> Stream.of(name, Topics.dlt(name)))
 				.map(name -> TopicBuilder.name(name).partitions(PARTITIONS).replicas(REPLICAS).build())
 				.toArray(NewTopic[]::new));
 	}

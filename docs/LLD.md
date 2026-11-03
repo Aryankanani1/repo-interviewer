@@ -55,7 +55,8 @@ ri
 │   ├── config/             # AppProperties (@ConfigurationProperties "app")
 │   └── messaging/          # Phase 2: Topics, KafkaTopicConfig (kafka profile), OutboxWriter, OutboxRelay
 │                           #   (kafka profile), EventEnvelope, AggregateType; OutboxEvent entity stays inside;
-│                           #   ProcessedEvents, EventAlreadyProcessed (idempotent consumers, task 2.3)
+│                           #   ProcessedEvents, EventAlreadyProcessed (idempotent consumers, task 2.3);
+│                           #   KafkaErrorHandlingConfig, RetryableEventException, InvalidEventException (task 2.4)
 ├── llm/                    # the ONLY way to call a chat model
 │   ├── LlmGateway.java             # interface; LlmRequest, LlmPurpose (purpose → template)
 │   ├── SpringAiLlmGateway.java     # Spring AI ChatClient implementation
@@ -87,6 +88,7 @@ ri
 │   ├── AnalysisJob.java, SummaryValidator.java
 │   ├── KafkaAnalysisPipeline.java  # Phase 2 implementation (kafka profile, task 2.3)
 │   ├── IngestConsumer, EmbedConsumer, SummaryConsumer, StageEvents   # one consumer per stage
+│   ├── AnalysisRetryListener.java  # marks a project FAILED when its event went to the DLT (task 2.4)
 │   └── StaleAnalysisRecovery.java
 ├── interview/              # sessions, topics, questions, answers, scoring, report
 │   ├── InterviewService.java       # use cases: start, submitAnswer, end
@@ -275,7 +277,7 @@ Phase 2 (`kafka` profile, task 2.3): `KafkaAnalysisPipeline` writes an outbox ev
 
 The stages are written once in `AnalysisStages` (task 2.3): `begin` (SUBMITTED → CLONING), `ingest` (CLONING → PARSING → EMBEDDING), `embed`, `summarize` (→ SUMMARIZING → READY). `AnalysisJob.run(projectId)` calls them in order in one JVM; the Kafka consumers call one each (§13.4). Each returns false when it failed (FAILED is stored) or found the project in another status, and then the job stops. Each takes an `inLastTransaction` step, which runs first inside the stage's last transaction; `AnalysisJob` passes `NOTHING`.
 
-Each stage: change the status in its own short transaction → do the work **outside** any transaction → persist results in a short transaction. `begin` only starts a project that is still `SUBMITTED` (`startAnalysis()` in one transaction; an `OptimisticLockingFailureException` there means another job got it first). Any exception → `FAILED` with a user-safe reason; the full error is logged with `projectId` in the MDC. A stage never throws.
+Each stage: change the status in its own short transaction → do the work **outside** any transaction → persist results in a short transaction. `begin` only starts a project that is still `SUBMITTED` (`startAnalysis()` in one transaction; an `OptimisticLockingFailureException` there means another job got it first). Any exception → `FAILED` with a user-safe reason; the full error is logged with `projectId` in the MDC. A stage never throws, except `summarize` on Kafka when the model is unavailable (`WhenModelUnavailable.RETRY`, §13.3): it throws `RetryableEventException` and leaves the project SUMMARIZING for the next delivery. `AnalysisJob` passes `FAIL`.
 
 | Stage | Work | Output |
 |---|---|---|
@@ -609,7 +611,9 @@ categoryScores:  per category in enum order, plain (unweighted) average of grade
 @ConfigurationProperties(prefix = "app", ignoreUnknownFields = false)
 public record AppProperties(Repo repo, Chunking chunking, Embedding embedding, Retrieval retrieval,
                             RepoMap repoMap, Analysis analysis, Interview interview, Llm llm,
-                            Outbox outbox) { ... }   // outbox: poll-interval, batch-size (task 2.2)
+                            Outbox outbox,                // poll-interval, batch-size (task 2.2)
+                            ConsumerRetry consumerRetry)  // max-retries, initial-backoff (task 2.4)
+{ ... }
 ```
 Lives in `common.config`, registered by `@ConfigurationPropertiesScan` on the application class. All keys and defaults are in `src/main/resources/application.yml`.
 
@@ -662,7 +666,7 @@ The eval reports and does not judge: each target prints PASS or MISS, and the te
 - Kafka is behind the `kafka` Spring profile (DECISIONS.md D-016): `./mvnw spring-boot:run -Dspring-boot.run.profiles=dev,kafka`. Only then does `KafkaTopicConfig` declare the topics (one `KafkaAdmin.NewTopics` bean: every `Topics.ALL` name, 3 partitions, 1 replica), which `KafkaAdmin` creates at startup if missing. Without the profile nothing declares a topic, so nothing connects to Kafka.
 - `spring.kafka.admin.fail-fast: true` (application.yml): with the profile and no reachable broker, startup stops with `Could not configure topics` after the admin timeout (about 30 s). The broker address is set only in `application-dev.yml` (`localhost:${KAFKA_PORT:9094}`); stage and prod set `SPRING_KAFKA_BOOTSTRAP_SERVERS`.
 - Tests: `KafkaContainerConfiguration` (`@ServiceConnection KafkaContainer`, same image) with `@ActiveProfiles({"test", "kafka"})`; `KafkaTopicsTest` reads the created topics back with `KafkaAdmin.describeTopics`.
-- The `<topic>.DLT` topics are declared in task 2.4, with the error handler that writes to them.
+- Every topic has a dead-letter topic `<topic>-dlt` (`Topics.dlt`, task 2.4), declared in the same bean with the same partitions and replicas. The suffix is Spring Kafka 4's default (checked in the 4.1.2 jar); the plan said `.DLT`, the 1.x/2.x default.
 
 ### 13.1 Outbox (V3 migration, task 2.2)
 
@@ -713,10 +717,15 @@ CREATE TABLE processed_event (
 | `interview.answer.submitted` | sessionId | API (outbox) | evaluation worker |
 | `interview.answer.evaluated` | sessionId | evaluation worker | interview orchestrator |
 | `interview.question.ready` | sessionId | orchestrator | API (subscription fan-out) |
-| `<topic>.DLT` | same | error handler | manual inspection / replay |
+| `<topic>-dlt` | same | error handler | manual inspection / replay |
 
 - 3 partitions each locally. Keying by aggregate id keeps per-project and per-session order.
-- Errors: `DefaultErrorHandler` with exponential backoff (3 attempts) then `DeadLetterPublishingRecoverer`. `LlmUnavailableException` is retryable. `LlmOutputException` and validation errors are not retryable.
+- **Errors (task 2.4, DECISIONS.md D-019):** one `DefaultErrorHandler` bean (`KafkaErrorHandlingConfig`), which Boot gives to every listener container. When a listener throws:
+  - **Retryable** is only `RetryableEventException` (`defaultFalse()` + `addRetryableExceptions`; the classifier also matches it as a cause, because the container wraps it in `ListenerExecutionFailedException`). The consumer decides: `summarize` throws it for `LlmUnavailableException`. `ExponentialBackOffWithMaxRetries(app.consumer-retry.max-retries = 3)`, starting at `initial-backoff` 1 s and doubling: 4 deliveries with 1 + 2 + 4 = 7 s of waiting. The partition waits meanwhile, which keeps the project's order; each delivery is one gateway call and counts toward the daily cap.
+  - **Everything else** goes to the DLT on its first failure: an `InvalidEventException` from `StageEvents` (not an envelope, another type, an unknown version), a bug, or the database down during `isProcessed`.
+  - **Then** `DeadLetterPublishingRecoverer` writes the record to `Topics.dlt(topic)`, same key and partition, with headers for the original topic, partition and offset and the exception (`kafka_dlt-exception-cause-fqcn` holds ours), and the offset is committed.
+  - Every `RetryListener` bean is told about each failed delivery and each dead-lettered record. `AnalysisRetryListener` (`project`) marks the project in the record key FAILED (`AnalysisStages.failDeadLettered`) if it is still CLONING to SUMMARIZING, with the first `DomainException` message in the causes (for example "The AI model is not available right now...") or the stage's general sentence. A SUBMITTED project cannot go to FAILED (§3.2), so a dead-lettered `AnalysisRequested` leaves it SUBMITTED.
+  - **Not retried, not dead-lettered:** failures the stage stores as FAILED itself, because the same input fails the same way: repository not found or too large, no Java files, budget exceeded, `LlmOutputException`.
 - Subscription fan-out: each API instance consumes `*.progress` and `question.ready` with a **unique group id per instance** (broadcast), then pushes to the local `Sinks.Many`.
 - `submitAnswer` in Phase 2 returns the answer with `evaluation: null` and `nextQuestion: null`; the results arrive as `InterviewEvent`s.
 
@@ -732,7 +741,7 @@ With the `kafka` profile, `KafkaAnalysisPipeline` replaces `InProcessAnalysisPip
 
 - **Start:** `KafkaAnalysisPipeline` listens to `ProjectSubmittedEvent` with `@TransactionalEventListener(phase = BEFORE_COMMIT)` and writes `AnalysisRequested` with `OutboxWriter` inside `submit`'s or `reanalyze`'s transaction, so the event commits with the SUBMITTED row or not at all. The relay sends it (§13.1).
 - **Payload:** only `{ "projectId": ... }`; the key is the project id (the outbox's `aggregate_id`), so one project's events stay in order on one partition. Everything a stage needs is in the database; that is why V4 stores the summary inputs (DECISIONS.md D-018).
-- **Reading:** `StageEvents.read` parses the envelope (§13.2) and keeps only the type the consumer expects, at version 1. Anything else is logged and skipped: a consumer must not guess what an unknown version means.
+- **Reading:** `StageEvents.read` parses the envelope (§13.2) and accepts only the type the consumer expects, at version 1. Anything else throws `InvalidEventException` and goes to the DLT (§13.3, task 2.4; in 2.3 it was logged and skipped): a consumer must not guess what an unknown version means, and the DLT keeps the event instead of dropping it.
 - **Idempotency** (delivery is at-least-once, §13.1), three checks:
   1. `ProcessedEvents.isProcessed(eventId, consumer)` before the slow work, so a plain redelivery is skipped without a clone, an embedding or a model call.
   2. `ProcessedEvents.claim` is the `inLastTransaction` step (§6.3): `INSERT ... ON CONFLICT DO NOTHING`, and 0 rows → `EventAlreadyProcessed`, which rolls back the state change and the next event too; the stage ends quietly. If two deliveries race, the second insert waits on the first one's row lock, then sees its row. The result, the next event and the mark commit together or not at all. Plain JDBC, not JPA: with JPA a duplicate key is an exception that marks the transaction rollback-only.
@@ -743,6 +752,6 @@ With the `kafka` profile, `KafkaAnalysisPipeline` replaces `InProcessAnalysisPip
   - summarize: starts from EMBEDDING or SUMMARIZING, so a summary cut off is made again (one more model call).
 - **A failed stage** stores FAILED (§6.3) and returns normally: the offset is committed, the event is not marked, and no next event is written. A redelivery finds FAILED and does nothing. `reanalyzeProject` writes a new `AnalysisRequested` with a new event id.
 - **Consumer settings** (`spring.kafka.consumer` and `spring.kafka.listener` in `application.yml`): `auto-offset-reset: earliest` (a new group starts at the oldest event, so events written before it first joined are not skipped); `max-poll-records: 1` and `max.poll.interval.ms` 15 min, the same as `app.analysis.stale-after` (one slow record per poll: embedding a big repo took 243 s in the 1.17 eval, and a consumer that does not poll again in time is dropped from its group and its record goes to another one); `ack-mode: record` (each record's offset is committed once its listener returns).
-- **Errors that escape a listener** (a malformed message, the database down during `isProcessed`) get Spring Kafka's default `DefaultErrorHandler` for now: up to 10 attempts without backoff, then the record is logged and skipped. Retries with backoff and the DLT are task 2.4. Note for 2.4: the stages catch every exception and store FAILED, so a retryable `LlmUnavailableException` never reaches the error handler yet.
-- **Tests** (`KafkaAnalysisPipelineTest`, `@KafkaIntegrationTest`; the relay's timer is slowed, so the test pumps the outbox with `OutboxPump.publishPending`): the fixture reaches READY through Kafka with exactly three events, all published, all three consumers marked, and the SUMMARY call got the stored build files and README; sending all three events of a finished analysis again (same ids) changes nothing (same chunk count, no embedding or model call, no new event), checked once every group has committed past the end of its topic; a failed SUMMARY stores FAILED after one call, without a redelivery loop; the profile replaces the in-process beans.
-- Not yet: no stage publishes to `project.analysis.progress`; a periodic stale check or heartbeat, so a project whose ingest was cut off does not wait for a restart; retries and the DLT (2.4).
+- **Errors that escape a listener**, retries and the DLT: §13.3 (task 2.4).
+- **Tests** (`KafkaAnalysisPipelineTest`, `@KafkaIntegrationTest`; the relay's timer is slowed, so the test pumps the outbox with `OutboxPump.publishPending`): the fixture reaches READY through Kafka with exactly three events, all published, all three consumers marked, and the SUMMARY call got the stored build files and README; sending all three events of a finished analysis again (same ids) changes nothing (same chunk count, no embedding or model call, no new event), checked once every group has committed past the end of its topic; the profile replaces the in-process beans. Failures: `AnalysisRetryTest` (task 2.4): the model down on all 4 deliveries → 4 SUMMARY calls, deliveries 1–4 failed, the `Embedded` event (same id) on `project.embedded-dlt` with its original topic header, the project FAILED with the model-unavailable message; the model back on the third delivery → READY after 3 calls, nothing dead-lettered; a malformed message and an unknown version → on the DLT after one delivery; `LlmOutputException` → FAILED after one call, no retry. `StageEventsTest` covers each rejected message. Breaking it fails these tests (checked): without `defaultFalse()` the two validation tests fail, with `FAIL` instead of `RETRY` in `SummaryConsumer` both retry tests fail, and without `failDeadLettered` the project stays SUMMARIZING.
+- Not yet: no stage publishes to `project.analysis.progress`; a periodic stale check or heartbeat, so a project whose ingest was cut off does not wait for a restart; retries for an unavailable embedding model (Ollama errors have no exception type of their own yet) or a database that is briefly down; a tool to replay DLT records (2.8).
