@@ -58,7 +58,7 @@ class ProjectTest {
 
 		project.startAnalysis();
 		project.transitionTo(PARSING);
-		project.recordIndex(11, 7, 300, 29, "java", "./");
+		project.recordIndex(11, 7, 300, 29, "java", "./", null, null);
 		project.transitionTo(SUMMARIZING);
 		project.complete(summary);
 
@@ -104,11 +104,11 @@ class ProjectTest {
 			case CLONING -> List.of(project::startAnalysis);
 			case PARSING -> List.of(project::startAnalysis, () -> project.transitionTo(PARSING));
 			case EMBEDDING -> List.of(project::startAnalysis, () -> project.transitionTo(PARSING),
-					() -> project.recordIndex(1, 1, 1, 1, "java", "./"));
+					() -> project.recordIndex(1, 1, 1, 1, "java", "./", null, null));
 			case SUMMARIZING -> List.of(project::startAnalysis, () -> project.transitionTo(PARSING),
-					() -> project.recordIndex(1, 1, 1, 1, "java", "./"), () -> project.transitionTo(SUMMARIZING));
+					() -> project.recordIndex(1, 1, 1, 1, "java", "./", null, null), () -> project.transitionTo(SUMMARIZING));
 			case READY -> List.of(project::startAnalysis, () -> project.transitionTo(PARSING),
-					() -> project.recordIndex(1, 1, 1, 1, "java", "./"), () -> project.transitionTo(SUMMARIZING),
+					() -> project.recordIndex(1, 1, 1, 1, "java", "./", null, null), () -> project.transitionTo(SUMMARIZING),
 					() -> project.complete(null));
 			case FAILED -> List.of(project::startAnalysis, () -> project.fail("x"));
 		};

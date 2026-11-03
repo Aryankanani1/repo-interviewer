@@ -54,7 +54,8 @@ ri
 │   ├── error/              # DomainException, ErrorCode (mirrors GraphQL enum)
 │   ├── config/             # AppProperties (@ConfigurationProperties "app")
 │   └── messaging/          # Phase 2: Topics, KafkaTopicConfig (kafka profile), OutboxWriter, OutboxRelay
-│                           #   (kafka profile), EventEnvelope, AggregateType; OutboxEvent entity stays inside
+│                           #   (kafka profile), EventEnvelope, AggregateType; OutboxEvent entity stays inside;
+│                           #   ProcessedEvents, EventAlreadyProcessed (idempotent consumers, task 2.3)
 ├── llm/                    # the ONLY way to call a chat model
 │   ├── LlmGateway.java             # interface; LlmRequest, LlmPurpose (purpose → template)
 │   ├── SpringAiLlmGateway.java     # Spring AI ChatClient implementation
@@ -81,8 +82,11 @@ ri
 │   ├── Project.java, ProjectRepository.java, ProjectService.java (submit, reanalyze)
 │   ├── RepoSummary.java            # the stored summary (JSONB), with ModuleSummary
 │   ├── AnalysisPipeline.java       # interface (port)
-│   ├── InProcessAnalysisPipeline.java   # Phase 1 implementation
+│   ├── InProcessAnalysisPipeline.java   # Phase 1 implementation (without the kafka profile)
+│   ├── AnalysisStages.java         # the stages, written once for both pipelines (task 2.3)
 │   ├── AnalysisJob.java, SummaryValidator.java
+│   ├── KafkaAnalysisPipeline.java  # Phase 2 implementation (kafka profile, task 2.3)
+│   ├── IngestConsumer, EmbedConsumer, SummaryConsumer, StageEvents   # one consumer per stage
 │   └── StaleAnalysisRecovery.java
 ├── interview/              # sessions, topics, questions, answers, scoring, report
 │   ├── InterviewService.java       # use cases: start, submitAnswer, end
@@ -178,11 +182,12 @@ public record RetrievedChunk(UUID id, String path, String symbol, int startLine,
 
 ## 4. Database
 
-DDL lives in `src/main/resources/db/migration/V1__init.sql`, plus `V2__code_file_content.sql` (one nullable column). Notes:
+DDL lives in `src/main/resources/db/migration/V1__init.sql`, plus `V2__code_file_content.sql` (one nullable column), `V3__outbox.sql` (§13.1) and `V4__project_summary_sources.sql` (two nullable columns). Notes:
 
 - `project (github_url, commit_sha)` is unique. That is how FR-2 (dedupe) works.
 - `code_chunk.path` is denormalized from `code_file` so ref validation is a single indexed query.
 - `code_file.content` (V2) is the whole file after `SecretRedactor`, with the repository's line numbers. It feeds `CodeRef` snippets only; search and ref validation use the chunks. NULL for files analyzed before V2.
+- `project.build_files` and `project.readme` (V4) are the summary inputs (§6.3), stored at the end of PARSING so the summary stage can run in another JVM. NULL when the repository has none, and for projects parsed before V4.
 - `code_chunk.embedding vector(768)` matches `nomic-embed-text`. Changing the embedding model means a new migration and re-embedding.
 - **No ANN index in V1.** Every search filters by `project_id`, and one project has fewer than 10K chunks, so an exact scan takes milliseconds with perfect recall. The HNSW index is commented in the migration for later.
 - `question.order_index` is NULL while a question is `PREPARED` (prefetched) and assigned when it becomes `ASKED`.
@@ -253,7 +258,7 @@ public interface AnalysisPipeline {
 ```
 
 Phase 1: `InProcessAnalysisPipeline` runs `AnalysisJob.run(projectId)` on a virtual-thread executor (`spring.threads.virtual.enabled=true`; a dedicated `Executors.newVirtualThreadPerTaskExecutor()` bean). A `ConcurrentHashMap<UUID, Future<?>>` stops double starts in one JVM.
-Phase 2: `KafkaAnalysisPipeline` writes an outbox event instead. `ProjectService` does not change.
+Phase 2 (`kafka` profile, task 2.3): `KafkaAnalysisPipeline` writes an outbox event instead, and three consumers run the stages (§13.4). `ProjectService` does not change.
 
 ### 6.2 `ProjectService.submit(SubmitProjectCommand)`
 1. `GithubUrl.parse(raw)`:
@@ -264,11 +269,13 @@ Phase 2: `KafkaAnalysisPipeline` writes an outbox event instead. `ProjectService
    - Exists and not `FAILED` → return it (dedupe).
    - Exists and `FAILED` → return it with its failure reason. The client calls `reanalyzeProject` to retry.
 4. Insert `SUBMITTED` with the context fields, trimmed and capped at 500 characters each. A unique-constraint race → re-read and return the winner.
-5. `analysisPipeline.start(id)` **after commit**: `@TransactionalEventListener(phase = AFTER_COMMIT)` or `TransactionSynchronization`. This avoids starting a job for a row that rolled back.
+5. `analysisPipeline.start(id)` **after commit**: `@TransactionalEventListener(phase = AFTER_COMMIT)` or `TransactionSynchronization`. This avoids starting a job for a row that rolled back. With the `kafka` profile the outbox event is written **before** commit instead (`BEFORE_COMMIT`), so it commits with the row or not at all (§13.4).
 
-### 6.3 `AnalysisJob.run(projectId)` stages
+### 6.3 Analysis stages (`AnalysisStages`)
 
-Each stage: change the status in its own short transaction → do the work **outside** any transaction → persist results in a short transaction. The job only starts a project that is still `SUBMITTED` (`startAnalysis()` in one transaction; an `OptimisticLockingFailureException` there means another job got it first). Any exception → `FAILED` with a user-safe reason; the full error is logged with `projectId` in the MDC.
+The stages are written once in `AnalysisStages` (task 2.3): `begin` (SUBMITTED → CLONING), `ingest` (CLONING → PARSING → EMBEDDING), `embed`, `summarize` (→ SUMMARIZING → READY). `AnalysisJob.run(projectId)` calls them in order in one JVM; the Kafka consumers call one each (§13.4). Each returns false when it failed (FAILED is stored) or found the project in another status, and then the job stops. Each takes an `inLastTransaction` step, which runs first inside the stage's last transaction; `AnalysisJob` passes `NOTHING`.
+
+Each stage: change the status in its own short transaction → do the work **outside** any transaction → persist results in a short transaction. `begin` only starts a project that is still `SUBMITTED` (`startAnalysis()` in one transaction; an `OptimisticLockingFailureException` there means another job got it first). Any exception → `FAILED` with a user-safe reason; the full error is logged with `projectId` in the MDC. A stage never throws.
 
 | Stage | Work | Output |
 |---|---|---|
@@ -280,7 +287,7 @@ Each stage: change the status in its own short transaction → do the work **out
 
 - `CodebaseIndexer` is the `codebase` module's entry point: `project` may not use the `CodeFile` entity, so it gets plain numbers and text back (`IndexResult`). `CodebaseQueries` answers read-only questions (here `knownNames`). Files are saved with `saveAllAndFlush` before the chunks: the chunk inserts are plain JDBC with a foreign key to `code_file`, and Hibernate would otherwise hold its INSERTs until commit.
 - Stats: `fileCount` (kept files), `javaFileCount`, `totalLines`, `chunkCount`, `primaryLanguage` = the programming language with the most lines (doc and config formats and build scripts ignored). A repository without `.java` files already fails in the scanner (`UNSUPPORTED_LANGUAGE`).
-- Summary inputs (`SummarySources`, from redacted text): `buildFiles` = the `<parent>` and `<dependency>` coordinates of each `pom.xml` and the dependency lines of `build.gradle(.kts)`, as `- group:artifact` lines (`(test)` for test scope), at most 100; `readme` = the first 150 lines of the README closest to the root. They are handed from PARSING to SUMMARIZING **in memory**, which works because Phase 1 runs all stages in one job. Phase 2 (task 2.3) splits the stages across consumers and must store them or rebuild them from the chunks.
+- Summary inputs (`SummarySources`, from redacted text): `buildFiles` = the `<parent>` and `<dependency>` coordinates of each `pom.xml` and the dependency lines of `build.gradle(.kts)`, as `- group:artifact` lines (`(test)` for test scope), at most 100; `readme` = the first 150 lines of the README closest to the root. `recordIndex` stores them on the project (`build_files`, `readme`, V4) at the end of PARSING, and the SUMMARY call reads them back from the row, so the summary stage can run in another JVM (task 2.3; before it they were handed over in memory, DECISIONS.md D-018).
 - `SummaryValidator`: `modules[].keyClasses` keep only names from `CodebaseQueries.knownNames` (type symbols like `Order.Status` and their last part, file names, Java file names without `.java`); a `notablePatterns` / `riskAreas` item is kept only if it names at least one of them (`OrderService#refund` counts as `OrderService`). Framework names in the same sentence may stay.
 - Failure reasons: a `DomainException` message (repository not found or too large, no Java files, model unavailable, budget) or the branch-moved message is shown as is; anything else becomes "Analysis failed while <cloning the repository | reading the code | indexing the code for search | summarizing the architecture>. Use reanalyzeProject to retry."
 - `reanalyzeProject` (`ProjectService.reanalyze`): FAILED → SUBMITTED and the pipeline starts after commit (same `ProjectSubmittedEvent`); any other status is returned unchanged; unknown id → `NOT_FOUND`.
@@ -402,7 +409,7 @@ Layout: folders sorted by path (`./` for the root), files sorted by name inside.
 Build files (dependencies only) and the README (first 150 lines) are not part of the map; `SummarySources` prepares them for the summary prompt separately (§6.3).
 
 ### 6.10 StaleAnalysisRecovery
-On `ApplicationReadyEvent`: projects in `CLONING`, `PARSING`, `EMBEDDING` or `SUMMARIZING` whose `updated_at` is older than `app.analysis.stale-after` (15 minutes) → `FAILED` with reason "Analysis was interrupted. Use reanalyzeProject to retry." One native bulk `UPDATE` (`ProjectRepository.failStale`), which sets `updated_at` and bumps `version` itself because it bypasses Hibernate. Only stale rows, not all running ones: with several instances (Phase 3) another one may still be working. A long EMBEDDING stage does not touch `updated_at`; Phase 2/3 need a heartbeat before this runs while other instances work.
+On `ApplicationReadyEvent`: projects in `CLONING`, `PARSING`, `EMBEDDING` or `SUMMARIZING` whose `updated_at` is older than `app.analysis.stale-after` (15 minutes) → `FAILED` with reason "Analysis was interrupted. Use reanalyzeProject to retry." One native bulk `UPDATE` (`ProjectRepository.failStale`), which sets `updated_at` and bumps `version` itself because it bypasses Hibernate. Only stale rows, not all running ones: with several instances (Phase 3) another one may still be working. A long EMBEDDING stage does not touch `updated_at`; Phase 2/3 need a heartbeat before this runs while other instances work. With Kafka (§13.4) this is also what clears an ingest cut off by a crash: the redelivered event finds CLONING or PARSING and does nothing, so the project waits for the next app start.
 
 ## 7. Retrieval
 
@@ -618,6 +625,7 @@ Lives in `common.config`, registered by `@ConfigurationPropertiesScan` on the ap
 |---|---|
 | Same repo submitted twice at once | unique `(github_url, commit_sha)`; loser re-reads |
 | Analysis started twice | in-JVM guard map + status check at job start (`status == SUBMITTED`) |
+| Kafka event delivered twice | `processed_event` claim in the stage's last transaction + a status check in every stage (§13.4) |
 | Two answers for one question | unique `answer.question_id` + `text_sha` comparison |
 | Two generators for one topic | partial unique index on `question(topic_id)` |
 | Lost update on session pointer | `@Version` on `interview_session` |
@@ -711,3 +719,30 @@ CREATE TABLE processed_event (
 - Errors: `DefaultErrorHandler` with exponential backoff (3 attempts) then `DeadLetterPublishingRecoverer`. `LlmUnavailableException` is retryable. `LlmOutputException` and validation errors are not retryable.
 - Subscription fan-out: each API instance consumes `*.progress` and `question.ready` with a **unique group id per instance** (broadcast), then pushes to the local `Sinks.Many`.
 - `submitAnswer` in Phase 2 returns the answer with `evaluation: null` and `nextQuestion: null`; the results arrive as `InterviewEvent`s.
+
+### 13.4 Analysis pipeline on Kafka (task 2.3)
+
+With the `kafka` profile, `KafkaAnalysisPipeline` replaces `InProcessAnalysisPipeline` and `AnalysisStarter` (both `@Profile("!kafka")`). The stages are the same `AnalysisStages` methods as in Phase 1 (§6.3); three consumers in `project` run one each, every consumer in its own group:
+
+| Consumer (group id) | Reads (topic / type) | Stage | In its last transaction, with the `processed_event` mark |
+|---|---|---|---|
+| `IngestConsumer` (`analysis-ingest`) | `project.analysis.requested` / `AnalysisRequested` | `begin`, `ingest` | `recordIndex` (stats, repo map, build files, README) → EMBEDDING, and `ChunksReady` |
+| `EmbedConsumer` (`analysis-embed`) | `project.chunks.ready` / `ChunksReady` | `embed` | status still EMBEDDING, and `Embedded` |
+| `SummaryConsumer` (`analysis-summary`) | `project.embedded` / `Embedded` | `summarize` | `complete(summary)` → READY |
+
+- **Start:** `KafkaAnalysisPipeline` listens to `ProjectSubmittedEvent` with `@TransactionalEventListener(phase = BEFORE_COMMIT)` and writes `AnalysisRequested` with `OutboxWriter` inside `submit`'s or `reanalyze`'s transaction, so the event commits with the SUBMITTED row or not at all. The relay sends it (§13.1).
+- **Payload:** only `{ "projectId": ... }`; the key is the project id (the outbox's `aggregate_id`), so one project's events stay in order on one partition. Everything a stage needs is in the database; that is why V4 stores the summary inputs (DECISIONS.md D-018).
+- **Reading:** `StageEvents.read` parses the envelope (§13.2) and keeps only the type the consumer expects, at version 1. Anything else is logged and skipped: a consumer must not guess what an unknown version means.
+- **Idempotency** (delivery is at-least-once, §13.1), three checks:
+  1. `ProcessedEvents.isProcessed(eventId, consumer)` before the slow work, so a plain redelivery is skipped without a clone, an embedding or a model call.
+  2. `ProcessedEvents.claim` is the `inLastTransaction` step (§6.3): `INSERT ... ON CONFLICT DO NOTHING`, and 0 rows → `EventAlreadyProcessed`, which rolls back the state change and the next event too; the stage ends quietly. If two deliveries race, the second insert waits on the first one's row lock, then sees its row. The result, the next event and the mark commit together or not at all. Plain JDBC, not JPA: with JPA a duplicate key is an exception that marks the transaction rollback-only.
+  3. Every stage checks the project's status first and does nothing in any other status.
+- **After a crash** the event comes again, unmarked:
+  - ingest: the project is CLONING or PARSING, and `begin` starts only SUBMITTED, so nothing happens; `StaleAnalysisRecovery` fails it on the next app start (§6.10). Only one ingest ever runs per submit.
+  - embed: runs again; `embedPending` embeds only the chunks that still have no vector.
+  - summarize: starts from EMBEDDING or SUMMARIZING, so a summary cut off is made again (one more model call).
+- **A failed stage** stores FAILED (§6.3) and returns normally: the offset is committed, the event is not marked, and no next event is written. A redelivery finds FAILED and does nothing. `reanalyzeProject` writes a new `AnalysisRequested` with a new event id.
+- **Consumer settings** (`spring.kafka.consumer` and `spring.kafka.listener` in `application.yml`): `auto-offset-reset: earliest` (a new group starts at the oldest event, so events written before it first joined are not skipped); `max-poll-records: 1` and `max.poll.interval.ms` 15 min, the same as `app.analysis.stale-after` (one slow record per poll: embedding a big repo took 243 s in the 1.17 eval, and a consumer that does not poll again in time is dropped from its group and its record goes to another one); `ack-mode: record` (each record's offset is committed once its listener returns).
+- **Errors that escape a listener** (a malformed message, the database down during `isProcessed`) get Spring Kafka's default `DefaultErrorHandler` for now: up to 10 attempts without backoff, then the record is logged and skipped. Retries with backoff and the DLT are task 2.4. Note for 2.4: the stages catch every exception and store FAILED, so a retryable `LlmUnavailableException` never reaches the error handler yet.
+- **Tests** (`KafkaAnalysisPipelineTest`, `@KafkaIntegrationTest`; the relay's timer is slowed, so the test pumps the outbox with `OutboxPump.publishPending`): the fixture reaches READY through Kafka with exactly three events, all published, all three consumers marked, and the SUMMARY call got the stored build files and README; sending all three events of a finished analysis again (same ids) changes nothing (same chunk count, no embedding or model call, no new event), checked once every group has committed past the end of its topic; a failed SUMMARY stores FAILED after one call, without a redelivery loop; the profile replaces the in-process beans.
+- Not yet: no stage publishes to `project.analysis.progress`; a periodic stale check or heartbeat, so a project whose ingest was cut off does not wait for a restart; retries and the DLT (2.4).

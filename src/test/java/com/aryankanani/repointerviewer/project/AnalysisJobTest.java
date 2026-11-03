@@ -157,7 +157,7 @@ class AnalysisJobTest {
 
 		Project project = projects.findById(id).orElseThrow();
 		assertThat(project.getStatus()).isEqualTo(AnalysisStatus.FAILED);
-		assertThat(project.getFailureReason()).isEqualTo(AnalysisJob.BRANCH_MOVED);
+		assertThat(project.getFailureReason()).isEqualTo(AnalysisStages.BRANCH_MOVED);
 		assertThat(count("code_file", id)).isZero();
 	}
 

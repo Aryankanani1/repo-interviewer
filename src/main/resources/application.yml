@@ -43,6 +43,17 @@ spring:
         max.block.ms: 5000
         request.timeout.ms: 5000
         delivery.timeout.ms: 10000
+    consumer:
+      # A new consumer group starts at the oldest event, so events written before it first joined are not skipped.
+      auto-offset-reset: earliest
+      # One slow record per poll (embedding a big repo took 243 s in the 1.17 eval). A consumer that does not poll
+      # again within max.poll.interval.ms is dropped from its group and its record goes to another one: 15 min, the
+      # same as app.analysis.stale-after, instead of Kafka's 5.
+      max-poll-records: 1
+      properties:
+        max.poll.interval.ms: 900000
+    listener:
+      ack-mode: record   # commit each record's offset once its listener returned, not once per batch
   graphql:
     graphiql:
       enabled: false   # on in dev and stage only

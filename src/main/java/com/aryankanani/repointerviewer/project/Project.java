@@ -85,6 +85,11 @@ public class Project {
 	/** The token-budgeted outline used in prompts (LLD §6.9). Null until PARSING finishes. */
 	private String repoMap;
 
+	/** For the SUMMARY prompt (V4): build-file dependencies and the README's start, from redacted text. */
+	private String buildFiles;
+
+	private String readme;
+
 	private Instant analysisStartedAt;
 
 	private Instant analysisCompletedAt;
@@ -143,11 +148,13 @@ public class Project {
 		primaryLanguage = null;
 		summary = null;
 		repoMap = null;
+		buildFiles = null;
+		readme = null;
 	}
 
-	/** PARSING → EMBEDDING, with what PARSING found. */
+	/** PARSING → EMBEDDING, with what PARSING found, including what the summary needs later (task 2.3). */
 	void recordIndex(int fileCount, int javaFileCount, int totalLines, int chunkCount, String primaryLanguage,
-			String repoMap) {
+			String repoMap, String buildFiles, String readme) {
 		transitionTo(AnalysisStatus.EMBEDDING);
 		this.fileCount = fileCount;
 		this.javaFileCount = javaFileCount;
@@ -155,6 +162,8 @@ public class Project {
 		this.chunkCount = chunkCount;
 		this.primaryLanguage = primaryLanguage;
 		this.repoMap = repoMap;
+		this.buildFiles = buildFiles;
+		this.readme = readme;
 	}
 
 	/** SUMMARIZING → READY. */
@@ -246,6 +255,14 @@ public class Project {
 
 	public String getRepoMap() {
 		return repoMap;
+	}
+
+	public String getBuildFiles() {
+		return buildFiles;
+	}
+
+	public String getReadme() {
+		return readme;
 	}
 
 	public Instant getAnalysisStartedAt() {

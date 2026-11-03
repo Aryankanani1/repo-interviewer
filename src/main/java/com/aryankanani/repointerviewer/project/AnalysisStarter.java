@@ -1,5 +1,6 @@
 package com.aryankanani.repointerviewer.project;
 
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
@@ -10,6 +11,7 @@ import org.springframework.transaction.event.TransactionalEventListener;
  * also dropped ({@code fallbackExecution = false}), which is what we want.
  */
 @Component
+@Profile("!kafka")   // with Kafka, KafkaAnalysisPipeline writes the event before the commit instead (task 2.3)
 class AnalysisStarter {
 
 	private final AnalysisPipeline analysisPipeline;

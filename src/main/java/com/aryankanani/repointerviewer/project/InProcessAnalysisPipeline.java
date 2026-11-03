@@ -9,6 +9,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
 /**
@@ -20,6 +21,7 @@ import org.springframework.stereotype.Component;
  * several JVMs the job's own check (only SUBMITTED projects start, with optimistic locking) does the same.
  */
 @Component
+@Profile("!kafka")   // the kafka profile uses KafkaAnalysisPipeline (task 2.3, DECISIONS.md D-016)
 class InProcessAnalysisPipeline implements AnalysisPipeline {
 
 	private static final Logger log = LoggerFactory.getLogger(InProcessAnalysisPipeline.class);
