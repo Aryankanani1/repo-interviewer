@@ -2,6 +2,7 @@ package com.aryankanani.repointerviewer.interview;
 
 import com.aryankanani.repointerviewer.common.messaging.EventEnvelope;
 import com.aryankanani.repointerviewer.common.messaging.EventReader;
+import com.aryankanani.repointerviewer.common.messaging.InstanceId;
 import com.aryankanani.repointerviewer.common.messaging.Topics;
 import com.aryankanani.repointerviewer.interview.KafkaAnswerPipeline.AnswerFlowEvent;
 import java.time.Instant;
@@ -15,8 +16,13 @@ import org.springframework.stereotype.Component;
 
 /**
  * Feeds this instance's {@code interviewEvents} subscriptions (task 2.5) from the two topics a client cares about:
- * the grade, then the next step. Its own consumer group, so it gets every event besides the workers. One fixed group
- * for now: with several API instances each needs its own, or only one of them would see each event (task 2.6).
+ * the grade, then the next step.
+ *
+ * <p>A consumer group of its own <b>per app instance</b> (task 2.6, {@link InstanceId}): a group gives each event to
+ * one of its members, which is right for workers but would send a session's events to one instance only, while its
+ * client may be connected to another. With one group each, every instance reads every event and keeps its own
+ * subscribers' ones. The group starts at the newest event ({@code latest}), not the oldest: it is new at every start,
+ * and a live view has no use for the history.
  *
  * <p>Best effort: it never throws. A subscriber that misses an event still finds everything with
  * {@code interviewSession}, and an event of this group must never reach the dead-letter topic, where
@@ -26,7 +32,8 @@ import org.springframework.stereotype.Component;
 @Profile("kafka")
 class InterviewEventsFanOut {
 
-	static final String NAME = "interview-events";
+	/** The listener container's id, for tests that wait for its partitions. Not the group id. */
+	static final String LISTENER_ID = "interview-events";
 
 	private static final Logger log = LoggerFactory.getLogger(InterviewEventsFanOut.class);
 
@@ -45,7 +52,8 @@ class InterviewEventsFanOut {
 		this.stream = stream;
 	}
 
-	@KafkaListener(topics = { Topics.ANSWER_EVALUATED, Topics.QUESTION_READY }, groupId = NAME)
+	@KafkaListener(id = LISTENER_ID, idIsGroup = false, groupId = "interview-events-#{@instanceId.value()}",
+			topics = { Topics.ANSWER_EVALUATED, Topics.QUESTION_READY }, properties = "auto.offset.reset=latest")
 	void onEvent(String message) {
 		try {
 			EventEnvelope event = events.read(message, TYPES.keySet().toArray(String[]::new));

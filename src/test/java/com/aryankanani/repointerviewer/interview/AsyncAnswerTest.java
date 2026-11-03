@@ -10,6 +10,7 @@ import com.aryankanani.repointerviewer.FakeLlmGateway;
 import com.aryankanani.repointerviewer.FixtureIndexer;
 import com.aryankanani.repointerviewer.KafkaConsumerLag;
 import com.aryankanani.repointerviewer.KafkaIntegrationTest;
+import com.aryankanani.repointerviewer.KafkaListeners;
 import com.aryankanani.repointerviewer.RecordingRetryListener;
 import com.aryankanani.repointerviewer.common.messaging.OutboxPump;
 import com.aryankanani.repointerviewer.common.messaging.Topics;
@@ -128,6 +129,8 @@ class AsyncAnswerTest {
 		llm.reset();
 		embeddingModel.reset();
 		retries.reset();
+		// The fan-out group starts at the newest event (task 2.6): it must be in before anything is sent.
+		KafkaListeners.awaitAssigned(context, InterviewEventsFanOut.LISTENER_ID, 6);
 		String project = fixture.readyProject().toString();
 		GraphQlTester.Response started = graphQlTester.document("""
 				mutation ($input: StartInterviewInput!) {
