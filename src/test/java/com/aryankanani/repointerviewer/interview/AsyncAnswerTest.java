@@ -192,6 +192,7 @@ class AsyncAnswerTest {
 		session.path("interviewSession.status").entity(String.class).isEqualTo("IN_PROGRESS");
 		session.path("interviewSession.questions[0].answer.evaluation.score").entity(Integer.class).isEqualTo(9);
 		session.path("interviewSession.questions[1].answer").valueIsNull();
+		pumpUntil(this::questionReadySent);
 		// Sending the same answer again returns the stored result, and starts nothing new.
 		GraphQlTester.Response again = submit(firstQuestionId, "Both read the same refundedAmount.");
 		again.path("submitAnswer.answer.evaluation.score").entity(Integer.class).isEqualTo(9);
@@ -205,7 +206,7 @@ class AsyncAnswerTest {
 	void deliveringTheEventsAgainGradesOnceAndAsksOnce() {
 		llm.enqueue(LlmPurpose.EVALUATION, strong());
 		submit(firstQuestionId, "Both read the same refundedAmount.");
-		pumpUntil(() -> currentQuestionOrder() == 2);
+		pumpUntil(() -> currentQuestionOrder() == 2 && questionReadySent());
 		long questionCalls = llm.calls(LlmPurpose.QUESTION);
 
 		jdbc.update("UPDATE outbox_event SET published_at = NULL WHERE aggregate_id = ?::uuid AND type IN (?, ?)",
@@ -340,6 +341,17 @@ class AsyncAnswerTest {
 				WHERE s.id = ?::uuid
 				""", Integer.class, sessionId);
 		return order == null ? 0 : order;
+	}
+
+	/**
+	 * The orchestrator stores the next question first and writes QuestionReady in its last transaction (LLD §13.5),
+	 * so question 2 can be visible a moment before its event exists. Tests that count events wait for this.
+	 */
+	private boolean questionReadySent() {
+		return jdbc.queryForObject("""
+				SELECT count(*) FROM outbox_event
+				WHERE aggregate_id = ?::uuid AND type = ? AND published_at IS NOT NULL
+				""", Integer.class, sessionId, KafkaAnswerPipeline.QUESTION_READY) == 1;
 	}
 
 	private List<String> eventTypes() {
