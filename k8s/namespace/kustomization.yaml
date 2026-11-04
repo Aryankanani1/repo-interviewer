@@ -1,0 +1,6 @@
+# The one namespace everything runs in (task 3.2). Its own directory, so both the Strimzi install and the app's
+# base can include it: Kustomize only reads files from directories below a kustomization.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml

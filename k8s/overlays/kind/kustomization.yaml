@@ -1,0 +1,17 @@
+# Local kind cluster (task 3.2): the base and the database credentials (the same dev defaults as
+# docker-compose.yml). Apply after k8s/strimzi.
+#
+# Ollama is not in this cluster (DECISIONS.md D-023): it runs natively on the Mac (GPU, D-013), and pods reach it
+# at http://host.docker.internal:11434, the app's OLLAMA_BASE_URL here (task 3.3). Not through a Service alias:
+# Ollama listens on 127.0.0.1 and then accepts only Host headers it trusts (localhost, *.internal), so a request
+# for "ollama:11434" gets 403 (checked from a pod).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: repo-interviewer
+resources:
+  - ../../base
+secretGenerator:
+  - name: postgres   # becomes postgres-<hash>; Kustomize updates the references, so a new password restarts pods
+    literals:
+      - username=ri
+      - password=ri

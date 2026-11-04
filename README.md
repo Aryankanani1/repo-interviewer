@@ -95,6 +95,10 @@ curl localhost:8086/actuator/health           # {"status":"UP"}
 ```
 Inside the Compose network the app reaches `postgres:5432` and Kafka's internal listener `kafka:29092`; Ollama runs on the Mac itself, which a container reaches as `host.docker.internal`. `--env-file .env` passes `ANTHROPIC_API_KEY` (and `DB_USER`/`DB_PASSWORD`) at run time; the key is never in the image. The JVM heap is 75% of `--memory`. The `--read-only` and `--cap-drop` flags are optional hardening: the app only writes to `/tmp`.
 
+## Kubernetes (local)
+
+A local [kind](https://kind.sigs.k8s.io/) cluster with Postgres and Kafka (Strimzi operator, KRaft): exact commands in [`k8s/README.md`](k8s/README.md) (task 3.2).
+
 ## Privacy
 Analyzed code is sent to the Claude API. Only submit repositories you own or that are public. The tool never builds or runs submitted code.
 

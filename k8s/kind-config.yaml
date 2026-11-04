@@ -1,0 +1,9 @@
+# Local Kubernetes for Phase 3 (task 3.2): one kind node, a Docker container that runs Kubernetes inside.
+# The node image is pinned to Kubernetes 1.35.8 by digest (from the kind v0.33.0 release notes): kubectl is only
+# supported within one minor version of the server, and the local kubectl is 1.34. Strimzi 1.3.1 needs 1.32+.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: repo-interviewer
+nodes:
+  - role: control-plane
+    image: kindest/node:v1.35.8@sha256:07b2536e30b803ed61d1677a79df6115f798ce64c80f9e22f6ed45afd09323c0

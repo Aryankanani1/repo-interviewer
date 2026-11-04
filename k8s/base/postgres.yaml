@@ -1,0 +1,84 @@
+# Postgres 17 with pgvector (task 3.2), the same image as docker-compose.yml.
+# A StatefulSet, not a Deployment: its pod has a stable name (postgres-0) and keeps its own volume across restarts
+# and rescheduling. The credentials come from the Secret "postgres" (an overlay creates it).
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  labels:
+    app.kubernetes.io/name: postgres
+spec:
+  clusterIP: None   # headless: "postgres" resolves straight to the pod, the stable identity a StatefulSet needs
+  selector:
+    app.kubernetes.io/name: postgres
+  ports:
+    - name: postgres
+      port: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: pgvector/pgvector:pg17
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: repo_interviewer
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres
+                  key: username
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres
+                  key: password
+            - name: PGDATA   # a subdirectory: the volume's root may hold files initdb does not expect
+              value: /var/lib/postgresql/data/pgdata
+          # Probe timeouts of 5 s, not the default 1 s: on a busy node a slow but healthy database must not be
+          # restarted (seen when the test suite ran next to the cluster), and a restart makes it slower still.
+          readinessProbe:   # Ready (and in the Service) only when it accepts connections
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d repo_interviewer"]
+            periodSeconds: 5
+            timeoutSeconds: 5
+          livenessProbe:    # restarted only after two minutes without an answer
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d repo_interviewer"]
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:   # one PersistentVolumeClaim per pod (data-postgres-0), kept when the pod goes away
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 2Gi

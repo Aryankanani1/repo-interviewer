@@ -1,0 +1,11 @@
+# Portable base (task 3.2): what any cluster runs. Environment specifics (secrets, where Ollama is) live in overlays.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: repo-interviewer
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: repo-interviewer
+resources:
+  - ../namespace
+  - postgres.yaml
+  - kafka.yaml

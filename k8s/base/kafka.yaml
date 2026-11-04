@@ -1,0 +1,47 @@
+# Kafka 4.2.2 in KRaft mode (no ZooKeeper), run by the Strimzi operator (task 3.2; install it first: k8s/strimzi).
+# These are not pods: they are the operator's own resource types, and the operator creates the pods, services and
+# volumes from them and keeps them in this state. The same Kafka version as docker-compose.yml and the app's client.
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaNodePool
+metadata:
+  name: dual-role
+  labels:
+    strimzi.io/cluster: events   # the Kafka cluster below this pool belongs to
+spec:
+  replicas: 1
+  roles: [controller, broker]   # one node keeps the cluster metadata (KRaft controller) and serves clients
+  storage:
+    type: persistent-claim
+    size: 2Gi
+    deleteClaim: false   # deleting the Kafka resource keeps the data volume
+  jvmOptions:
+    -Xms: 384m
+    -Xmx: 384m
+  resources:
+    requests:
+      cpu: 200m
+      memory: 768Mi
+    limits:
+      memory: 1Gi
+---
+apiVersion: kafka.strimzi.io/v1
+kind: Kafka
+metadata:
+  name: events   # clients connect to events-kafka-bootstrap:9092
+spec:
+  kafka:
+    version: 4.2.2
+    listeners:
+      - name: plain
+        port: 9092
+        type: internal   # only from inside the cluster
+        tls: false
+    config:
+      # One broker: every internal topic and every app topic has a single copy.
+      offsets.topic.replication.factor: 1
+      transaction.state.log.replication.factor: 1
+      transaction.state.log.min.isr: 1
+      default.replication.factor: 1
+      min.insync.replicas: 1
+      num.partitions: 3
+      auto.create.topics.enable: false   # the app declares its topics (KafkaTopicConfig)
