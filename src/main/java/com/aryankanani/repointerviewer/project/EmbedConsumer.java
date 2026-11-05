@@ -51,7 +51,7 @@ class EmbedConsumer {
 				processed.claim(event.eventId(), NAME);
 				outbox.write(Topics.EMBEDDED, AggregateType.PROJECT, projectId, KafkaAnalysisPipeline.EMBEDDED,
 						new ProjectEvent(projectId));
-			});
+			}, AnalysisStages.WhenModelUnavailable.RETRY);
 		}
 		finally {
 			MDC.remove("projectId");

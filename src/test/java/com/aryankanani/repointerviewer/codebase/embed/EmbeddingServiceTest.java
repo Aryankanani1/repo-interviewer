@@ -85,13 +85,29 @@ class EmbeddingServiceTest {
 
 		assertThatThrownBy(() -> new EmbeddingService(chunkStore, failsOnSecondBatch, 5,
 				FakeEmbeddingModel.DIMENSIONS).embedPending(project))
-				.hasMessageContaining("Simulated embedding failure");
+				.isInstanceOf(EmbeddingUnavailableException.class)   // retried on Kafka (task 3.6)
+				.hasRootCauseMessage("Simulated embedding failure on call 2");
 		assertThat(unembedded(project)).isEqualTo(chunks - 5);   // the first batch stayed saved
 
 		EmbeddingService restarted = new EmbeddingService(chunkStore, new FakeEmbeddingModel(), 5,
 				FakeEmbeddingModel.DIMENSIONS);
 		assertThat(restarted.embedPending(project)).isEqualTo(chunks - 5);
 		assertThat(unembedded(project)).isZero();
+	}
+
+	/** Task 3.6: an unreachable model is "unavailable" (retried); a model of the wrong size is a bug, not retried. */
+	@Test
+	void aSearchQueryFailsAsUnavailableButAWrongSizeDoesNot() {
+		FakeEmbeddingModel down = new FakeEmbeddingModel();
+		down.failNextCalls(1);
+		EmbeddingService service = new EmbeddingService(chunkStore, down, 5, FakeEmbeddingModel.DIMENSIONS);
+
+		assertThatThrownBy(() -> service.embedQuery("refund rules")).isInstanceOf(EmbeddingUnavailableException.class)
+				.hasMessage("The code search model is not available right now. Try again in a minute.");
+		assertThat(service.embedQuery("refund rules")).hasSize(FakeEmbeddingModel.DIMENSIONS);   // back up
+		assertThatThrownBy(() -> new EmbeddingService(chunkStore, new FakeEmbeddingModel(384), 5,
+				FakeEmbeddingModel.DIMENSIONS).embedQuery("refund rules"))
+				.isNotInstanceOf(EmbeddingUnavailableException.class);
 	}
 
 	@Test

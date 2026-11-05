@@ -10,12 +10,12 @@ import com.aryankanani.repointerviewer.codebase.fetch.RemoteHead;
 import com.aryankanani.repointerviewer.codebase.fetch.RepoFetcher;
 import com.aryankanani.repointerviewer.common.config.AppProperties;
 import com.aryankanani.repointerviewer.common.error.DomainException;
+import com.aryankanani.repointerviewer.common.error.ModelUnavailableException;
 import com.aryankanani.repointerviewer.common.messaging.EventAlreadyProcessed;
 import com.aryankanani.repointerviewer.common.messaging.RetryableEventException;
 import com.aryankanani.repointerviewer.llm.LlmGateway;
 import com.aryankanani.repointerviewer.llm.LlmPurpose;
 import com.aryankanani.repointerviewer.llm.LlmRequest;
-import com.aryankanani.repointerviewer.llm.LlmUnavailableException;
 import com.aryankanani.repointerviewer.llm.output.SummaryOutput;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -45,8 +45,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  *
  * <p>Each stage runs its slow work outside any transaction, stores the result in short transactions, and never
  * throws: a failure marks the project FAILED with a reason the user can read. The one exception is an unavailable
- * model on Kafka ({@link WhenModelUnavailable#RETRY}, task 2.4). A stage that finds the project in another status does
- * nothing, so a repeated trigger is harmless.
+ * model, chat or embedding, on Kafka ({@link WhenModelUnavailable#RETRY}, tasks 2.4 and 3.6). A stage that finds the
+ * project in another status does nothing, so a repeated trigger is harmless.
  *
  * <p>{@code inLastTransaction} runs first inside the stage's last transaction. The Kafka consumers claim the event
  * there and write the next one, so the stage's result, its next event and the "processed" mark commit together or
@@ -62,7 +62,7 @@ class AnalysisStages {
 	static final Consumer<Project> NOTHING = project -> {
 	};
 
-	/** What {@link #summarize} does when the model cannot be reached (task 2.4). */
+	/** What {@link #embed} and {@link #summarize} do when a model, embedding or chat, cannot be reached (2.4, 3.6). */
 	enum WhenModelUnavailable {
 		/** Store FAILED, as for any other error: nothing would try again ({@link AnalysisJob}). */
 		FAIL,
@@ -158,8 +158,12 @@ class AnalysisStages {
 		}
 	}
 
-	/** Embeds the chunks that have no vector yet; the project stays EMBEDDING. @return true when all are embedded */
-	boolean embed(UUID projectId, Consumer<Project> inLastTransaction) {
+	/**
+	 * Embeds the chunks that have no vector yet; the project stays EMBEDDING. @return true when all are embedded
+	 * @throws RetryableEventException only with {@link WhenModelUnavailable#RETRY}, when the embedding model is
+	 *         unavailable; the chunks embedded so far stay saved, and the next delivery does the rest
+	 */
+	boolean embed(UUID projectId, Consumer<Project> inLastTransaction, WhenModelUnavailable whenUnavailable) {
 		Project project = projects.findById(projectId).orElse(null);
 		if (project == null || project.getStatus() != AnalysisStatus.EMBEDDING) {
 			return skipped("embed", project);
@@ -175,6 +179,14 @@ class AnalysisStages {
 		}
 		catch (EventAlreadyProcessed ex) {
 			return duplicate(ex);
+		}
+		catch (ModelUnavailableException ex) {
+			if (whenUnavailable == WhenModelUnavailable.RETRY) {
+				log.warn("Chunks not embedded: model unavailable; the error handler retries or dead-letters it");
+				throw new RetryableEventException(ex);
+			}
+			fail(projectId, AnalysisStatus.EMBEDDING, ex);
+			return false;
 		}
 		catch (RuntimeException ex) {
 			fail(projectId, AnalysisStatus.EMBEDDING, ex);
@@ -206,7 +218,7 @@ class AnalysisStages {
 		catch (EventAlreadyProcessed ex) {
 			return duplicate(ex);
 		}
-		catch (LlmUnavailableException ex) {
+		catch (ModelUnavailableException ex) {
 			if (whenUnavailable == WhenModelUnavailable.RETRY) {
 				log.warn("Summary not written: model unavailable; the error handler retries or dead-letters it");
 				throw new RetryableEventException(ex);

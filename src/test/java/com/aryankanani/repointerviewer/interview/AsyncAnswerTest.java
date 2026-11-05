@@ -247,6 +247,40 @@ class AsyncAnswerTest {
 		session.path("interviewSession.questions[0].answer.evaluation").valueIsNull();
 	}
 
+	/**
+	 * Task 3.6 acceptance criterion: the embedding model fails twice while the orchestrator searches the code for the
+	 * next question (Ollama unreachable for a moment, as in the 3.4 load test); the step is retried and goes on.
+	 */
+	@Test
+	void anEmbeddingModelThatComesBackDuringTheRetriesLetsTheInterviewGoOn() {
+		llm.enqueue(LlmPurpose.EVALUATION, strong());   // no follow-up: the next topic's question needs a search
+		embeddingModel.failNextCalls(2);
+
+		submit(firstQuestionId, "Both read the same refundedAmount.");
+		pumpUntil(() -> currentQuestionOrder() == 2);
+
+		assertThat(retries.failedAttempts(Topics.ANSWER_EVALUATED, sessionId)).containsExactly(1, 2);
+		assertThat(retries.deadLettered(Topics.ANSWER_EVALUATED, sessionId)).isZero();
+		graphQlTester.document(SESSION).variable("id", sessionId).execute()
+				.path("interviewSession.status").entity(String.class).isEqualTo("IN_PROGRESS");
+	}
+
+	/** Task 3.6 acceptance criterion: the embedding model stays down, the event is dead-lettered, the session FAILS. */
+	@Test
+	void anEmbeddingModelThatStaysDownFailsTheSessionWithItsOwnReason() {
+		List<GraphQlTester.Response> events = subscribe();
+		llm.enqueue(LlmPurpose.EVALUATION, strong());
+		embeddingModel.failNextCalls(4);
+
+		submit(firstQuestionId, "Both read the same refundedAmount.");
+		pumpUntil(() -> types(events).contains("SESSION_FAILED"));
+
+		assertThat(retries.failedAttempts(Topics.ANSWER_EVALUATED, sessionId)).containsExactly(1, 2, 3, 4);
+		assertThat(retries.deadLettered(Topics.ANSWER_EVALUATED, sessionId)).isEqualTo(1);
+		events.getLast().path("interviewEvents.session.failureReason").entity(String.class)
+				.isEqualTo("The code search model is not available right now. Try again in a minute.");
+	}
+
 	/** A reply the model would get wrong again is not retried: the session fails at once, after one call. */
 	@Test
 	void anUnusableGradeFailsTheSessionAtOnce() {

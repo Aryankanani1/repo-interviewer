@@ -161,6 +161,19 @@ class AnalysisRetryTest {
 		assertThat(retries.failedAttempts(Topics.EMBEDDED, key)).containsExactly(1);
 	}
 
+	/** Task 3.6: the embedding model fails twice in the embed step; the step is retried and the project is READY. */
+	@Test
+	void anEmbeddingModelThatComesBackDuringTheRetriesStillGivesReady() {
+		embeddingModel.failNextCalls(2);
+		UUID id = submit();
+
+		Project project = analyze(id);
+
+		assertThat(project.getStatus()).isEqualTo(AnalysisStatus.READY);
+		assertThat(retries.failedAttempts(Topics.CHUNKS_READY, id)).containsExactly(1, 2);
+		assertThat(retries.deadLettered(Topics.CHUNKS_READY, id)).isZero();
+	}
+
 	/** A reply the model would get wrong again is not retried: FAILED at once, one call, nothing on the DLT. */
 	@Test
 	void anUnusableModelAnswerFailsAtOnceWithoutRetries() {

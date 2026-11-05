@@ -7,6 +7,7 @@ import com.aryankanani.repointerviewer.common.config.AppProperties;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.embedding.EmbeddingModel;
@@ -59,7 +60,7 @@ public class EmbeddingService {
 		List<PendingChunk> batch;
 		while (!(batch = chunkStore.findUnembedded(projectId, batchSize)).isEmpty()) {
 			List<String> texts = batch.stream().map(EmbeddingText::document).toList();
-			List<float[]> vectors = embeddingModel.embed(texts);
+			List<float[]> vectors = embed(() -> embeddingModel.embed(texts));
 			chunkStore.saveEmbeddings(pair(batch, vectors));
 			embedded += batch.size();
 			batches++;
@@ -70,9 +71,23 @@ public class EmbeddingService {
 
 	/** The vector to search with: same model, but with the {@code search_query:} prefix. */
 	public float[] embedQuery(String text) {
-		float[] vector = embeddingModel.embed(EmbeddingText.query(text));
+		float[] vector = embed(() -> embeddingModel.embed(EmbeddingText.query(text)));
 		checkDimensions(vector);
 		return vector;
+	}
+
+	/**
+	 * The model call only: whatever it throws (Ollama down, a name that does not resolve, an HTTP error) becomes
+	 * {@link EmbeddingUnavailableException}, which is retried (task 3.6). A wrong vector size is checked outside it:
+	 * that is a configuration error, and retrying does not fix it.
+	 */
+	private static <T> T embed(Supplier<T> call) {
+		try {
+			return call.get();
+		}
+		catch (RuntimeException ex) {
+			throw new EmbeddingUnavailableException(ex);
+		}
 	}
 
 	private List<ChunkEmbedding> pair(List<PendingChunk> batch, List<float[]> vectors) {

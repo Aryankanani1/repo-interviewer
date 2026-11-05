@@ -1,6 +1,7 @@
 package com.aryankanani.repointerviewer.interview;
 
 import com.aryankanani.repointerviewer.common.error.DomainException;
+import com.aryankanani.repointerviewer.common.error.ModelUnavailableException;
 import com.aryankanani.repointerviewer.common.messaging.EventAlreadyProcessed;
 import com.aryankanani.repointerviewer.common.messaging.EventEnvelope;
 import com.aryankanani.repointerviewer.common.messaging.EventReader;
@@ -9,7 +10,6 @@ import com.aryankanani.repointerviewer.common.messaging.ProcessedEvents;
 import com.aryankanani.repointerviewer.common.messaging.RetryableEventException;
 import com.aryankanani.repointerviewer.common.messaging.Topics;
 import com.aryankanani.repointerviewer.interview.KafkaAnswerPipeline.AnswerFlowEvent;
-import com.aryankanani.repointerviewer.llm.LlmUnavailableException;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -63,7 +63,7 @@ class AnswerEvaluationConsumer {
 			try {
 				interviewService.grade(payload.answerId());
 			}
-			catch (LlmUnavailableException ex) {
+			catch (ModelUnavailableException ex) {   // the chat model or the embedding model (task 3.6)
 				log.warn("Answer not graded: model unavailable; the error handler retries or dead-letters it");
 				throw new RetryableEventException(ex);
 			}

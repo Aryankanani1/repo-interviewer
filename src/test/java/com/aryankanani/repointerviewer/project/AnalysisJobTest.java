@@ -128,8 +128,9 @@ class AnalysisJobTest {
 
 		Project project = projects.findById(id).orElseThrow();
 		assertThat(project.getStatus()).isEqualTo(AnalysisStatus.FAILED);
+		// The model's own message since task 3.6 (an EmbeddingUnavailableException); in one JVM it is not retried.
 		assertThat(project.getFailureReason())
-				.isEqualTo("Analysis failed while indexing the code for search. Use reanalyzeProject to retry.");
+				.isEqualTo("The code search model is not available right now. Try again in a minute.");
 		assertThat(project.getFileCount()).isEqualTo(FIXTURE_FILES);   // PARSING had finished
 		assertThat(unembedded(id)).isEqualTo(FIXTURE_CHUNKS);
 		assertThat(llm.calls(LlmPurpose.SUMMARY)).isZero();             // stopped before the paid step

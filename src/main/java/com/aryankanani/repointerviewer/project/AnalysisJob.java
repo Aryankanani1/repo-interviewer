@@ -28,7 +28,7 @@ class AnalysisJob {
 		try {
 			// Each stage returns false when it failed (FAILED is stored) or did not apply: then the rest do not run.
 			if (stages.begin(projectId) && stages.ingest(projectId, AnalysisStages.NOTHING)
-					&& stages.embed(projectId, AnalysisStages.NOTHING)) {
+					&& stages.embed(projectId, AnalysisStages.NOTHING, AnalysisStages.WhenModelUnavailable.FAIL)) {
 				stages.summarize(projectId, AnalysisStages.NOTHING, AnalysisStages.WhenModelUnavailable.FAIL);
 			}
 		}

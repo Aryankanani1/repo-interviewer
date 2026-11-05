@@ -1,17 +1,15 @@
 package com.aryankanani.repointerviewer.llm;
 
-import com.aryankanani.repointerviewer.common.error.DomainException;
-import com.aryankanani.repointerviewer.common.error.ErrorCode;
+import com.aryankanani.repointerviewer.common.error.ModelUnavailableException;
 
 /**
  * The model API could not be reached or returned an error, after the Anthropic client's own retries. Worth
  * trying again later (Phase 2 retries it with backoff).
  */
-public class LlmUnavailableException extends DomainException {
+public class LlmUnavailableException extends ModelUnavailableException {
 
 	public LlmUnavailableException(Throwable cause) {
-		super(ErrorCode.LLM_UNAVAILABLE, "The AI model is not available right now. Try again in a minute.");
-		initCause(cause);
+		super("The AI model is not available right now. Try again in a minute.", cause);
 	}
 
 }

@@ -42,6 +42,8 @@ public class FakeEmbeddingModel implements EmbeddingModel {
 
 	private volatile int failOnCall;
 
+	private final AtomicInteger failuresLeft = new AtomicInteger();
+
 	public FakeEmbeddingModel() {
 		this(DIMENSIONS);
 	}
@@ -55,11 +57,17 @@ public class FakeEmbeddingModel implements EmbeddingModel {
 	public void reset() {
 		calls.set(0);
 		failOnCall = 0;
+		failuresLeft.set(0);
 	}
 
 	/** Makes call number {@code callNumber} (1-based) throw, like Ollama going down halfway. */
 	public void failOnCall(int callNumber) {
 		this.failOnCall = callNumber;
+	}
+
+	/** The next {@code times} calls throw, then it works again: Ollama unreachable for a while (task 3.6). */
+	public void failNextCalls(int times) {
+		failuresLeft.set(times);
 	}
 
 	/** How many times the model was called. One call embeds a whole batch of texts. */
@@ -70,7 +78,7 @@ public class FakeEmbeddingModel implements EmbeddingModel {
 	@Override
 	public EmbeddingResponse call(EmbeddingRequest request) {
 		int call = calls.incrementAndGet();
-		if (call == failOnCall) {
+		if (call == failOnCall || failuresLeft.getAndUpdate(left -> Math.max(0, left - 1)) > 0) {
 			throw new IllegalStateException("Simulated embedding failure on call " + call);
 		}
 		List<String> texts = request.getInstructions();
