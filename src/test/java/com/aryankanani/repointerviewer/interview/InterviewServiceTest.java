@@ -139,20 +139,50 @@ class InterviewServiceTest {
 				.extracting(InterviewTopic::getTitle).containsExactly("Overall design", "Refund rules", "Order entity");
 	}
 
+	/** Task 3.7 acceptance criterion: two rejected plans still fail the session, with the same message as before. */
 	@Test
 	void tooFewGroundedTopicsFailTheSession() {
-		llm.enqueue(LlmPurpose.PLAN, new PlanOutput(List.of(
+		PlanOutput ungrounded = new PlanOutput(List.of(
 				topic("Overall design", ORDER + "OrderController.java", "OrderController"),
 				topic("Payments", "src/main/java/com/example/shop/payment/PaymentService.java", "PaymentService"),
-				topic("Shipping", "src/main/java/com/example/shop/shipping/Courier.java", "Courier"))));
+				topic("Shipping", "src/main/java/com/example/shop/shipping/Courier.java", "Courier")));
+		llm.enqueue(LlmPurpose.PLAN, ungrounded);
+		llm.enqueue(LlmPurpose.PLAN, ungrounded);
 
 		StartResult result = interviewService.start(command(null));
+
+		assertThat(llm.calls(LlmPurpose.PLAN)).isEqualTo(2);
 
 		assertThat(result.error().code()).isEqualTo(ErrorCode.LLM_UNAVAILABLE);
 		assertThat(result.session().getStatus()).isEqualTo(SessionStatus.FAILED);
 		assertThat(result.session().getFailureReason()).startsWith("Could not plan questions grounded");
 		assertThat(topics.findBySessionIdOrderByOrderIndex(result.session().getId())).isEmpty();
 		assertThat(llm.calls(LlmPurpose.QUESTION)).isZero();
+	}
+
+	/**
+	 * Task 3.7 acceptance criterion: the first plan is rejected (two topics about code that does not exist), the
+	 * second passes, and the interview starts. The second PLAN call is told what was wrong.
+	 */
+	@Test
+	void aRejectedPlanIsRetriedOnceWithWhatWasWrong() {
+		llm.enqueue(LlmPurpose.PLAN, new PlanOutput(List.of(
+				topic("Overall design", ORDER + "OrderController.java", "OrderController"),
+				topic("Payments", "src/main/java/com/example/shop/payment/PaymentService.java", "PaymentService"),
+				topic("Shipping", "src/main/java/com/example/shop/shipping/Courier.java", "Courier"))));
+		// The second call gets the fake's canned plan: three topics on real code.
+		llm.enqueue(LlmPurpose.QUESTION, question("Why?", new CodeRefOutput(ORDER + "OrderController.java", 27, 30)));
+
+		StartResult result = interviewService.start(command(null));
+
+		assertThat(result.error()).isNull();
+		assertThat(result.session().getStatus()).isEqualTo(SessionStatus.IN_PROGRESS);
+		List<LlmRequest<?>> plans = llm.requests().stream().filter(r -> r.purpose() == LlmPurpose.PLAN).toList();
+		assertThat(plans).hasSize(2);
+		assertThat(plans.get(0).variables().get("retryFeedback")).isNull();
+		assertThat((List<?>) plans.get(1).variables().get("retryFeedback")).map(Object::toString)
+				.anySatisfy(line -> assertThat(line).contains("topic 2 (\"Payments\")").contains("PaymentService.java"))
+				.anySatisfy(line -> assertThat(line).startsWith("1 topics point at code that exists; at least 3"));
 	}
 
 	/** Acceptance criterion: invalid refs get one retry, then the topic is skipped. */

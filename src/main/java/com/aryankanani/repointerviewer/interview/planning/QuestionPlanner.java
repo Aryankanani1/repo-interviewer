@@ -12,18 +12,20 @@ import com.aryankanani.repointerviewer.llm.LlmRequest;
 import com.aryankanani.repointerviewer.llm.output.PlanOutput;
 import com.aryankanani.repointerviewer.llm.output.PlannedTopic;
 import com.aryankanani.repointerviewer.project.ProjectContext;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 /**
- * Plans the topics of an interview (LLD §9.1 step 3): one PLAN call with the summary and the repo map, then
+ * Plans the topics of an interview (LLD §9.1 step 3): a PLAN call with the summary and the repo map, then
  * {@link TopicValidator} keeps only topics grounded in real code. The model proposes; code decides what is kept
- * (DECISIONS.md D-007).
+ * (DECISIONS.md D-007). Too few kept: one more call with what was wrong (task 3.7), then the session fails.
  */
 @Component
 public class QuestionPlanner {
@@ -63,15 +65,39 @@ public class QuestionPlanner {
 		variables.put("goal", project.goal());
 		variables.put("summary", SummaryText.render(project.summary()));
 		variables.put("repoMap", project.repoMap());
-		PlanOutput plan = llm.call(new LlmRequest<>(LlmPurpose.PLAN, variables, PlanOutput.class, project.id(), sessionId));
+		variables.put("retryFeedback", null);
+		Set<String> paths = codebaseQueries.paths(project.id());
+		Set<String> symbols = codebaseQueries.symbols(project.id());
 
-		List<PlannedTopic> topics = topicValidator.validate(plan.topics(), codebaseQueries.paths(project.id()),
-				codebaseQueries.symbols(project.id()), questionCount);
-		log.info("Plan: {} topics proposed, {} grounded", plan.topics().size(), topics.size());
-		if (topics.size() < minQuestionCount) {
+		TopicValidator.Result result = planOnce(project, sessionId, variables, paths, symbols, questionCount);
+		if (result.kept().size() < minQuestionCount) {
+			// Rejected (2 of 7 sessions in the 3.4 load test). A retried session has two PLAN rows in llm_call.
+			log.info("Plan rejected: {} topics grounded, {} needed; retrying with feedback", result.kept().size(),
+					minQuestionCount);
+			variables.put("retryFeedback", retryFeedback(result, minQuestionCount));
+			result = planOnce(project, sessionId, variables, paths, symbols, questionCount);
+		}
+		if (result.kept().size() < minQuestionCount) {
 			throw new DomainException(ErrorCode.LLM_UNAVAILABLE, UNGROUNDED_PLAN);
 		}
-		return topics;
+		return result.kept();
+	}
+
+	private TopicValidator.Result planOnce(ProjectContext project, UUID sessionId, Map<String, Object> variables,
+			Set<String> paths, Set<String> symbols, int questionCount) {
+		PlanOutput plan = llm.call(
+				new LlmRequest<>(LlmPurpose.PLAN, variables, PlanOutput.class, project.id(), sessionId));
+		TopicValidator.Result result = topicValidator.check(plan.topics(), paths, symbols, questionCount);
+		log.info("Plan: {} topics proposed, {} grounded", plan.topics().size(), result.kept().size());
+		return result;
+	}
+
+	/** What the second PLAN call reads: why each topic was dropped, and how many topics are needed. */
+	static List<String> retryFeedback(TopicValidator.Result result, int needed) {
+		List<String> lines = new ArrayList<>(result.problems());
+		lines.add(result.kept().size() + " topics point at code that exists; at least " + needed + " are needed. "
+				+ "Use only file paths and class or method names that appear in the repo map, one class per topic.");
+		return lines;
 	}
 
 }

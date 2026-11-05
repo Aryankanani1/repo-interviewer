@@ -22,7 +22,7 @@ class PromptTemplatesTest {
 	static final Map<LlmPurpose, List<String>> VARIABLES = Map.of(
 			LlmPurpose.SUMMARY, List.of("repoName", "goal", "domain", "repoMap", "buildFiles", "readme"),
 			LlmPurpose.PLAN, List.of("difficulty", "targetRole", "questionCount", "focusAreas", "goal", "summary",
-					"repoMap"),
+					"repoMap", "retryFeedback"),
 			LlmPurpose.QUESTION, List.of("difficulty", "topicTitle", "category", "rationale", "codeChunks",
 					"previousQuestions", "retryFeedback"),
 			LlmPurpose.EVALUATION, List.of("difficulty", "question", "rubric", "codeChunks", "answer"),

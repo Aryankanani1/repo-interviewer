@@ -84,6 +84,35 @@ class TopicValidatorTest {
 				.satisfies(topic -> assertThat(topic.targetPaths()).containsExactly("src/main/resources/application.yml"));
 	}
 
+	/** Task 3.7: each dropped topic gets a reason, for the model's second try; kept topics get none. */
+	@Test
+	void checkSaysWhyEachTopicWasDropped() {
+		TopicValidator.Result result = validator.check(List.of(
+				topic("Refunds", List.of(ORDER + "OrderService.java"), List.of("OrderService#refund")),
+				topic("Payments", List.of("src/main/java/com/example/shop/payment/PaymentService.java"),
+						List.of("PaymentService")),
+				topic("Refund lookup", List.of(), List.of("OrderService#find")),
+				new PlannedTopic("", QuestionCategory.TESTING, List.of(ORDER + "Order.java"), List.of(), "x")),
+				PATHS, SYMBOLS, 5);
+
+		assertThat(result.kept()).extracting(PlannedTopic::title).containsExactly("Refunds");
+		assertThat(result.problems()).containsExactly(
+				"topic 2 (\"Payments\"): none of its targetPaths or targetSymbols exist in this repository "
+						+ "(src/main/java/com/example/shop/payment/PaymentService.java, PaymentService)",
+				"topic 3 (\"Refund lookup\"): same main class as an earlier topic (OrderService)",
+				"topic 4: no category or no title");
+	}
+
+	@Test
+	void checkCutsTheModelsLongTextsShort() {
+		String longTitle = "A".repeat(150);
+		TopicValidator.Result result = validator.check(List.of(topic(longTitle, List.of("x".repeat(150)), List.of())),
+				PATHS, SYMBOLS, 5);
+
+		assertThat(result.problems().getFirst()).contains("A".repeat(100) + "...").doesNotContain("A".repeat(101))
+				.contains("x".repeat(100) + "...");
+	}
+
 	private static PlannedTopic topic(String title, List<String> paths, List<String> symbols) {
 		return new PlannedTopic(title, QuestionCategory.DESIGN_DECISION, paths, symbols, "Why it matters.");
 	}

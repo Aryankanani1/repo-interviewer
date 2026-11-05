@@ -19,6 +19,9 @@ Architecture summary:
 {repoMap}
 </repo_map>
 
+Problems with your previous plan (empty on the first attempt):
+{retryFeedback}
+
 Choose exactly {questionCount} topics. Rules:
 - Each topic points at specific code. Give targetPaths (file paths from the repo map) and targetSymbols (class or method names from the repo map).
 - Cover different parts of the system. Do not put two topics on the same class.

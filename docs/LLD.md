@@ -524,7 +524,7 @@ Every output record implements `LlmOutput<T>` with `normalized()`, applied by th
 |---|---|---|
 | `system-interviewer.st` | shared system message | none |
 | `repo-summary.st` | SUMMARY | repoName, goal, domain, repoMap, buildFiles, readme |
-| `interview-plan.st` | PLAN | difficulty, targetRole, questionCount, focusAreas, goal, summary, repoMap |
+| `interview-plan.st` | PLAN | difficulty, targetRole, questionCount, focusAreas, goal, summary, repoMap, retryFeedback |
 | `question-generation.st` | QUESTION | difficulty, topicTitle, category, rationale, codeChunks, previousQuestions, retryFeedback |
 | `answer-evaluation.st` | EVALUATION | difficulty, question, rubric, codeChunks, answer |
 | `follow-up-question.st` | FOLLOW_UP | difficulty, question, answer, missedPoints, followUpReason, codeChunks, retryFeedback |
@@ -546,7 +546,8 @@ Rendering rules (`PromptTemplates`, task 1.8): at startup every file may contain
    - keep `targetSymbols` that are a chunk symbol or the start of one (`X#…`, `X(…`); an unknown method of an existing class falls back to the class (small methods are merged into `#small-methods` chunks);
    - drop topics with no category or title, or left with no valid path and no valid symbol;
    - drop topics whose main class (first symbol, else the Java file's name) repeats an earlier topic;
-   - keep at most `questionCount`; fewer than `min-question-count` → the start fails ("Could not plan questions grounded in this repository's code. Try again.", `LLM_UNAVAILABLE`).
+   - keep at most `questionCount`; fewer than `min-question-count` → **one more PLAN call** (task 3.7) with `retryFeedback`: `TopicValidator.check` gives one line per dropped topic (`topic 2 ("Payments"): none of its targetPaths or targetSymbols exist in this repository (…)`, `same main class as an earlier topic (…)`, `no category or no title`; the model's titles and targets cut to 100 characters, at most 5 per topic) plus "N topics point at code that exists; at least K are needed…". The second plan is judged on its own; still too few → the start fails ("Could not plan questions grounded in this repository's code. Try again.", `LLM_UNAVAILABLE`). The first call gets `retryFeedback` null (rendered as "not provided"), like the question prompts.
+   - How often a plan is rejected: a retried session has two PLAN rows in `llm_call` (`SELECT count(*) FILTER (WHERE n > 1)::float / count(*) FROM (SELECT session_id, count(*) n FROM llm_call WHERE purpose = 'PLAN' GROUP BY session_id) s`), and the log says "Plan rejected: … retrying with feedback". The 3.4 load test, before this retry: 2 of 7 sessions failed in planning.
 4. Tx: insert topics (`PENDING`, order 1..n); `plannedQuestionCount = topics.size()`.
 5. For each topic in order: `QuestionGenerator.generate` (§9.3). A topic without a grounded question is `SKIPPED` and the next one is tried; none at all → the start fails ("Could not write a question grounded in this repository's code. Try again.", `LLM_UNAVAILABLE`).
 6. Tx: insert the question `ASKED` with `order_index = 1` and `asked_at`, topic → `ASKED`, session → `IN_PROGRESS`, `current_question_id = q1` (Hibernate runs the INSERT before the UPDATE, so the foreign key holds).
