@@ -834,3 +834,14 @@ Commands: `k8s/README.md`. Layout: `k8s/kind-config.yaml`, `k8s/namespace/` (nam
 
 **On the way:** with three JVMs and macOS Low Power Mode on battery, each pod took 105 to 173 s to boot (20 s without it), probes timed out, Kubernetes restarted the operator 15 times and the node ran out of memory twice (Postgres crashed and recovered), and an api pod was killed mid-request by its liveness probe. A crash-looping container of another project (2 to 3 CPU cores) made it worse. Hence the longer startup and liveness windows and the kind overlay's smaller JVMs; the README asks to turn Low Power Mode off.
 
+### 14.4 Autoscaling with KEDA (task 3.4)
+
+KEDA 2.21.0 (`k8s/keda/`, the pinned release file, namespace `keda`, supports Kubernetes 1.34-1.36) watches `ScaledObject`s and drives an HPA for each through its external metrics server (`v1beta1.external.metrics.k8s.io`). `k8s/base/app/scaling.yaml` (DECISIONS.md D-025):
+- `interview-worker` on the lag of group `interview-evaluate` (topic `interview.answer.submitted`: answers to grade); `analysis-worker` on `analysis-embed` (`project.chunks.ready`) and `analysis-ingest` (`project.analysis.requested`), since one Deployment runs both and the HPA follows the trigger that asks for more. Trigger type `kafka`, `lagThreshold` 2 (the HPA aims at 2 waiting events per pod), `offsetResetPolicy: earliest` like the consumers, `bootstrapServers` with the full name `events-kafka-bootstrap.repo-interviewer.svc:9092` (KEDA connects from its own namespace, where the short name does not resolve: the first apply failed on it).
+- `minReplicaCount` 1, `maxReplicaCount` 5; the worker Deployments have no `replicas`, the HPA owns it. A group cannot have more working consumers than its topic has partitions (3), and KEDA's `allowIdleConsumers` is false, so at most 3 in practice.
+- No `pollingInterval`: it only matters when scaling from or to zero (KEDA's admission webhook warns about it otherwise); above zero the HPA asks for the metric on its own schedule (about 15 s). `cooldownPeriod` likewise only applies to zero; scale-down is the HPA's stabilization window (300 s by default).
+- The kind overlay: `maxReplicaCount` 2 and `behavior.scaleDown.stabilizationWindowSeconds` 60, so a test shows both directions within minutes.
+
+Load test: `loadtest/interviews.js` (k6) and `loadtest/sample-scaling.sh`; commands in `k8s/README.md`. Result in `docs/RESULTS.md` ("Autoscaling with KEDA"): `analysis-worker` 1 → 2 → 1 on six submitted repositories; `interview-worker` wanted 2 for five waiting answers and went back to 1, but its second pod never got Ready on the swapping laptop node.
+- Not yet: retrying embedding (Ollama) errors, which ended one session under load; more partitions if more than 3 workers per group are ever needed.
+

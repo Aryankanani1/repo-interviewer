@@ -1,0 +1,7 @@
+# KEDA 2.21.0 (task 3.4): event-driven autoscaling. Its operator reads a ScaledObject (here: Kafka consumer lag)
+# and drives a normal HorizontalPodAutoscaler through its own metrics server. From the pinned release file, in its
+# own namespace "keda"; it supports Kubernetes 1.34-1.36. Apply with --server-side (big CRDs).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - https://github.com/kedacore/keda/releases/download/v2.21.0/keda-2.21.0.yaml

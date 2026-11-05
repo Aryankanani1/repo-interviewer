@@ -8,8 +8,7 @@ metadata:
   labels:
     app.kubernetes.io/name: repo-interviewer
     app.kubernetes.io/component: analysis-worker
-spec:
-  replicas: 1
+spec:   # no replicas: the ScaledObject's HPA owns it (scaling.yaml)
   selector:
     matchLabels:
       app.kubernetes.io/name: repo-interviewer

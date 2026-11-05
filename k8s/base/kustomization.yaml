@@ -14,3 +14,4 @@ resources:
   - app/analysis-worker.yaml
   - app/interview-worker.yaml
   - app/service.yaml
+  - app/scaling.yaml

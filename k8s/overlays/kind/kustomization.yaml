@@ -46,3 +46,19 @@ patches:
             memory: 384Mi
           limits:
             memory: 640Mi
+  # Autoscaling on a laptop (task 3.4): at most 2 pods per worker (Docker's 3.8 GiB holds no more), and the HPA
+  # scales down after 60 s without need instead of 5 minutes, so a test shows both ways.
+  - target:
+      kind: ScaledObject
+    patch: |-
+      - op: replace
+        path: /spec/maxReplicaCount
+        value: 2
+      - op: add
+        path: /spec/advanced
+        value:
+          horizontalPodAutoscalerConfig:
+            behavior:
+              scaleDown:
+                stabilizationWindowSeconds: 60
+

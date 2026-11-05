@@ -9,8 +9,9 @@ k8s/
   kind-config.yaml        one-node cluster "repo-interviewer", Kubernetes 1.35.8 (pinned by digest)
   namespace/              the namespace "repo-interviewer", shared by the two below
   strimzi/                the Strimzi 1.3.1 operator (CRDs, RBAC, Deployment), from its pinned release file
+  keda/                   KEDA 2.21.0 (autoscaling on Kafka consumer lag), from its pinned release file
   base/                   portable: Postgres (StatefulSet + volume), Kafka 4.2.2 (KRaft, one node), and app/ (ConfigMap,
-                          the three Deployments, the Service "api")
+                          the three Deployments, the Service "api", the workers' ScaledObjects)
   overlays/kind/          kind only: the dev database credentials, Ollama on the host, the local image, smaller JVMs
 ```
 
@@ -116,6 +117,27 @@ curl localhost:8086/actuator/health/readiness        # {"status":"UP"}
 Each pod's log shows only its own consumer groups: `api` the fan-out `interview-events-<instance id>`,
 `analysis-worker` `analysis-ingest`, `-embed` and `-summary`, `interview-worker` `interview-evaluate` and
 `-orchestrate`. A new image: build, load, then `kubectl -n repo-interviewer rollout restart deployment/<role>`.
+
+## Autoscaling (task 3.4)
+
+KEDA scales `analysis-worker` and `interview-worker` on their Kafka consumer lag (`k8s/base/app/scaling.yaml`): about
+one pod per 2 waiting events, at least 1, at most 5 (2 in the kind overlay: Docker's VM holds no more), never more
+than the topic's 3 partitions. Install it before the app's ScaledObjects are applied:
+```bash
+kubectl apply --server-side -k k8s/keda
+kubectl -n keda rollout status deployment/keda-operator --timeout=10m
+kubectl apply --server-side -k k8s/overlays/kind     # creates the ScaledObjects; KEDA makes an HPA for each
+kubectl -n repo-interviewer get scaledobject,hpa     # READY True; TARGETS 0/2 (avg) when idle
+```
+
+Load test with [k6](https://k6.io) (`brew install k6`). It uses the real model: about 10 calls per interview session
+and 1 per analysis, counted against the daily cap (stage: 100), roughly $0.20 per session.
+```bash
+kubectl -n repo-interviewer port-forward svc/api 8086:8080 &
+loadtest/sample-scaling.sh > scaling.log &           # lag, desired and ready replicas every 5 s
+k6 run -e SESSIONS=7 loadtest/interviews.js
+```
+Result of one run (replicas going up under load and back down): `docs/RESULTS.md`, "Autoscaling with KEDA".
 
 ## Stop and start again
 

@@ -96,3 +96,30 @@ Prompt changes because of this run: none.
 3. **Grader**: mostly grounded and fair. Its "refetch and retry" recovery for the optimistic-lock question matches the repo's `GlobalExceptionHandler` (409 with that exact advice), which was not among the cited refs. Small mistakes: an ideal outline said `@ModuleConfiguration` "excludes TypeExcludeFilter" (it uses that filter to decide exclusions); it called "token family" an invented idea although the code's Javadoc says "the family revocation must commit"; and it named a boolean `repeated=true` that the code does not name.
 
 The full transcript (questions, answers, grades, report) is kept private for now, outside the repository.
+
+## Autoscaling with KEDA (task 3.4, 2026-11-05)
+
+Local kind cluster (one node, Docker's VM: 8 vCPU, 3.8 GiB), KEDA 2.21.0, the workers scaled on Kafka consumer lag (`lagThreshold` 2, min 1, max 2 locally, scale-down after 60 s). Load from `loadtest/interviews.js` (k6) through `kubectl port-forward`, against the real model: 7 interview sessions on `spring-petclinic` (3 questions, all first answers sent at the same moment) and 6 small `spring-guides/gs-*` repositories submitted at once. Replicas logged every 5 s by `loadtest/sample-scaling.sh`; the lines where something changed:
+
+```
+time      interview-worker(lag desired ready)   analysis-worker(lag desired ready)
+11:59:31   interview-worker lag=0 desired=1 ready=1   analysis-worker lag=0,0 desired=1 ready=1
+11:59:43   interview-worker lag=0 desired=1 ready=1   analysis-worker lag=0,6 desired=2 ready=1   <- 6 repos to ingest
+12:01:49   interview-worker lag=5 desired=2 ready=1   analysis-worker lag=0,0 desired=2 ready=1   <- 5 answers to grade
+12:01:55   interview-worker lag=5 desired=2 ready=1   analysis-worker lag=0,0 desired=2 ready=2
+12:02:31   interview-worker lag=2500m desired=2 ready=1   analysis-worker lag=0,0 desired=1 ready=2
+12:02:51   interview-worker lag=2500m desired=2 ready=1   analysis-worker lag=0,0 desired=1 ready=1   <- back to 1
+12:05:31   interview-worker lag=0 desired=1 ready=1   analysis-worker lag=0,0 desired=1 ready=1   <- back to 1
+12:08:27   interview-worker lag=0 desired=1 ready=1   analysis-worker lag=0,0 desired=1 ready=1
+```
+`lag` is the HPA's metric per pod (for analysis-worker: embed, ingest); `2500m` = 2.5 (5 answers over the 2 pods it wants).
+
+- **analysis-worker:** 1 → 2 → 1. Six ingest events made it want 2; the second pod was Ready after about 2 minutes (the node was swapping), and 60 s after the lag was gone it went back to 1.
+- **interview-worker:** the HPA wanted 2 as soon as 5 answers waited and went back to 1 when they were graded, but its second pod never got Ready: with five app JVMs, KEDA, Kafka and Postgres, the VM had 93 MB free and 433 MB in swap, and that pod was still booting when the first one had graded the lot. On this laptop the scaling decision works and the capacity does not.
+- k6: 375 requests, none failed; 6 of 6 analyses READY; 5 of 7 interviews started and 4 of those completed (below).
+- Model calls: 45, all successful (EVALUATION 14, PLAN 7, QUESTION 14 on Sonnet; REPORT 4, SUMMARY 6 on Haiku), 234k input and 33k output tokens on Sonnet, about $0.85.
+
+Found on the way:
+1. **2 of 7 plans rejected.** "Could not plan questions grounded in this repository's code": the PLAN reply failed `TopicValidator` and the session ended in PLANNING. The same repository planned fine in task 3.3; one rejected plan ends a session with no retry.
+2. **A transient failure of Ollama ended a session.** Under the load, a pod could not resolve `host.docker.internal` for one embedding call (the orchestrator's retrieval for the next question). `ResourceAccessException` is not retryable (DECISIONS.md D-019), so the event went to the dead-letter topic and the session FAILED ("The interview could not continue"). Embedding errors should be retried like an unavailable model.
+3. **KEDA could not read the lag for short spells**: Kafka answered "consumer group not coordinated by this broker" while groups rebalanced and while the node was overloaded; the HPA kept its last decision meanwhile.
