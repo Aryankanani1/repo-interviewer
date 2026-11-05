@@ -1,0 +1,99 @@
+# The app as "interview-worker" (task 3.3, LLD §14.3): the same image as every role, with
+# SPRING_PROFILES_ACTIVE=stage,kafka,interview-worker.
+# Runs the evaluation consumer and the orchestrator. A record cut off by a shutdown is delivered again (task 2.7).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: interview-worker
+  labels:
+    app.kubernetes.io/name: repo-interviewer
+    app.kubernetes.io/component: interview-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: repo-interviewer
+      app.kubernetes.io/component: interview-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: repo-interviewer
+        app.kubernetes.io/component: interview-worker
+    spec:
+      terminationGracePeriodSeconds: 60
+      securityContext:   # the image's non-root user (task 3.1); Kubernetes refuses to start it as root
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: app
+          image: repo-interviewer
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: app
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: stage,kafka,interview-worker
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres
+                  key: username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres
+                  key: password
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: anthropic
+                  key: ANTHROPIC_API_KEY
+          # Startup: up to 5 min to boot before the other two probes begin (three JVMs booting at once on a busy
+          # laptop node took over 3 min; alone, 12 s). Liveness: is this JVM still working? Restart it only after
+          # a minute without an answer: a busy but healthy JVM (a long GC pause, a starved node) must not be killed,
+          # as happened once in a model call. Readiness: may it get work and traffic now (it includes the database)?
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:   # what the scheduler reserves on the node
+              cpu: 250m
+              memory: 512Mi
+            limits:     # memory only: the container is killed above it; no CPU limit, so it is never throttled
+              memory: 768Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true   # it can write only /tmp below
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp   # repository clones (app.repo.work-dir) and Tomcat's temporary files
+          emptyDir:
+            sizeLimit: 1Gi

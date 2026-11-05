@@ -15,3 +15,34 @@ secretGenerator:
     literals:
       - username=ri
       - password=ri
+# The image built locally and loaded into the node (k8s/README.md), not from a registry.
+images:
+  - name: repo-interviewer
+    newTag: local
+# A laptop node (Docker's VM: 3.8 GiB, shared with Postgres, Kafka and Kubernetes itself) cannot hold three default
+# JVMs: with them, the node ran out of memory and Postgres was killed (task 3.3). So locally the app pods are
+# smaller: 384 Mi requested, 640 Mi limit, heap 50% of it; the serial collector (least overhead for a small heap);
+# and only the quick JIT compiler (C1), which costs much less CPU at startup for somewhat slower peak speed.
+patches:
+  - target:
+      kind: ConfigMap
+      name: app
+    patch: |-
+      - op: replace
+        path: /data/OLLAMA_BASE_URL
+        value: http://host.docker.internal:11434
+      - op: replace
+        path: /data/JAVA_TOOL_OPTIONS
+        value: "-XX:MaxRAMPercentage=50.0 -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -XX:+ExitOnOutOfMemoryError"
+  - target:
+      kind: Deployment
+      labelSelector: app.kubernetes.io/name=repo-interviewer
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: 250m
+            memory: 384Mi
+          limits:
+            memory: 640Mi

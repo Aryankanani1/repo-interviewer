@@ -47,7 +47,7 @@ class AnswerEvaluationConsumer {
 		this.outcomes = outcomes;
 	}
 
-	@KafkaListener(topics = Topics.ANSWER_SUBMITTED, groupId = NAME)
+	@KafkaListener(topics = Topics.ANSWER_SUBMITTED, groupId = NAME, autoStartup = "${app.roles.interview-worker}")
 	void onAnswerSubmitted(String message) {
 		EventEnvelope event = events.read(message, KafkaAnswerPipeline.ANSWER_SUBMITTED);
 		AnswerFlowEvent payload = events.payload(event, AnswerFlowEvent.class);

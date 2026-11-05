@@ -1,0 +1,13 @@
+# Settings every app Deployment reads as environment variables (task 3.3). Secrets are not here: the database
+# credentials come from the Secret "postgres", the API key from the Secret "anthropic" (k8s/README.md).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app
+data:
+  DB_URL: jdbc:postgresql://postgres:5432/repo_interviewer
+  SPRING_KAFKA_BOOTSTRAP_SERVERS: events-kafka-bootstrap:9092
+  OLLAMA_BASE_URL: http://ollama:11434   # a cluster with its own Ollama; the kind overlay points at the host
+  # Heap at most 60% of the container's memory limit (the image says 75%): the rest, about 300 MiB of 768, is for
+  # metaspace, threads and network buffers. Exit on OutOfMemoryError, so Kubernetes restarts the container.
+  JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=60.0 -XX:+ExitOnOutOfMemoryError"

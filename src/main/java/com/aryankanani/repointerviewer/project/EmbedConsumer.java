@@ -38,7 +38,7 @@ class EmbedConsumer {
 		this.outbox = outbox;
 	}
 
-	@KafkaListener(topics = Topics.CHUNKS_READY, groupId = NAME)
+	@KafkaListener(topics = Topics.CHUNKS_READY, groupId = NAME, autoStartup = "${app.roles.analysis-worker}")
 	void onChunksReady(String message) {
 		EventEnvelope event = events.read(message, KafkaAnalysisPipeline.CHUNKS_READY);
 		UUID projectId = event.aggregateId();

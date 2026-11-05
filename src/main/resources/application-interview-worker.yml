@@ -1,0 +1,9 @@
+# Role profile "interview-worker" (task 3.3, LLD §14.3): the interview consumers (answer evaluation, and the
+# orchestrator: next question, report). Added to an environment and Kafka:
+# SPRING_PROFILES_ACTIVE=stage,kafka,interview-worker.
+# Every role keeps the outbox relay and the HTTP server (Actuator's probes); only api gets a Kubernetes Service.
+app:
+  roles:
+    api: false
+    analysis-worker: false
+    interview-worker: true

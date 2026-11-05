@@ -1,0 +1,8 @@
+# Role profile "api" (task 3.3, LLD §14.3): GraphQL, the SSE subscriptions and the listener that feeds them
+# (InterviewEventsFanOut). Added to an environment and Kafka: SPRING_PROFILES_ACTIVE=stage,kafka,api.
+# Every role keeps the outbox relay and the HTTP server (Actuator's probes); only api gets a Kubernetes Service.
+app:
+  roles:
+    api: true
+    analysis-worker: false
+    interview-worker: false

@@ -48,7 +48,7 @@ class InterviewOrchestrator {
 		this.outcomes = outcomes;
 	}
 
-	@KafkaListener(topics = Topics.ANSWER_EVALUATED, groupId = NAME)
+	@KafkaListener(topics = Topics.ANSWER_EVALUATED, groupId = NAME, autoStartup = "${app.roles.interview-worker}")
 	void onAnswerEvaluated(String message) {
 		EventEnvelope event = events.read(message, KafkaAnswerPipeline.ANSWER_EVALUATED);
 		AnswerFlowEvent payload = events.payload(event, AnswerFlowEvent.class);

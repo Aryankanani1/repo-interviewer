@@ -33,7 +33,7 @@ class SummaryConsumer {
 		this.processed = processed;
 	}
 
-	@KafkaListener(topics = Topics.EMBEDDED, groupId = NAME)
+	@KafkaListener(topics = Topics.EMBEDDED, groupId = NAME, autoStartup = "${app.roles.analysis-worker}")
 	void onEmbedded(String message) {
 		EventEnvelope event = events.read(message, KafkaAnalysisPipeline.EMBEDDED);
 		UUID projectId = event.aggregateId();

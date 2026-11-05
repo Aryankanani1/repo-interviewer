@@ -39,7 +39,7 @@ class IngestConsumer {
 		this.outbox = outbox;
 	}
 
-	@KafkaListener(topics = Topics.ANALYSIS_REQUESTED, groupId = NAME)
+	@KafkaListener(topics = Topics.ANALYSIS_REQUESTED, groupId = NAME, autoStartup = "${app.roles.analysis-worker}")
 	void onAnalysisRequested(String message) {
 		EventEnvelope event = events.read(message, KafkaAnalysisPipeline.ANALYSIS_REQUESTED);
 		UUID projectId = event.aggregateId();

@@ -50,6 +50,18 @@ class EnvironmentProfilesTest {
 				context.getEnvironment().getProperty("spring.graphql.graphiql.enabled", Boolean.class)).isEqualTo(enabled));
 	}
 
+	/** Role profiles (task 3.3): each turns on only its own role; without one, one JVM does everything. */
+	@ParameterizedTest(name = "{0}: api {1}, analysis {2}, interview {3}")
+	@CsvSource({ "stage, true, true, true", "'stage,kafka,api', true, false, false",
+			"'stage,kafka,analysis-worker', false, true, false", "'stage,kafka,interview-worker', false, false, true" })
+	void aRoleProfileKeepsOnlyItsOwnRole(String profiles, boolean api, boolean analysis, boolean interview) {
+		runDeployed(profiles, context -> {
+			assertThat(context).hasNotFailed();
+			assertThat(context.getBean(AppProperties.class).roles())
+					.isEqualTo(new AppProperties.Roles(api, analysis, interview));
+		});
+	}
+
 	@Test
 	void graphiqlIsOffByDefault() {
 		contextRunner.run(context -> assertThat(

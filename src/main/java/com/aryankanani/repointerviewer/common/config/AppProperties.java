@@ -32,7 +32,8 @@ public record AppProperties(
 		@Valid @NotNull Interview interview,
 		@Valid @NotNull Llm llm,
 		@Valid @NotNull Outbox outbox,
-		@Valid @NotNull ConsumerRetry consumerRetry) {
+		@Valid @NotNull ConsumerRetry consumerRetry,
+		@Valid @NotNull Roles roles) {
 
 	public record Repo(
 			@NotBlank String allowedHost,
@@ -69,6 +70,18 @@ public record AppProperties(
 	 * the dead-letter topic, and the first wait, which doubles each time.
 	 */
 	public record ConsumerRetry(@Min(0) int maxRetries, @NotNull @DurationMin(millis = 10) Duration initialBackoff) {
+	}
+
+	/**
+	 * Which jobs this instance does (task 3.3, LLD §14.3). All on in one JVM (dev, tests, Compose); a role profile
+	 * ({@code api}, {@code analysis-worker}, {@code interview-worker}) keeps only its own, so Kubernetes can run each
+	 * as its own Deployment. The flags start or keep stopped each {@code @KafkaListener} ({@code autoStartup}).
+	 *
+	 * @param api the GraphQL API and the fan-out to its subscriptions
+	 * @param analysisWorker the ingest, embed and summary consumers
+	 * @param interviewWorker the evaluation consumer and the interview orchestrator
+	 */
+	public record Roles(boolean api, boolean analysisWorker, boolean interviewWorker) {
 	}
 
 	/** Question counts are capped at 8 because of the {@code ck_session_count} check in V1__init.sql. */

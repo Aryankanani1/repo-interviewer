@@ -1,0 +1,8 @@
+# Role profile "analysis-worker" (task 3.3, LLD §14.3): the analysis consumers (ingest, embed, summary).
+# Added to an environment and Kafka: SPRING_PROFILES_ACTIVE=stage,kafka,analysis-worker.
+# Every role keeps the outbox relay and the HTTP server (Actuator's probes); only api gets a Kubernetes Service.
+app:
+  roles:
+    api: false
+    analysis-worker: true
+    interview-worker: false

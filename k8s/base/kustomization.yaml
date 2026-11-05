@@ -9,3 +9,8 @@ resources:
   - ../namespace
   - postgres.yaml
   - kafka.yaml
+  - app/configmap.yaml
+  - app/api.yaml
+  - app/analysis-worker.yaml
+  - app/interview-worker.yaml
+  - app/service.yaml

@@ -1,15 +1,17 @@
 # Kubernetes (local, kind)
 
-A local Kubernetes cluster with the app's infrastructure: Postgres with pgvector, and Kafka run by the Strimzi
-operator. Task 3.2; the app itself is deployed in task 3.3. Design notes: `docs/LLD.md` §14.2.
+A local Kubernetes cluster with the app and its infrastructure: Postgres with pgvector, Kafka run by the Strimzi
+operator (task 3.2), and the app as three Deployments of one image, `api`, `analysis-worker` and `interview-worker`
+(task 3.3). Design notes: `docs/LLD.md` §14.2 and §14.3.
 
 ```
 k8s/
   kind-config.yaml        one-node cluster "repo-interviewer", Kubernetes 1.35.8 (pinned by digest)
   namespace/              the namespace "repo-interviewer", shared by the two below
   strimzi/                the Strimzi 1.3.1 operator (CRDs, RBAC, Deployment), from its pinned release file
-  base/                   portable: Postgres (StatefulSet + volume) and Kafka 4.2.2 (KRaft, one node)
-  overlays/kind/          kind only: the dev database credentials
+  base/                   portable: Postgres (StatefulSet + volume), Kafka 4.2.2 (KRaft, one node), and app/ (ConfigMap,
+                          the three Deployments, the Service "api")
+  overlays/kind/          kind only: the dev database credentials, Ollama on the host, the local image, smaller JVMs
 ```
 
 ## Before you start
@@ -17,7 +19,11 @@ k8s/
 - Docker Desktop, [kind](https://kind.sigs.k8s.io/) 0.33.0 (`brew install kind`), kubectl 1.34 or newer.
 - About 8 GB free disk: every image is stored twice (in Docker and inside the kind node). Docker stops answering
   when the disk is full.
-- Memory: the cluster uses about 1.7 GB of Docker's VM. Stop the Compose stack while it runs; its data stays:
+- CPU: turn off macOS Low Power Mode (System Settings → Battery). With it on, each app pod took 2 to 3 minutes to
+  boot instead of 20 s, probes timed out, and Kubernetes kept restarting pods. Stop other busy containers too (a
+  crash-looping one took 2 CPU cores).
+- Memory: the infrastructure uses about 1.7 GB of Docker's VM, with the three app pods about 2.8 GB. Stop the Compose
+  stack while it runs; its data stays:
   ```bash
   docker compose --profile kafka stop        # later: docker compose --profile kafka start
   ```
@@ -76,6 +82,40 @@ kubectl -n repo-interviewer exec events-dual-role-0 -- \
 
 Inside the cluster: Postgres at `postgres:5432` (database `repo_interviewer`), Kafka at
 `events-kafka-bootstrap:9092`.
+
+## Deploy the app (task 3.3)
+
+```bash
+# The image (Dockerfile, task 3.1), loaded into the node like the others.
+docker build -t repo-interviewer:local .
+docker save --platform "$(docker version -f '{{.Server.Os}}/{{.Server.Arch}}')" -o /tmp/kind-image.tar repo-interviewer:local
+kind load image-archive --name repo-interviewer /tmp/kind-image.tar && rm /tmp/kind-image.tar
+
+# The API key, straight from .env into a Secret: never printed, never in a file in the repo.
+kubectl -n repo-interviewer create secret generic anthropic \
+  --from-env-file=<(grep '^ANTHROPIC_API_KEY=' .env)
+
+# The ConfigMap, the three Deployments and the Service (the same command as above: it applies everything).
+kubectl apply --server-side -k k8s/overlays/kind
+for role in api analysis-worker interview-worker; do
+  kubectl -n repo-interviewer rollout status deployment/$role --timeout=8m
+done
+```
+
+On a laptop, three JVMs booting at once can starve each other. If a rollout times out, start them one at a time:
+`kubectl -n repo-interviewer scale deployment analysis-worker interview-worker --replicas=0`, wait for `api`, then
+scale each worker back to 1.
+
+Use it through a port-forward (the Service has no address outside the cluster):
+```bash
+kubectl -n repo-interviewer port-forward svc/api 8086:8080
+curl localhost:8086/actuator/health/readiness        # {"status":"UP"}
+# GraphQL at http://localhost:8086/graphql, GraphiQL at http://localhost:8086/graphiql (stage environment)
+```
+
+Each pod's log shows only its own consumer groups: `api` the fan-out `interview-events-<instance id>`,
+`analysis-worker` `analysis-ingest`, `-embed` and `-summary`, `interview-worker` `interview-evaluate` and
+`-orchestrate`. A new image: build, load, then `kubectl -n repo-interviewer rollout restart deployment/<role>`.
 
 ## Stop and start again
 

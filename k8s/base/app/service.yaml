@@ -1,0 +1,13 @@
+# The API inside the cluster (task 3.3): only the api pods, on port 8080. Locally: kubectl port-forward svc/api.
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+spec:
+  selector:
+    app.kubernetes.io/name: repo-interviewer
+    app.kubernetes.io/component: api
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

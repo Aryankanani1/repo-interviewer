@@ -53,7 +53,8 @@ class InterviewEventsFanOut {
 	}
 
 	@KafkaListener(id = LISTENER_ID, idIsGroup = false, groupId = "interview-events-#{@instanceId.value()}",
-			topics = { Topics.ANSWER_EVALUATED, Topics.QUESTION_READY }, properties = "auto.offset.reset=latest")
+			topics = { Topics.ANSWER_EVALUATED, Topics.QUESTION_READY }, properties = "auto.offset.reset=latest",
+			autoStartup = "${app.roles.api}")
 	void onEvent(String message) {
 		try {
 			EventEnvelope event = events.read(message, TYPES.keySet().toArray(String[]::new));
