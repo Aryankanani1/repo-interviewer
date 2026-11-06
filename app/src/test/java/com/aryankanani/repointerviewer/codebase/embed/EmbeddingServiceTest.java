@@ -7,7 +7,7 @@ import com.aryankanani.repointerviewer.FakeEmbeddingModel;
 import com.aryankanani.repointerviewer.FixtureIndexer;
 import com.aryankanani.repointerviewer.IntegrationTest;
 import com.aryankanani.repointerviewer.codebase.store.ChunkStore;
-import com.aryankanani.repointerviewer.codebase.store.RetrievedChunk;
+import com.aryankanani.repointerviewer.contracts.analysis.RetrievedChunk;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;

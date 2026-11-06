@@ -27,6 +27,10 @@
 			<groupId>com.aryankanani</groupId>
 			<artifactId>llm</artifactId>
 		</dependency>
+		<dependency>
+			<groupId>com.aryankanani</groupId>
+			<artifactId>contracts</artifactId>
+		</dependency>
 
 		<!-- Spring Boot -->
 		<dependency>

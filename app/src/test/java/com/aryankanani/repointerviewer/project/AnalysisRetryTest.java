@@ -11,6 +11,7 @@ import com.aryankanani.repointerviewer.common.messaging.EventEnvelope;
 import com.aryankanani.repointerviewer.common.messaging.InvalidEventException;
 import com.aryankanani.repointerviewer.common.messaging.OutboxPump;
 import com.aryankanani.repointerviewer.common.messaging.Topics;
+import com.aryankanani.repointerviewer.contracts.analysis.AnalysisStatus;
 import com.aryankanani.repointerviewer.llm.LlmOutputException;
 import com.aryankanani.repointerviewer.llm.LlmPurpose;
 import com.aryankanani.repointerviewer.llm.LlmUnavailableException;

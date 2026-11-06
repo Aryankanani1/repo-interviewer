@@ -1,17 +1,19 @@
 package com.aryankanani.repointerviewer.project;
 
-import static com.aryankanani.repointerviewer.project.AnalysisStatus.CLONING;
-import static com.aryankanani.repointerviewer.project.AnalysisStatus.EMBEDDING;
-import static com.aryankanani.repointerviewer.project.AnalysisStatus.FAILED;
-import static com.aryankanani.repointerviewer.project.AnalysisStatus.PARSING;
-import static com.aryankanani.repointerviewer.project.AnalysisStatus.READY;
-import static com.aryankanani.repointerviewer.project.AnalysisStatus.SUBMITTED;
-import static com.aryankanani.repointerviewer.project.AnalysisStatus.SUMMARIZING;
+import static com.aryankanani.repointerviewer.contracts.analysis.AnalysisStatus.CLONING;
+import static com.aryankanani.repointerviewer.contracts.analysis.AnalysisStatus.EMBEDDING;
+import static com.aryankanani.repointerviewer.contracts.analysis.AnalysisStatus.FAILED;
+import static com.aryankanani.repointerviewer.contracts.analysis.AnalysisStatus.PARSING;
+import static com.aryankanani.repointerviewer.contracts.analysis.AnalysisStatus.READY;
+import static com.aryankanani.repointerviewer.contracts.analysis.AnalysisStatus.SUBMITTED;
+import static com.aryankanani.repointerviewer.contracts.analysis.AnalysisStatus.SUMMARIZING;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.aryankanani.repointerviewer.codebase.fetch.GithubUrl;
 import com.aryankanani.repointerviewer.codebase.fetch.RemoteHead;
+import com.aryankanani.repointerviewer.contracts.analysis.AnalysisStatus;
+import com.aryankanani.repointerviewer.contracts.analysis.RepoSummary;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;

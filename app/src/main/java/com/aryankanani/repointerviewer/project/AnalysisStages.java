@@ -13,6 +13,8 @@ import com.aryankanani.repointerviewer.common.error.DomainException;
 import com.aryankanani.repointerviewer.common.error.ModelUnavailableException;
 import com.aryankanani.repointerviewer.common.messaging.EventAlreadyProcessed;
 import com.aryankanani.repointerviewer.common.messaging.RetryableEventException;
+import com.aryankanani.repointerviewer.contracts.analysis.AnalysisStatus;
+import com.aryankanani.repointerviewer.contracts.analysis.RepoSummary;
 import com.aryankanani.repointerviewer.llm.LlmGateway;
 import com.aryankanani.repointerviewer.llm.LlmPurpose;
 import com.aryankanani.repointerviewer.llm.LlmRequest;

@@ -1,5 +1,6 @@
 package com.aryankanani.repointerviewer.project;
 
+import com.aryankanani.repointerviewer.contracts.analysis.RepoSummary;
 import com.aryankanani.repointerviewer.llm.output.ModuleOutput;
 import com.aryankanani.repointerviewer.llm.output.SummaryOutput;
 import java.util.List;

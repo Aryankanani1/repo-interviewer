@@ -20,6 +20,7 @@
 	<modules>
 		<module>libs/common</module>
 		<module>libs/llm</module>
+		<module>libs/contracts</module>
 		<module>app</module>
 	</modules>
 
@@ -55,6 +56,11 @@
 			<dependency>
 				<groupId>com.aryankanani</groupId>
 				<artifactId>llm</artifactId>
+				<version>${project.version}</version>
+			</dependency>
+			<dependency>
+				<groupId>com.aryankanani</groupId>
+				<artifactId>contracts</artifactId>
 				<version>${project.version}</version>
 			</dependency>
 

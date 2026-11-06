@@ -55,7 +55,8 @@ The root `pom.xml` is the parent of every module: versions, BOMs, the `eval` tes
 |---|---|---|
 | `libs/common` | `ri.common..` | Spring Boot starters only |
 | `libs/llm` | `ri.llm..` and `prompts/*.st` | `common` |
-| `app` (until step 4) | everything else: `api`, `project`, `codebase`, `interview`, `application*.yml`, migrations, the GraphQL schema | `common`, `llm` |
+| `libs/contracts` (step 2a) | `ri.contracts..`: `AnalysisApi` and the records it sends | `spring-web` only (the `@HttpExchange` annotations) |
+| `app` (until step 4) | everything else: `api`, `project`, `codebase`, `interview`, `application*.yml`, migrations, the GraphQL schema | `common`, `llm`, `contracts` |
 
 Maven now enforces part of the table below: `common` does not compile against `llm` or `app`, and `llm` does not compile against `app`. The rest is still `ArchitectureTest`, which runs in `app` and also reads the libraries' classes from their jars. A library's unit tests live in its module; tests that need the whole application stay in `app` for now. Steps 2 and 3 move `project` and `codebase` into `analysis-service` and `interview` into `interview-service`; `app` becomes `graphql-gateway` in step 4.
 
@@ -81,7 +82,7 @@ ri
 │   └── output/                     # records the model must return (structured output), LlmOutput
 ├── codebase/               # files, chunks, embeddings, repo map, retrieval
 │   ├── CodebaseIndexer, IndexResult, SummarySources   # the PARSING stage as one call (task 1.9)
-│   ├── CodebaseQueries     # read-only lookups for other modules (known names, ...)
+│   ├── CodebaseQueries     # read-only lookups (known names, paths, symbols, snippets); others use AnalysisApi
 │   ├── fetch/              # RepoFetcher, JGitRepoFetcher, LocalDirectoryRepoFetcher (tests),
 │   │                       # GithubUrl (value object: parse + normalize + validate), RemoteHead,
 │   │                       # ClonedRepo, FileTrees
@@ -90,12 +91,17 @@ ri
 │   ├── chunk/              # JavaChunker, TextChunker, Chunk, ChunkType, LineWindows, SourceLines
 │   ├── embed/              # EmbeddingService
 │   ├── store/              # CodeFile + CodeFileRepository (JPA), ChunkStore (JdbcTemplate + pgvector),
-│   │                       # PendingChunk, ChunkEmbedding, RetrievedChunk
+│   │                       # PendingChunk, ChunkEmbedding
 │   ├── map/                # RepoMapBuilder, JavaOutline, RepoFile
-│   └── retrieve/           # Retriever, TopicQuery, RetrievedContext
+│   └── retrieve/           # Retriever
+├── contracts/analysis/     # task 4.1 step 2a, in libs/contracts: AnalysisApi (@HttpExchange) and the records
+│                           #   it sends: ProjectDto, ProjectPage, ProjectContext, RepoSummary (JSONB, with
+│                           #   ModuleSummary), AnalysisStatus, CodeNames, TopicQuery, LineRange, SnippetRef,
+│                           #   ChunkSearchRequest, ChunkRangesRequest, RetrievedContext, RetrievedChunk
 ├── project/                # project aggregate + analysis orchestration
 │   ├── Project.java, ProjectRepository.java, ProjectService.java (submit, reanalyze)
-│   ├── RepoSummary.java            # the stored summary (JSONB), with ModuleSummary
+│   ├── AnalysisApiController       # AnalysisApi over ProjectService, CodebaseQueries, Retriever (task 4.1)
+│   ├── AnalysisApiErrors           # DomainException → problem detail with code and field (task 4.1)
 │   ├── AnalysisPipeline.java       # interface (port)
 │   ├── InProcessAnalysisPipeline.java   # Phase 1 implementation (without the kafka profile)
 │   ├── AnalysisStages.java         # the stages, written once for both pipelines (task 2.3)
@@ -124,18 +130,21 @@ ri
 ### Dependency rules (ArchUnit, task 0.4)
 
 ```
-api        → project, interview, codebase (read models only), common
-interview  → codebase, llm, project (read only: ProjectService queries), common
-project    → codebase, llm, common
-codebase   → common
+api        → interview, contracts, common
+interview  → llm, contracts, common
+project    → codebase, llm, contracts, common
+codebase   → contracts, common
 llm        → common
+contracts  → (nothing)
 common     → (nothing)
 ```
+
+Task 4.1 step 2a: `api` and `interview` reach `project` and `codebase` only through `contracts.analysis.AnalysisApi`. In one JVM the bean behind the interface is `project.AnalysisApiController` itself; from step 2b it is an HTTP client for the same interface.
 
 - Nothing depends on `api`.
 - Only `llm` imports `org.springframework.ai.chat..`. Only `codebase.embed` imports `org.springframework.ai.embedding..`.
 - Only `api` imports `org.springframework.graphql..`.
-- An `@Entity` class is used only by its own module and by `api`, which maps it to GraphQL view records. Other modules get records from queries: for example `ProjectService` gives `interview` a `ProjectContext` record (summary, repo map), never the `Project` entity. This is the same shape as the Phase 4 endpoint `GET /internal/projects/{id}/context`.
+- An `@Entity` class is used only by its own module and by `api`, which maps it to GraphQL view records. Other modules get records: for example `AnalysisApi.context` gives `interview` a `ProjectContext` record (summary, repo map), never the `Project` entity, and `api` maps `ProjectDto`, not `Project`.
 
 `GithubUrl` lives in `codebase.fetch`, not `project`: `RepoFetcher.resolveHead(GithubUrl)` needs it, and `codebase` may not depend on `project` (task 1.2).
 
@@ -223,23 +232,23 @@ Schema: `src/main/resources/graphql/schema.graphqls` (source of truth).
 
 | Schema field | Controller method | Delegates to |
 |---|---|---|
-| `Query.project` | `ProjectController.project(@Argument UUID id)` | `ProjectService.find` |
-| `Query.projects` | `ProjectController.projects(ScrollSubrange)` returning `Window<ProjectView>` | `ProjectService.page` (keyset on `created_at, id`) |
+| `Query.project` | `ProjectController.project(@Argument UUID id)` | `AnalysisApi.findByIds` (one id; empty → null) |
+| `Query.projects` | `ProjectController.projects(ScrollSubrange)` returning `Window<ProjectView>` | `AnalysisApi.page` (keyset on `created_at, id`; the controller writes each cursor's keys as strings and reads them back from `after`) |
 | `Query.interviewSession` | `InterviewController.interviewSession(id)` | `InterviewService.find` |
-| `Mutation.submitProject` | `ProjectController.submitProject(@Argument SubmitProjectInput input)` | `ProjectService.submit` |
-| `Mutation.reanalyzeProject` | `ProjectController.reanalyze` | `ProjectService.reanalyze` |
+| `Mutation.submitProject` | `ProjectController.submitProject(@Argument SubmitProjectInput input)` | `AnalysisApi.submit` → `ProjectService.submit` |
+| `Mutation.reanalyzeProject` | `ProjectController.reanalyze` | `AnalysisApi.reanalyze` → `ProjectService.reanalyze` |
 | `Mutation.startInterview` | `InterviewController.startInterview` | `InterviewService.start` |
 | `Mutation.submitAnswer` | `InterviewController.submitAnswer` | `InterviewService.submitAnswer` |
 | `Mutation.endInterview` | `InterviewController.endInterview` | `InterviewService.endInterview` |
 | `Project.sessions` | `@BatchMapping` → `List` | `InterviewService.sessionsByProjectIds` |
 | `Project.files` | `@SchemaMapping` (arguments: role, first) | `CodeFileQueries.list` |
-| `InterviewSession.project` | `@BatchMapping` → `List` | `ProjectService.findByIds` |
+| `InterviewSession.project` | `@BatchMapping` → `List` | `AnalysisApi.findByIds` (one call for all sessions) |
 | `InterviewSession.questions` | `@BatchMapping` → `List` | `InterviewService.askedQuestionsBySessionIds` |
 | `InterviewSession.currentQuestion` | `@BatchMapping` → `Map` | `InterviewService.questionsByIds` |
 | `InterviewSession.report` | property of the view | stored JSONB `InterviewReport` |
 | `Question.answer` | `@BatchMapping` → `Map` | `InterviewService.answersByQuestionIds` + `questionsByIds` (ideal outlines) |
 | `Question.parent` | `@BatchMapping` → `Map` | `InterviewService.questionsByIds` |
-| `CodeRef.snippet` | `@BatchMapping` → `Map` | `InterviewService.projectIdsBySessionIds` + `CodebaseQueries.snippets` → `ChunkStore.snippets(refs)` (one query for all refs) |
+| `CodeRef.snippet` | `@BatchMapping` → `Map` | `InterviewService.projectIdsBySessionIds` + `AnalysisApi.snippets` → `CodebaseQueries.snippets` (one call, one query per project for all refs) |
 | `Subscription.projectAnalysisProgress` | `SubscriptionController` returning `Flux<AnalysisProgressEvent>` (task 1.18, not built yet) | `AnalysisEvents` (Reactor `Sinks.Many` per project) |
 | `Subscription.interviewEvents` | `SubscriptionController.interviewEvents` returning `Flux<InterviewEventView>` (task 2.5) | `InterviewEventStream` (one Reactor `Sinks.Many` per instance, filtered by session), fed by `InterviewEventsFanOut` (§13.5) |
 
@@ -438,12 +447,16 @@ On `ApplicationReadyEvent`: projects in `CLONING`, `PARSING`, `EMBEDDING` or `SU
 ```java
 @Component public class Retriever {                       // codebase.retrieve (task 1.10)
     public RetrievedContext forTopic(UUID projectId, TopicQuery q, int maxTokens);
+    public RetrievedContext forRanges(UUID projectId, List<LineRange> ranges, int maxTokens);
 }
+// contracts.analysis (task 4.1): the records cross the boundary
 public record TopicQuery(String text, List<String> targetPaths, List<String> targetSymbols, boolean includeTests) {}
 public record RetrievedContext(List<RetrievedChunk> chunks, int totalTokens) {
     public String render() { /* code_chunk tags, see below */ }
 }
 ```
+
+Other modules call it through `AnalysisApi.searchChunks` (`POST /internal/projects/{id}/chunks/search`) and `AnalysisApi.chunksForRanges` (`.../chunks/ranges`), task 4.1.
 
 Algorithm:
 1. **Exact hits** (`ChunkStore.exactHits`): chunks where `path = ANY(:paths)` or `symbol = ANY(:symbols)` or `symbol LIKE ANY(:patterns)` (`Class#%` for a class, `method#%` and `method(%` for a method, so overloads and `#part2` windows match; `_` and `%` escaped). Ranked: 0 = the named methods, 1 = TYPE_HEADERs of named files and classes, 2 = the rest of them; then by path and start line.
@@ -551,9 +564,9 @@ Rendering rules (`PromptTemplates`, task 1.8): at startup every file may contain
 ## 9. Interview engine
 
 ### 9.1 `InterviewService.start(StartInterviewCommand cmd)`
-1. Validate, before anything is saved: project exists (`NOT_FOUND`) and is `READY` (`PROJECT_NOT_READY`), read through `ProjectService.context(id)` → `ProjectContext` (interview never sees the `Project` entity); `questionCount` (default `app.interview.default-question-count`) is within `min..max-question-count`, 3..8 (`INVALID_QUESTION_COUNT`, field `questionCount`). Difficulty defaults to JUNIOR; focus areas are deduplicated.
+1. Validate, before anything is saved: project exists (`NOT_FOUND`) and is `READY` (`PROJECT_NOT_READY`), read through `AnalysisApi.context(id)` → `ProjectContext` (interview never sees the `Project` entity; unknown → `NOT_FOUND` from the analysis side); `questionCount` (default `app.interview.default-question-count`) is within `min..max-question-count`, 3..8 (`INVALID_QUESTION_COUNT`, field `questionCount`). Difficulty defaults to JUNIOR; focus areas are deduplicated.
 2. Tx: insert session `PLANNING`. `sessionId` goes into the MDC.
-3. `QuestionPlanner.plan`: PLAN call (difficulty, targetRole, questionCount, focusAreas, goal, summary rendered as text by `SummaryText`, repoMap) → `TopicValidator` with `CodebaseQueries.paths` and `.symbols`:
+3. `QuestionPlanner.plan`: PLAN call (difficulty, targetRole, questionCount, focusAreas, goal, summary rendered as text by `SummaryText`, repoMap) → `TopicValidator` with `AnalysisApi.codeNames` (paths and symbols):
    - keep `targetPaths` that are files of the project (a leading `./` or `/` ignored);
    - keep `targetSymbols` that are a chunk symbol or the start of one (`X#…`, `X(…`); an unknown method of an existing class falls back to the class (small methods are merged into `#small-methods` chunks);
    - drop topics with no category or title, or left with no valid path and no valid symbol;
@@ -576,7 +589,7 @@ Every step is resumable: its result is saved before the next one starts. Re-send
 1. Validate text (trimmed): blank → `ANSWER_EMPTY`; over `app.interview.answer-max-chars` (4000) → `ANSWER_TOO_LONG` (field `text`). Unknown question → `NOT_FOUND`.
 2. Look for the question's answer **first** (task 1.11 order): it exists with the same `text_sha` (SHA-256 of the trimmed text) → resume with it; with another `text_sha` → `ALREADY_ANSWERED`. Only for a new answer: session not `IN_PROGRESS` → `SESSION_NOT_ACTIVE`; `session.currentQuestionId != questionId` → `NOT_CURRENT_QUESTION`. Checking the answer first means re-sending the last answer of a completed interview returns its stored result.
 3. Tx: insert the answer with a null evaluation. Unique violation on `question_id` (`uq_answer_question`) → re-read: same `text_sha` → resume; otherwise `ALREADY_ANSWERED`.
-4. If not yet evaluated and the session is `IN_PROGRESS`: `AnswerEvaluator` (`Retriever.forRanges` on the question's `code_refs`: the chunks each range falls in, the TYPE_HEADER only when no exact chunk does) → EVALUATION call (rubric as text, answer inside `<candidate_answer>`) → `Scoring.verdict(score)` → tx: lock the answer row (`SELECT ... FOR UPDATE`), save the evaluation only if still unevaluated, mark the question `ANSWERED`.
+4. If not yet evaluated and the session is `IN_PROGRESS`: `AnswerEvaluator` (`AnalysisApi.chunksForRanges` on the question's `code_refs`: the chunks each range falls in, the TYPE_HEADER only when no exact chunk does) → EVALUATION call (rubric as text, answer inside `<candidate_answer>`) → `Scoring.verdict(score)` → tx: lock the answer row (`SELECT ... FOR UPDATE`), save the evaluation only if still unevaluated, mark the question `ANSWERED`.
 5. If the question is still the session's current one, decide next with `FollowUpPolicy.shouldFollowUp(evaluation, followUpsOnTopic, callsUsed, topicsLeft)`, all of:
    - `followUpNeeded` is true **and** `score` is within `[follow-up-score-min, follow-up-score-max]` (3..7) **and** `topic.followUpCount < max-follow-ups-per-topic` (1);
    - **and** the budget allows: `max-calls-per-session - llm_call_count ≥ 3 (the follow-up: write with one retry, grade) + 3 × topics still PENDING + 1 (report)`. A follow-up only uses calls the rest of the interview does not need.
@@ -593,7 +606,7 @@ Steps 4 and 5-7 are `InterviewService.grade(answerId)` and `advance(answerId)` (
 GraphQL (task 1.11): `submitAnswer` returns the answer with its `AnswerEvaluation` (where `idealAnswerOutline` appears, after answering), the next question and the session; `Question.answer` and `Question.parent` have plain resolvers (batched in task 1.13).
 
 ### 9.3 `QuestionGenerator` and `CodeRefValidator`
-1. `Retriever.forTopic(projectId, TopicQuery(topic.title + ". " + topic.rationale, paths, symbols, category == TESTING), app.retrieval.max-context-tokens)`.
+1. `AnalysisApi.searchChunks(projectId, ChunkSearchRequest(TopicQuery(topic.title + ". " + topic.rationale, paths, symbols, category == TESTING), app.retrieval.max-context-tokens))`.
 2. `previousQuestions` = text of asked questions in the session (one `- ` line each; "(not provided)" when none).
 3. QUESTION call with `retryFeedback` null on the first attempt.
 4. `CodeRefValidator.validate(refs, context)`: a ref is valid when its `path` equals a retrieved chunk's path **and** its line range overlaps that chunk's range (start ≥ 1, end ≥ start). It is clamped to the chunk with the largest overlap; duplicates are dropped.

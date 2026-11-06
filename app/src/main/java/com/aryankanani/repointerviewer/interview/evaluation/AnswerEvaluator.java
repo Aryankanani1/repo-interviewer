@@ -1,8 +1,9 @@
 package com.aryankanani.repointerviewer.interview.evaluation;
 
-import com.aryankanani.repointerviewer.codebase.retrieve.LineRange;
-import com.aryankanani.repointerviewer.codebase.retrieve.Retriever;
 import com.aryankanani.repointerviewer.common.config.AppProperties;
+import com.aryankanani.repointerviewer.contracts.analysis.AnalysisApi;
+import com.aryankanani.repointerviewer.contracts.analysis.ChunkRangesRequest;
+import com.aryankanani.repointerviewer.contracts.analysis.LineRange;
 import com.aryankanani.repointerviewer.interview.Difficulty;
 import com.aryankanani.repointerviewer.interview.Question;
 import com.aryankanani.repointerviewer.llm.LlmGateway;
@@ -23,22 +24,22 @@ import org.springframework.stereotype.Component;
 @Component
 public class AnswerEvaluator {
 
-	private final Retriever retriever;
+	private final AnalysisApi analysis;
 
 	private final LlmGateway llm;
 
 	private final int maxContextTokens;
 
-	AnswerEvaluator(Retriever retriever, LlmGateway llm, AppProperties properties) {
-		this.retriever = retriever;
+	AnswerEvaluator(AnalysisApi analysis, LlmGateway llm, AppProperties properties) {
+		this.analysis = analysis;
 		this.llm = llm;
 		this.maxContextTokens = properties.retrieval().maxContextTokens();
 	}
 
 	public Evaluation evaluate(UUID projectId, UUID sessionId, Difficulty difficulty, Question question,
 			String answerText) {
-		var context = retriever.forRanges(projectId, question.getCodeRefs().stream()
-				.map(ref -> new LineRange(ref.path(), ref.startLine(), ref.endLine())).toList(), maxContextTokens);
+		var context = analysis.chunksForRanges(projectId, new ChunkRangesRequest(question.getCodeRefs().stream()
+				.map(ref -> new LineRange(ref.path(), ref.startLine(), ref.endLine())).toList(), maxContextTokens));
 		Map<String, Object> variables = new HashMap<>();
 		variables.put("difficulty", difficulty.name());
 		variables.put("question", question.getText());

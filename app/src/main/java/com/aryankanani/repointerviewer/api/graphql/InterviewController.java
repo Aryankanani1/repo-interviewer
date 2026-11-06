@@ -2,9 +2,10 @@ package com.aryankanani.repointerviewer.api.graphql;
 
 import com.aryankanani.repointerviewer.api.error.InputValidator;
 import com.aryankanani.repointerviewer.api.error.UserErrorMapper;
-import com.aryankanani.repointerviewer.codebase.CodebaseQueries;
-import com.aryankanani.repointerviewer.codebase.store.SnippetRef;
 import com.aryankanani.repointerviewer.common.error.DomainException;
+import com.aryankanani.repointerviewer.contracts.analysis.AnalysisApi;
+import com.aryankanani.repointerviewer.contracts.analysis.ProjectDto;
+import com.aryankanani.repointerviewer.contracts.analysis.SnippetRef;
 import com.aryankanani.repointerviewer.interview.Answer;
 import com.aryankanani.repointerviewer.interview.EndInterviewCommand;
 import com.aryankanani.repointerviewer.interview.EndResult;
@@ -15,8 +16,6 @@ import com.aryankanani.repointerviewer.interview.StartInterviewCommand;
 import com.aryankanani.repointerviewer.interview.StartResult;
 import com.aryankanani.repointerviewer.interview.SubmitAnswerCommand;
 import com.aryankanani.repointerviewer.interview.SubmitAnswerResult;
-import com.aryankanani.repointerviewer.project.Project;
-import com.aryankanani.repointerviewer.project.ProjectService;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -45,17 +44,13 @@ class InterviewController {
 
 	private final InterviewService interviewService;
 
-	private final ProjectService projectService;
-
-	private final CodebaseQueries codebaseQueries;
+	private final AnalysisApi analysis;
 
 	private final InputValidator inputValidator;
 
-	InterviewController(InterviewService interviewService, ProjectService projectService,
-			CodebaseQueries codebaseQueries, InputValidator inputValidator) {
+	InterviewController(InterviewService interviewService, AnalysisApi analysis, InputValidator inputValidator) {
 		this.interviewService = interviewService;
-		this.projectService = projectService;
-		this.codebaseQueries = codebaseQueries;
+		this.analysis = analysis;
 		this.inputValidator = inputValidator;
 	}
 
@@ -139,8 +134,9 @@ class InterviewController {
 
 	@BatchMapping(typeName = "InterviewSession")
 	List<ProjectView> project(List<InterviewSessionView> sessions) {
-		Map<UUID, Project> projects = projectService.findByIds(
-				sessions.stream().map(InterviewSessionView::projectId).collect(Collectors.toSet()));
+		Map<UUID, ProjectDto> projects = analysis.findByIds(
+				sessions.stream().map(InterviewSessionView::projectId).distinct().toList())
+				.stream().collect(Collectors.toMap(ProjectDto::id, Function.identity()));
 		return sessions.stream().map(session -> ProjectView.from(projects.get(session.projectId()))).toList();
 	}
 
@@ -184,12 +180,12 @@ class InterviewController {
 		return result;
 	}
 
-	/** Two queries for every ref of the response: which project each session belongs to, then all the snippets. */
+	/** For every ref of the response: one query for which project each session belongs to, one call for the snippets. */
 	@BatchMapping(typeName = "CodeRef")
 	Map<CodeRefView, String> snippet(List<CodeRefView> refs) {
 		Map<UUID, UUID> projects = interviewService.projectIdsBySessionIds(
 				refs.stream().map(CodeRefView::sessionId).collect(Collectors.toSet()));
-		List<String> snippets = codebaseQueries.snippets(refs.stream()
+		List<String> snippets = analysis.snippets(refs.stream()
 				.map(ref -> new SnippetRef(projects.get(ref.sessionId()), ref.path(), ref.startLine(), ref.endLine()))
 				.toList());
 		Map<CodeRefView, String> result = new LinkedHashMap<>();

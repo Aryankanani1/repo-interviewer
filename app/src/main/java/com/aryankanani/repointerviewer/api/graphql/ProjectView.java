@@ -1,8 +1,8 @@
 package com.aryankanani.repointerviewer.api.graphql;
 
-import com.aryankanani.repointerviewer.project.AnalysisStatus;
-import com.aryankanani.repointerviewer.project.Project;
-import com.aryankanani.repointerviewer.project.RepoSummary;
+import com.aryankanani.repointerviewer.contracts.analysis.AnalysisStatus;
+import com.aryankanani.repointerviewer.contracts.analysis.ProjectDto;
+import com.aryankanani.repointerviewer.contracts.analysis.RepoSummary;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -11,8 +11,9 @@ import java.util.UUID;
 /**
  * GraphQL type {@code Project}. Component names match schema field names, so Spring for GraphQL
  * resolves {@code githubUrl}, {@code status}, ... from the record accessors with no extra code.
- * {@code summary} is the stored {@link RepoSummary} record, whose field names match the GraphQL types. Fields with
- * their own resolvers ({@code files}, {@code sessions}) come in later tasks.
+ * {@code summary} is the stored {@link RepoSummary} record and {@code stats} the analysis side's
+ * {@link ProjectDto.Stats}; their field names match the GraphQL types ({@code RepoSummary}, {@code RepoStats}).
+ * Fields with their own resolvers ({@code files}, {@code sessions}) come in later tasks.
  */
 record ProjectView(
 		UUID id,
@@ -22,24 +23,24 @@ record ProjectView(
 		AnalysisStatus status,
 		String failureReason,
 		Context context,
-		Stats stats,
+		ProjectDto.Stats stats,
 		RepoSummary summary,
 		OffsetDateTime createdAt,
 		OffsetDateTime updatedAt) {
 
-	static ProjectView from(Project project) {
+	static ProjectView from(ProjectDto project) {
 		return new ProjectView(
-				project.getId(),
-				project.getGithubUrl(),
-				project.getOwner() + "/" + project.getRepoName(),
-				project.getCommitSha(),
-				project.getStatus(),
-				project.getFailureReason(),
-				new Context(project.getGoal(), project.getDomain(), project.getTargetRole()),
-				Stats.from(project),
-				project.getSummary(),
-				toUtc(project.getCreatedAt()),
-				toUtc(project.getUpdatedAt()));
+				project.id(),
+				project.githubUrl(),
+				project.owner() + "/" + project.repoName(),
+				project.commitSha(),
+				project.status(),
+				project.failureReason(),
+				new Context(project.goal(), project.domain(), project.targetRole()),
+				project.stats(),
+				project.summary(),
+				toUtc(project.createdAt()),
+				toUtc(project.updatedAt()));
 	}
 
 	/** The DateTime scalar serializes OffsetDateTime and ZonedDateTime, but throws on Instant. */
@@ -49,21 +50,6 @@ record ProjectView(
 
 	/** GraphQL type {@code ProjectContext}: the candidate's own words, untrusted text. */
 	record Context(String goal, String domain, String targetRole) {
-	}
-
-	/** GraphQL type {@code RepoStats}. */
-	record Stats(int fileCount, int javaFileCount, int totalLines, int chunkCount, String primaryLanguage) {
-
-		/** {@code stats} is nullable in the schema but its counts are not, so: all counts, or null. */
-		static Stats from(Project project) {
-			if (project.getFileCount() == null || project.getJavaFileCount() == null
-					|| project.getTotalLines() == null || project.getChunkCount() == null) {
-				return null;
-			}
-			return new Stats(project.getFileCount(), project.getJavaFileCount(), project.getTotalLines(),
-					project.getChunkCount(), project.getPrimaryLanguage());
-		}
-
 	}
 
 }

@@ -6,7 +6,7 @@ import com.aryankanani.repointerviewer.FixtureIndexer;
 import com.aryankanani.repointerviewer.IntegrationTest;
 import com.aryankanani.repointerviewer.LocalDirectoryRepoFetcher;
 import com.aryankanani.repointerviewer.codebase.store.ChunkStore;
-import com.aryankanani.repointerviewer.codebase.store.SnippetRef;
+import com.aryankanani.repointerviewer.contracts.analysis.SnippetRef;
 import java.nio.file.Files;
 import java.util.List;
 import java.util.UUID;

@@ -1,4 +1,4 @@
-package com.aryankanani.repointerviewer.project;
+package com.aryankanani.repointerviewer.contracts.analysis;
 
 /**
  * Where a project is in its analysis. Mirrors the GraphQL enum {@code AnalysisStatus} one-to-one

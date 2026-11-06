@@ -1,6 +1,8 @@
 package com.aryankanani.repointerviewer.codebase.store;
 
 import com.aryankanani.repointerviewer.codebase.chunk.Chunk;
+import com.aryankanani.repointerviewer.contracts.analysis.RetrievedChunk;
+import com.aryankanani.repointerviewer.contracts.analysis.SnippetRef;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;

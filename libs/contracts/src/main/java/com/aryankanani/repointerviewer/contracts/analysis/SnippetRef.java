@@ -1,4 +1,4 @@
-package com.aryankanani.repointerviewer.codebase.store;
+package com.aryankanani.repointerviewer.contracts.analysis;
 
 import java.util.UUID;
 

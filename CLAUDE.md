@@ -23,7 +23,7 @@ Java 21 · Spring Boot 4.1.x · Spring for GraphQL · Spring AI 2.0.x (Anthropic
 - Secrets: copy `.env.example` to `.env`. Never print, log or commit `ANTHROPIC_API_KEY`.
 
 ## Architecture rules
-- Modular monolith. Base package `com.aryankanani.repointerviewer`. Modules: `api`, `project`, `interview`, `codebase`, `llm`, `common`. Dependencies are one-way, as in LLD §2, and enforced by ArchUnit. Never weaken an ArchUnit rule to make code compile; fix the design instead.
+- Modular monolith. Base package `com.aryankanani.repointerviewer`. Modules: `api`, `project`, `interview`, `codebase`, `llm`, `contracts`, `common`. Dependencies are one-way, as in LLD §2, and enforced by ArchUnit. Never weaken an ArchUnit rule to make code compile; fix the design instead.
 - **All chat-model calls go through `llm.LlmGateway`.** Every call writes one `llm_call` row. No direct `ChatClient` use elsewhere.
 - **Code decides, the LLM writes** (DECISIONS.md D-007). Scores, verdicts, thresholds, ref validation and budgets are Java, never prompt instructions.
 - Never call the LLM inside a database transaction. Short tx → LLM call → short tx with a version check.

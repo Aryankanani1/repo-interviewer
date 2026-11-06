@@ -1,11 +1,13 @@
 package com.aryankanani.repointerviewer.interview.question;
 
-import com.aryankanani.repointerviewer.codebase.retrieve.LineRange;
-import com.aryankanani.repointerviewer.codebase.retrieve.RetrievedContext;
-import com.aryankanani.repointerviewer.codebase.retrieve.Retriever;
-import com.aryankanani.repointerviewer.codebase.retrieve.TopicQuery;
 import com.aryankanani.repointerviewer.common.QuestionCategory;
 import com.aryankanani.repointerviewer.common.config.AppProperties;
+import com.aryankanani.repointerviewer.contracts.analysis.AnalysisApi;
+import com.aryankanani.repointerviewer.contracts.analysis.ChunkRangesRequest;
+import com.aryankanani.repointerviewer.contracts.analysis.ChunkSearchRequest;
+import com.aryankanani.repointerviewer.contracts.analysis.LineRange;
+import com.aryankanani.repointerviewer.contracts.analysis.RetrievedContext;
+import com.aryankanani.repointerviewer.contracts.analysis.TopicQuery;
 import com.aryankanani.repointerviewer.interview.CodeRef;
 import com.aryankanani.repointerviewer.interview.Difficulty;
 import com.aryankanani.repointerviewer.interview.InterviewTopic;
@@ -32,7 +34,7 @@ import org.springframework.stereotype.Component;
  * one more call with the problem and the valid ranges ({@code {retryFeedback}} in the prompt); then give up and
  * return empty.
  *
- * <p>Saves nothing and opens no transaction: it only talks to the retriever and the model.
+ * <p>Saves nothing and opens no transaction: it only talks to the analysis API (for code) and the model.
  */
 @Component
 public class QuestionGenerator {
@@ -41,14 +43,14 @@ public class QuestionGenerator {
 
 	private static final Logger log = LoggerFactory.getLogger(QuestionGenerator.class);
 
-	private final Retriever retriever;
+	private final AnalysisApi analysis;
 
 	private final LlmGateway llm;
 
 	private final int maxContextTokens;
 
-	QuestionGenerator(Retriever retriever, LlmGateway llm, AppProperties properties) {
-		this.retriever = retriever;
+	QuestionGenerator(AnalysisApi analysis, LlmGateway llm, AppProperties properties) {
+		this.analysis = analysis;
 		this.llm = llm;
 		this.maxContextTokens = properties.retrieval().maxContextTokens();
 	}
@@ -62,9 +64,9 @@ public class QuestionGenerator {
 	public Optional<GeneratedQuestion> generate(UUID projectId, UUID sessionId, Difficulty difficulty,
 			InterviewTopic topic, List<String> previousQuestions) {
 		String rationale = topic.getRationale() == null ? "" : topic.getRationale();
-		RetrievedContext context = retriever.forTopic(projectId, new TopicQuery(topic.getTitle() + ". " + rationale,
-				topic.getTargetPaths(), topic.getTargetSymbols(), topic.getCategory() == QuestionCategory.TESTING),
-				maxContextTokens);
+		RetrievedContext context = analysis.searchChunks(projectId, new ChunkSearchRequest(new TopicQuery(
+				topic.getTitle() + ". " + rationale, topic.getTargetPaths(), topic.getTargetSymbols(),
+				topic.getCategory() == QuestionCategory.TESTING), maxContextTokens));
 		return withCheckedRefs(LlmPurpose.QUESTION, projectId, sessionId, context, "topic " + topic.getOrderIndex(),
 				retryFeedback -> {
 					Map<String, Object> variables = new HashMap<>();
@@ -87,8 +89,9 @@ public class QuestionGenerator {
 	 */
 	public Optional<GeneratedQuestion> generateFollowUp(UUID projectId, UUID sessionId, Difficulty difficulty,
 			Question parent, String answer, List<String> missedPoints, String followUpReason) {
-		RetrievedContext context = retriever.forRanges(projectId, parent.getCodeRefs().stream()
-				.map(ref -> new LineRange(ref.path(), ref.startLine(), ref.endLine())).toList(), maxContextTokens);
+		RetrievedContext context = analysis.chunksForRanges(projectId, new ChunkRangesRequest(parent.getCodeRefs()
+				.stream().map(ref -> new LineRange(ref.path(), ref.startLine(), ref.endLine())).toList(),
+				maxContextTokens));
 		return withCheckedRefs(LlmPurpose.FOLLOW_UP, projectId, sessionId, context,
 				"follow-up on question " + parent.getOrderIndex(), retryFeedback -> {
 					Map<String, Object> variables = new HashMap<>();

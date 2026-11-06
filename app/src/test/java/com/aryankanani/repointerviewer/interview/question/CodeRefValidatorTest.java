@@ -2,8 +2,8 @@ package com.aryankanani.repointerviewer.interview.question;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.aryankanani.repointerviewer.codebase.retrieve.RetrievedContext;
-import com.aryankanani.repointerviewer.codebase.store.RetrievedChunk;
+import com.aryankanani.repointerviewer.contracts.analysis.RetrievedChunk;
+import com.aryankanani.repointerviewer.contracts.analysis.RetrievedContext;
 import com.aryankanani.repointerviewer.interview.CodeRef;
 import com.aryankanani.repointerviewer.llm.output.CodeRefOutput;
 import java.util.List;

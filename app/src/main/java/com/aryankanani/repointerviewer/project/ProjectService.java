@@ -5,6 +5,8 @@ import com.aryankanani.repointerviewer.codebase.fetch.RemoteHead;
 import com.aryankanani.repointerviewer.codebase.fetch.RepoFetcher;
 import com.aryankanani.repointerviewer.common.error.DomainException;
 import com.aryankanani.repointerviewer.common.error.ErrorCode;
+import com.aryankanani.repointerviewer.contracts.analysis.AnalysisStatus;
+import com.aryankanani.repointerviewer.contracts.analysis.ProjectContext;
 import java.util.Collection;
 import java.util.Map;
 import java.util.Optional;

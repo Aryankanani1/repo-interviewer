@@ -1,8 +1,7 @@
-package com.aryankanani.repointerviewer.codebase.retrieve;
+package com.aryankanani.repointerviewer.contracts.analysis;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.aryankanani.repointerviewer.codebase.store.RetrievedChunk;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;

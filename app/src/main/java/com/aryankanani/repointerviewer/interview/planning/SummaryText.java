@@ -1,6 +1,6 @@
 package com.aryankanani.repointerviewer.interview.planning;
 
-import com.aryankanani.repointerviewer.project.RepoSummary;
+import com.aryankanani.repointerviewer.contracts.analysis.RepoSummary;
 import java.util.List;
 import java.util.stream.Collectors;
 

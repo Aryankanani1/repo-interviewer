@@ -35,13 +35,16 @@ class ArchitectureTest {
 			.layer("project").definedBy(BASE + ".project..")
 			.layer("codebase").definedBy(BASE + ".codebase..")
 			.layer("llm").definedBy(BASE + ".llm..")
+			.layer("contracts").definedBy(BASE + ".contracts..")
 			.layer("common").definedBy(BASE + ".common..")
-			.whereLayer("api").mayOnlyAccessLayers("project", "interview", "codebase", "common")
+			// Task 4.1: api and interview reach project and codebase only through contracts.analysis.AnalysisApi.
+			.whereLayer("api").mayOnlyAccessLayers("interview", "contracts", "common")
 			.whereLayer("api").mayNotBeAccessedByAnyLayer()
-			.whereLayer("interview").mayOnlyAccessLayers("codebase", "llm", "project", "common")
-			.whereLayer("project").mayOnlyAccessLayers("codebase", "llm", "common")
-			.whereLayer("codebase").mayOnlyAccessLayers("common")
+			.whereLayer("interview").mayOnlyAccessLayers("llm", "contracts", "common")
+			.whereLayer("project").mayOnlyAccessLayers("codebase", "llm", "contracts", "common")
+			.whereLayer("codebase").mayOnlyAccessLayers("contracts", "common")
 			.whereLayer("llm").mayOnlyAccessLayers("common")
+			.whereLayer("contracts").mayNotAccessAnyLayer()
 			.whereLayer("common").mayNotAccessAnyLayer();
 
 	@ArchTest

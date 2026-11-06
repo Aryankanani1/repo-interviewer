@@ -9,6 +9,8 @@ import com.aryankanani.repointerviewer.LocalDirectoryRepoFetcher;
 import com.aryankanani.repointerviewer.codebase.chunk.Chunk;
 import com.aryankanani.repointerviewer.codebase.chunk.ChunkType;
 import com.aryankanani.repointerviewer.codebase.scan.FileRole;
+import com.aryankanani.repointerviewer.contracts.analysis.RetrievedChunk;
+import com.aryankanani.repointerviewer.contracts.analysis.SnippetRef;
 import java.nio.file.Files;
 import java.util.List;
 import java.util.UUID;

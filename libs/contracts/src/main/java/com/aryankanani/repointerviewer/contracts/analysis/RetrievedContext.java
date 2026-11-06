@@ -1,6 +1,5 @@
-package com.aryankanani.repointerviewer.codebase.retrieve;
+package com.aryankanani.repointerviewer.contracts.analysis;
 
-import com.aryankanani.repointerviewer.codebase.store.RetrievedChunk;
 import java.util.List;
 import java.util.stream.Collectors;
 

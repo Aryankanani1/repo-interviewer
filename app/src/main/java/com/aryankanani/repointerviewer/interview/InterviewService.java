@@ -4,6 +4,9 @@ import com.aryankanani.repointerviewer.common.QuestionCategory;
 import com.aryankanani.repointerviewer.common.config.AppProperties;
 import com.aryankanani.repointerviewer.common.error.DomainException;
 import com.aryankanani.repointerviewer.common.error.ErrorCode;
+import com.aryankanani.repointerviewer.contracts.analysis.AnalysisApi;
+import com.aryankanani.repointerviewer.contracts.analysis.AnalysisStatus;
+import com.aryankanani.repointerviewer.contracts.analysis.ProjectContext;
 import com.aryankanani.repointerviewer.interview.evaluation.AnswerEvaluator;
 import com.aryankanani.repointerviewer.interview.evaluation.Evaluation;
 import com.aryankanani.repointerviewer.interview.evaluation.FollowUpPolicy;
@@ -13,9 +16,6 @@ import com.aryankanani.repointerviewer.interview.question.QuestionGenerator;
 import com.aryankanani.repointerviewer.interview.report.ReportWriter;
 import com.aryankanani.repointerviewer.interview.report.TranscriptEntry;
 import com.aryankanani.repointerviewer.llm.output.PlannedTopic;
-import com.aryankanani.repointerviewer.project.AnalysisStatus;
-import com.aryankanani.repointerviewer.project.ProjectContext;
-import com.aryankanani.repointerviewer.project.ProjectService;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -59,7 +59,7 @@ public class InterviewService {
 
 	private static final Logger log = LoggerFactory.getLogger(InterviewService.class);
 
-	private final ProjectService projectService;
+	private final AnalysisApi analysis;
 
 	private final InterviewSessionRepository sessions;
 
@@ -87,12 +87,12 @@ public class InterviewService {
 
 	private final AppProperties.Interview settings;
 
-	InterviewService(ProjectService projectService, InterviewSessionRepository sessions,
+	InterviewService(AnalysisApi analysis, InterviewSessionRepository sessions,
 			InterviewTopicRepository topics, QuestionRepository questions, AnswerRepository answers,
 			QuestionPlanner planner, QuestionGenerator generator, AnswerEvaluator evaluator,
 			FollowUpPolicy followUpPolicy, ReportWriter reportWriter, QuestionPrefetcher prefetcher,
 			AnswerPipeline answerPipeline, PlatformTransactionManager transactionManager, AppProperties properties) {
-		this.projectService = projectService;
+		this.analysis = analysis;
 		this.sessions = sessions;
 		this.topics = topics;
 		this.questions = questions;
@@ -116,8 +116,7 @@ public class InterviewService {
 	 * @throws DomainException NOT_FOUND, PROJECT_NOT_READY or INVALID_QUESTION_COUNT, before anything is saved
 	 */
 	public StartResult start(StartInterviewCommand command) {
-		ProjectContext project = projectService.context(command.projectId())
-				.orElseThrow(() -> new DomainException(ErrorCode.NOT_FOUND, "Project not found.", "projectId"));
+		ProjectContext project = analysis.context(command.projectId());   // NOT_FOUND if unknown
 		if (project.status() != AnalysisStatus.READY) {
 			throw new DomainException(ErrorCode.PROJECT_NOT_READY,
 					"The project is not analyzed yet (status " + project.status() + ").", "projectId");
@@ -409,7 +408,8 @@ public class InterviewService {
 		if (transcript.stream().noneMatch(entry -> entry.score() != null)) {
 			return null;   // nothing was graded: nothing to report on
 		}
-		String repoName = projectService.context(session.getProjectId()).map(ProjectContext::name).orElse("the project");
+		String repoName = analysis.findByIds(List.of(session.getProjectId())).stream().findFirst()
+				.map(project -> project.owner() + "/" + project.repoName()).orElse("the project");
 		try {
 			InterviewReport report = reportWriter.write(session.getProjectId(), sessionId, repoName,
 					session.getDifficulty(), transcript);

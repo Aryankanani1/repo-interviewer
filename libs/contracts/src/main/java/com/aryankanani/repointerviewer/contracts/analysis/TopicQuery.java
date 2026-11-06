@@ -1,4 +1,4 @@
-package com.aryankanani.repointerviewer.codebase.retrieve;
+package com.aryankanani.repointerviewer.contracts.analysis;
 
 import java.util.List;
 

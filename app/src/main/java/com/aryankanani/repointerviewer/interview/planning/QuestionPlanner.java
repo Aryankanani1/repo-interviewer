@@ -1,17 +1,18 @@
 package com.aryankanani.repointerviewer.interview.planning;
 
-import com.aryankanani.repointerviewer.codebase.CodebaseQueries;
 import com.aryankanani.repointerviewer.common.QuestionCategory;
 import com.aryankanani.repointerviewer.common.config.AppProperties;
 import com.aryankanani.repointerviewer.common.error.DomainException;
 import com.aryankanani.repointerviewer.common.error.ErrorCode;
+import com.aryankanani.repointerviewer.contracts.analysis.AnalysisApi;
+import com.aryankanani.repointerviewer.contracts.analysis.CodeNames;
+import com.aryankanani.repointerviewer.contracts.analysis.ProjectContext;
 import com.aryankanani.repointerviewer.interview.Difficulty;
 import com.aryankanani.repointerviewer.llm.LlmGateway;
 import com.aryankanani.repointerviewer.llm.LlmPurpose;
 import com.aryankanani.repointerviewer.llm.LlmRequest;
 import com.aryankanani.repointerviewer.llm.output.PlanOutput;
 import com.aryankanani.repointerviewer.llm.output.PlannedTopic;
-import com.aryankanani.repointerviewer.project.ProjectContext;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -38,15 +39,15 @@ public class QuestionPlanner {
 
 	private final TopicValidator topicValidator;
 
-	private final CodebaseQueries codebaseQueries;
+	private final AnalysisApi analysis;
 
 	private final int minQuestionCount;
 
-	QuestionPlanner(LlmGateway llm, TopicValidator topicValidator, CodebaseQueries codebaseQueries,
+	QuestionPlanner(LlmGateway llm, TopicValidator topicValidator, AnalysisApi analysis,
 			AppProperties properties) {
 		this.llm = llm;
 		this.topicValidator = topicValidator;
-		this.codebaseQueries = codebaseQueries;
+		this.analysis = analysis;
 		this.minQuestionCount = properties.interview().minQuestionCount();
 	}
 
@@ -66,8 +67,9 @@ public class QuestionPlanner {
 		variables.put("summary", SummaryText.render(project.summary()));
 		variables.put("repoMap", project.repoMap());
 		variables.put("retryFeedback", null);
-		Set<String> paths = codebaseQueries.paths(project.id());
-		Set<String> symbols = codebaseQueries.symbols(project.id());
+		CodeNames names = analysis.codeNames(project.id());
+		Set<String> paths = names.paths();
+		Set<String> symbols = names.symbols();
 
 		TopicValidator.Result result = planOnce(project, sessionId, variables, paths, symbols, questionCount);
 		if (result.kept().size() < minQuestionCount) {

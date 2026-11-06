@@ -3,7 +3,7 @@ package com.aryankanani.repointerviewer.codebase;
 import com.aryankanani.repointerviewer.codebase.store.ChunkStore;
 import com.aryankanani.repointerviewer.codebase.store.CodeFile;
 import com.aryankanani.repointerviewer.codebase.store.CodeFileRepository;
-import com.aryankanani.repointerviewer.codebase.store.SnippetRef;
+import com.aryankanani.repointerviewer.contracts.analysis.SnippetRef;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;

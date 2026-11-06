@@ -1,5 +1,6 @@
 package com.aryankanani.repointerviewer.project;
 
+import com.aryankanani.repointerviewer.contracts.analysis.AnalysisStatus;
 import java.util.UUID;
 
 /**
