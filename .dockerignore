@@ -1,7 +1,11 @@
 # Allowlist (task 3.1): the build context holds only what the Dockerfile copies. Everything else stays out of
 # the Docker daemon and of every image layer, above all .env with the real API key.
+# Per module (task 4.1): its pom.xml and src/main, never its tests or target/.
 *
 !mvnw
 !.mvn/
 !pom.xml
-!src/main/
+!libs/*/pom.xml
+!libs/*/src/main/
+!app/pom.xml
+!app/src/main/

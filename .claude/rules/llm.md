@@ -1,8 +1,8 @@
 ---
 paths:
-  - "src/main/java/**/llm/**"
-  - "src/main/java/**/interview/**"
-  - "src/main/resources/prompts/**"
+  - "**/src/main/java/**/llm/**"
+  - "**/src/main/java/**/interview/**"
+  - "**/src/main/resources/prompts/**"
 ---
 
 # LLM rules

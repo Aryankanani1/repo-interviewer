@@ -6,12 +6,15 @@ FROM eclipse-temurin:21-jdk-noble AS build
 WORKDIR /build
 COPY mvnw pom.xml ./
 COPY .mvn/ .mvn/
-COPY src/main/ src/main/
+# Each module's pom.xml and src/main only (.dockerignore): the libraries and the app (task 4.1).
+COPY libs/ libs/
+COPY app/ app/
 # Tests are not run or compiled here: ./mvnw verify and CI run them (Testcontainers needs a Docker daemon, which a
 # build step does not have). The cache mount keeps ~/.m2 between builds, so dependencies are downloaded only once.
+# -pl app -am: the app and the libraries it needs ("also make"), each library as a plain jar inside the fat jar.
 RUN --mount=type=cache,target=/root/.m2 \
-    ./mvnw -B -q package -Dmaven.test.skip=true \
- && cp target/repo-interviewer-*.jar application.jar \
+    ./mvnw -B -q package -Dmaven.test.skip=true -pl app -am \
+ && cp app/target/app-*.jar application.jar \
  && java -Djarmode=tools -jar application.jar extract --layers --destination extracted
 
 # --- Runtime stage: a JRE only (no JDK, no Maven, no sources), not root -------------------------------------------
@@ -22,8 +25,9 @@ WORKDIR /app
 # A fixed number, because Kubernetes can only check `runAsNonRoot` against a numeric user (task 3.3).
 RUN groupadd --system --gid 10001 app \
  && useradd --system --uid 10001 --gid app --no-create-home --shell /usr/sbin/nologin app
-# One image layer per jar layer, least-changing first: a code change rebuilds only the small last one
-# (application.jar, about 0.4 MB), not the 158 MB of dependencies.
+# One image layer per jar layer, least-changing first: a code change rebuilds only the small last ones
+# (application.jar, and snapshot-dependencies, which holds this project's own libraries), not the 158 MB of
+# dependencies.
 COPY --from=build /build/extracted/dependencies/ ./
 COPY --from=build /build/extracted/spring-boot-loader/ ./
 COPY --from=build /build/extracted/snapshot-dependencies/ ./

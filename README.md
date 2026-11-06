@@ -32,10 +32,10 @@ Code moves **dev → test → stage → prod**. `application.yml` holds the defa
 
 | Environment | File | How it starts |
 |---|---|---|
-| dev | `src/main/resources/application-dev.yml` | `./mvnw spring-boot:run` (local compose Postgres and Ollama, GraphiQL on) |
-| test | `src/test/resources/application-test.yml` | `./mvnw verify` locally and in CI (Testcontainers, fake models) |
-| stage | `src/main/resources/application-stage.yml` | `SPRING_PROFILES_ACTIVE=stage` + `DB_URL`, `DB_USER`, `DB_PASSWORD`, `OLLAMA_BASE_URL`, `ANTHROPIC_API_KEY` |
-| prod | `src/main/resources/application-prod.yml` | `SPRING_PROFILES_ACTIVE=prod` + the same variables |
+| dev | `app/src/main/resources/application-dev.yml` | `./mvnw spring-boot:run` (local compose Postgres and Ollama, GraphiQL on) |
+| test | `app/src/test/resources/application-test.yml` | `./mvnw verify` locally and in CI (Testcontainers, fake models) |
+| stage | `app/src/main/resources/application-stage.yml` | `SPRING_PROFILES_ACTIVE=stage` + `DB_URL`, `DB_USER`, `DB_PASSWORD`, `OLLAMA_BASE_URL`, `ANTHROPIC_API_KEY` |
+| prod | `app/src/main/resources/application-prod.yml` | `SPRING_PROFILES_ACTIVE=prod` + the same variables |
 
 Starting the jar without an environment stops with "No environment selected". Run another environment locally with `./mvnw spring-boot:run -Dspring-boot.run.profiles=stage`.
 

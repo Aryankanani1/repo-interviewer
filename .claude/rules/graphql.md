@@ -1,8 +1,8 @@
 ---
 paths:
-  - "src/main/resources/graphql/**"
-  - "src/main/java/**/api/**"
-  - "src/test/java/**/api/**"
+  - "**/src/main/resources/graphql/**"
+  - "**/src/main/java/**/api/**"
+  - "**/src/test/java/**/api/**"
 ---
 
 # GraphQL rules

@@ -1,8 +1,8 @@
 ---
 paths:
-  - "src/main/resources/db/migration/**"
-  - "src/main/java/**/*Repository.java"
-  - "src/main/java/**/store/**"
+  - "**/src/main/resources/db/migration/**"
+  - "**/src/main/java/**/*Repository.java"
+  - "**/src/main/java/**/store/**"
 ---
 
 # Database rules

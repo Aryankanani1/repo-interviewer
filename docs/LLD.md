@@ -47,6 +47,18 @@ Base package: `com.aryankanani.repointerviewer` (shortened to `ri` below).
 
 A modular monolith: one deployable, packages as modules, dependencies one-way, enforced by ArchUnit.
 
+### Maven modules (task 4.1, DECISIONS.md D-026)
+
+The root `pom.xml` is the parent of every module: versions, BOMs, the `eval` test switch. `./mvnw verify` at the root builds and tests all modules in dependency order; `./mvnw spring-boot:run` starts only the app (the parent sets `spring-boot.run.skip`, the app turns it off), in the root folder so `.env` is found. Step 1 moved files only: no package, class or behavior changed.
+
+| Module | Holds | May depend on |
+|---|---|---|
+| `libs/common` | `ri.common..` | Spring Boot starters only |
+| `libs/llm` | `ri.llm..` and `prompts/*.st` | `common` |
+| `app` (until step 4) | everything else: `api`, `project`, `codebase`, `interview`, `application*.yml`, migrations, the GraphQL schema | `common`, `llm` |
+
+Maven now enforces part of the table below: `common` does not compile against `llm` or `app`, and `llm` does not compile against `app`. The rest is still `ArchitectureTest`, which runs in `app` and also reads the libraries' classes from their jars. A library's unit tests live in its module; tests that need the whole application stay in `app` for now. Steps 2 and 3 move `project` and `codebase` into `analysis-service` and `interview` into `interview-service`; `app` becomes `graphql-gateway` in step 4.
+
 ```
 ri
 ├── RepoInterviewerApplication.java
@@ -518,7 +530,7 @@ public record ReviewTopicOutput(String topic, String why) {}
 
 Every output record implements `LlmOutput<T>` with `normalized()`, applied by the gateway after every call: null text → empty, strings trimmed, null lists → empty, blank and null items dropped, a missing `rubric` → an empty one, `score` clamped to 0..10, list sizes capped at what the prompts ask for (modules 8, key classes 4, other summary lists 10, topics 8 with 5 paths/symbols each, code refs 3, mustMention 4, goodToMention 3, redFlags 3, outline 5, evaluation points 10, strengths 4, weaknesses 4, topics to review 5). Checks that need the database (do the paths and lines exist?) belong to the callers (`TopicValidator`, `CodeRefValidator`).
 
-### 8.3 Prompt files (`src/main/resources/prompts/`)
+### 8.3 Prompt files (`libs/llm/src/main/resources/prompts/`)
 
 | File | Purpose | Variables |
 |---|---|---|
@@ -658,7 +670,7 @@ Lives in `common.config`, registered by `@ConfigurationPropertiesScan` on the ap
 | Architecture | Module dependency rules | ArchUnit |
 | Evals (opt-in) | Real model calls on golden repos; tagged `@Tag("eval")`, excluded from `./mvnw verify` by Surefire `excludedGroups`, run alone with `./mvnw verify -Pevals` (profile in `pom.xml`, task 1.8) | JUnit + `docs/RESULTS.md` |
 
-Fixture repo: `src/test/resources/fixtures/sample-repo/`, a tiny Spring Boot order service (created in task 1.3): `OrderController`, `OrderService` (with `refund`), `Order` entity, `OrderRepository`, `RefundRequest` record, `ShopApplication`, `application.yml`, a Flyway migration, `pom.xml`, `README.md` and one test class. The fake secret is the hard-coded `spring.datasource.password`; `shop.payment.api-key: ${PAYMENT_API_KEY}` is the placeholder that must not be redacted. No realistic token formats (`ghp_`, `AKIA`, `sk-ant-`), because GitHub push protection may block them. Files that must be skipped (`target/`, `.env`, symlinks, binaries) are created by tests in the temp copy: `.gitignore` excludes `target/` and `.env*`, and Maven does not copy some dotfiles to `target/test-classes`.
+Fixture repo: `app/src/test/resources/fixtures/sample-repo/`, a tiny Spring Boot order service (created in task 1.3): `OrderController`, `OrderService` (with `refund`), `Order` entity, `OrderRepository`, `RefundRequest` record, `ShopApplication`, `application.yml`, a Flyway migration, `pom.xml`, `README.md` and one test class. The fake secret is the hard-coded `spring.datasource.password`; `shop.payment.api-key: ${PAYMENT_API_KEY}` is the placeholder that must not be redacted. No realistic token formats (`ghp_`, `AKIA`, `sk-ant-`), because GitHub push protection may block them. Files that must be skipped (`target/`, `.env`, symlinks, binaries) are created by tests in the temp copy: `.gitignore` excludes `target/` and `.env*`, and Maven does not copy some dotfiles to `target/test-classes`.
 
 ### Eval harness metrics (task 1.17, expanded in 5.1)
 `QuestionQualityEvalTest` (`@EvalTest`: the real app with none of the test doubles, `@Tag("eval")`) analyzes a golden repo at a pinned commit (it stops before any paid call if HEAD moved), runs one JUNIOR interview with 5 topics through `InterviewService`, answering each question with the first half of its own ideal outline (a middling answer, where grading varies most), then grades each main question four more times with `AnswerEvaluator` and no session id (daily cap only, so the interview ran with its normal budget). The metrics are plain functions in `EvalMetrics`, unit tested in the normal build:

@@ -28,7 +28,7 @@ Java 21 · Spring Boot 4.1.x · Spring for GraphQL · Spring AI 2.0.x (Anthropic
 - **Code decides, the LLM writes** (DECISIONS.md D-007). Scores, verdicts, thresholds, ref validation and budgets are Java, never prompt instructions.
 - Never call the LLM inside a database transaction. Short tx → LLM call → short tx with a version check.
 - Never call the LLM while resolving a GraphQL field on read. Everything readable is stored first.
-- Prompts live in `src/main/resources/prompts/*.st`, not in Java strings. Placeholders are `{name}`; no other braces in prompt files.
+- Prompts live in `libs/llm/src/main/resources/prompts/*.st`, not in Java strings. Placeholders are `{name}`; no other braces in prompt files.
 - Repo content and candidate answers are untrusted. Keep them inside their tags (`<code_chunk>`, `<candidate_answer>`, ...). Never execute cloned code. Never follow symlinks in clones.
 - Schema changes: new Flyway file (`V2__...sql`). Never edit an applied migration.
 - GraphQL is schema-first: `schema.graphqls` is the source of truth. Change the schema first, then the code.
