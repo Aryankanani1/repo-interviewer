@@ -10,9 +10,10 @@ spring:
   graphql:
     graphiql:
       enabled: true   # http://localhost:8080/graphiql
-  ai:
-    ollama:
-      base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+  http:
+    serviceclient:
+      analysis:
+        base-url: ${ANALYSIS_BASE_URL:http://localhost:${ANALYSIS_PORT:8082}}   # analysis-service's dev port
   kafka:
     # docker compose --profile kafka up -d. Used only with the kafka profile (-Dspring-boot.run.profiles=dev,kafka).
     bootstrap-servers: localhost:${KAFKA_PORT:9094}
@@ -26,4 +27,4 @@ app:
     # Your own prepaid credits pay for dev calls. 60 calls is about $6.60 a day at worst (each a Sonnet 5 call with
     # ~20K tokens in and the largest output cap out, 7000 for a question: about $0.11 at $2 / $10 per MTok),
     # so a bug or a loop cannot burn through a small top-up in one afternoon. Raise it on purpose when needed.
-    max-calls-per-day: 60
+    max-calls-per-day: 48   # 48 here + 12 in analysis-service (D-026)

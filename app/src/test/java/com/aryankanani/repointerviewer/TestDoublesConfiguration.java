@@ -1,13 +1,11 @@
 package com.aryankanani.repointerviewer;
 
-import javax.sql.DataSource;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 
 /**
- * Replaces ports that would reach the outside world (GitHub, the analysis pipeline, Ollama, Claude) in integration
- * tests.
+ * Replaces ports that would reach the outside world (analysis-service, Claude) in integration tests.
  * {@code @Primary} wins over the production bean of the same type. Part of {@link IntegrationTest}, so all
  * tests share these beans: reset them in {@code @BeforeEach}.
  */
@@ -23,23 +21,14 @@ public class TestDoublesConfiguration {
 		return new SqlStatementCounter();
 	}
 
+	/**
+	 * Wins over the HTTP client for analysis-service (task 4.1), which is created but never called: projects and the
+	 * fixture repository's code without another service (its own test is {@code AnalysisClientTest}).
+	 */
 	@Bean
 	@Primary
-	LocalDirectoryRepoFetcher localDirectoryRepoFetcher() {
-		return new LocalDirectoryRepoFetcher();
-	}
-
-	@Bean
-	@Primary
-	RecordingAnalysisPipeline recordingAnalysisPipeline(DataSource dataSource) {
-		return new RecordingAnalysisPipeline(dataSource);
-	}
-
-	/** Wins over Spring AI's auto-configured OllamaEmbeddingModel, which is created but never called. */
-	@Bean
-	@Primary
-	FakeEmbeddingModel fakeEmbeddingModel() {
-		return new FakeEmbeddingModel();
+	FakeAnalysisApi fakeAnalysisApi() {
+		return new FakeAnalysisApi();
 	}
 
 	/** Wins over SpringAiLlmGateway, which is created but never called (its own tests build one by hand). */

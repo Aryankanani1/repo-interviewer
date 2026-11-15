@@ -17,12 +17,10 @@ import org.springframework.kafka.annotation.KafkaListener;
  */
 class KafkaListenerRolesTest {
 
-	private static final String ANALYSIS = "${app.roles.analysis-worker}";
-
 	private static final String INTERVIEW = "${app.roles.interview-worker}";
 
+	/** The analysis consumers are analysis-service's since task 4.1 (its own copy of this test). */
 	private static final Map<String, String> EXPECTED = Map.of(
-			"IngestConsumer", ANALYSIS, "EmbedConsumer", ANALYSIS, "SummaryConsumer", ANALYSIS,
 			"AnswerEvaluationConsumer", INTERVIEW, "InterviewOrchestrator", INTERVIEW,
 			"InterviewEventsFanOut", "${app.roles.api}");
 

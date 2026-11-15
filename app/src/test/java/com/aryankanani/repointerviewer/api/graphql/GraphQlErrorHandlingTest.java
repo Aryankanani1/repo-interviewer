@@ -2,9 +2,8 @@ package com.aryankanani.repointerviewer.api.graphql;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.aryankanani.repointerviewer.FakeEmbeddingModel;
+import com.aryankanani.repointerviewer.FakeAnalysisApi;
 import com.aryankanani.repointerviewer.FakeLlmGateway;
-import com.aryankanani.repointerviewer.FixtureIndexer;
 import com.aryankanani.repointerviewer.IntegrationTest;
 import com.aryankanani.repointerviewer.llm.LlmPurpose;
 import java.util.List;
@@ -34,28 +33,25 @@ class GraphQlErrorHandlingTest {
 
 	private final GraphQlTester graphQlTester;
 
-	private final FixtureIndexer fixture;
+	private final FakeAnalysisApi fixture;
 
 	private final FakeLlmGateway llm;
 
-	private final FakeEmbeddingModel embeddingModel;
-
 	private final JdbcTemplate jdbc;
 
-	GraphQlErrorHandlingTest(@Autowired GraphQlTester graphQlTester, @Autowired FixtureIndexer fixture,
-			@Autowired FakeLlmGateway llm, @Autowired FakeEmbeddingModel embeddingModel, @Autowired JdbcTemplate jdbc) {
+	GraphQlErrorHandlingTest(@Autowired GraphQlTester graphQlTester, @Autowired FakeAnalysisApi fixture,
+			@Autowired FakeLlmGateway llm, @Autowired JdbcTemplate jdbc) {
 		this.graphQlTester = graphQlTester;
 		this.fixture = fixture;
 		this.llm = llm;
-		this.embeddingModel = embeddingModel;
 		this.jdbc = jdbc;
 	}
 
 	@BeforeEach
 	void resetState() {
-		jdbc.update("DELETE FROM project");
+		jdbc.update("DELETE FROM interview_session");   // cascades to topics, questions and answers
+		fixture.reset();
 		llm.reset();
-		embeddingModel.reset();
 	}
 
 	/** A real bug path, no mocks: a stored JSON value Hibernate cannot read. */

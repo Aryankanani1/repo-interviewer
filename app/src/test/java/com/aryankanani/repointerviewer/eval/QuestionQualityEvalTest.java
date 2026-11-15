@@ -4,12 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
 import com.aryankanani.repointerviewer.EvalTest;
-import com.aryankanani.repointerviewer.codebase.CodebaseQueries;
-import com.aryankanani.repointerviewer.codebase.fetch.GithubUrl;
-import com.aryankanani.repointerviewer.codebase.fetch.RepoFetcher;
+import com.aryankanani.repointerviewer.contracts.analysis.AnalysisApi;
 import com.aryankanani.repointerviewer.contracts.analysis.AnalysisStatus;
-import com.aryankanani.repointerviewer.contracts.analysis.ProjectContext;
+import com.aryankanani.repointerviewer.contracts.analysis.ProjectDto;
 import com.aryankanani.repointerviewer.contracts.analysis.SnippetRef;
+import com.aryankanani.repointerviewer.contracts.analysis.SubmitProjectRequest;
 import com.aryankanani.repointerviewer.eval.EvalMetrics.AskedQuestion;
 import com.aryankanani.repointerviewer.eval.EvalMetrics.Ratio;
 import com.aryankanani.repointerviewer.interview.Difficulty;
@@ -23,8 +22,6 @@ import com.aryankanani.repointerviewer.interview.SubmitAnswerResult;
 import com.aryankanani.repointerviewer.interview.evaluation.AnswerEvaluator;
 import com.aryankanani.repointerviewer.llm.LlmGateway;
 import com.aryankanani.repointerviewer.llm.LlmPurpose;
-import com.aryankanani.repointerviewer.project.ProjectService;
-import com.aryankanani.repointerviewer.project.SubmitProjectCommand;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.util.HashMap;
@@ -45,7 +42,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * runs (tasks 1.15, 1.16), so the numbers compare. About 38 real calls, about $0.90 and 12 minutes: ask first.
  *
  * <ol>
- * <li>Analyze the repo for real: clone, Ollama embeddings, Haiku summary.</li>
+ * <li>Analyze the repo for real: clone, Ollama embeddings, Haiku summary. Since task 4.1 that is analysis-service's
+ * job, over HTTP: it must run too (dev: {@code ./mvnw -pl analysis-service -am spring-boot:run}, see {@code EvalTest}).
+ * </li>
  * <li>One JUNIOR interview with 5 topics through {@link InterviewService}, as a candidate would run it. Every answer
  * is the first half of the question's own ideal outline: a middling answer, where a grader is least consistent and
  * a follow-up can happen.</li>
@@ -67,7 +66,7 @@ class QuestionQualityEvalTest {
 	private static final String PINNED_COMMIT = "0d2ffc0";
 
 	/** The candidate context of the first real run, so the plan sees the same input. */
-	private static final SubmitProjectCommand SUBMIT = new SubmitProjectCommand(REPO,
+	private static final SubmitProjectRequest SUBMIT = new SubmitProjectRequest(REPO,
 			"Spring Boot shopping cart REST API with Spring Security, JPA, and MySQL", "e-commerce",
 			"new-grad backend SWE");
 
@@ -78,30 +77,23 @@ class QuestionQualityEvalTest {
 
 	private final Environment environment;
 
-	private final RepoFetcher repoFetcher;
-
-	private final ProjectService projectService;
+	private final AnalysisApi analysisApi;
 
 	private final InterviewService interviewService;
 
 	private final AnswerEvaluator evaluator;
 
-	private final CodebaseQueries codebase;
-
 	private final LlmGateway llm;
 
 	private final JdbcTemplate jdbc;
 
-	QuestionQualityEvalTest(@Autowired Environment environment, @Autowired RepoFetcher repoFetcher,
-			@Autowired ProjectService projectService, @Autowired InterviewService interviewService,
-			@Autowired AnswerEvaluator evaluator, @Autowired CodebaseQueries codebase, @Autowired LlmGateway llm,
+	QuestionQualityEvalTest(@Autowired Environment environment, @Autowired AnalysisApi analysisApi,
+			@Autowired InterviewService interviewService, @Autowired AnswerEvaluator evaluator, @Autowired LlmGateway llm,
 			@Autowired JdbcTemplate jdbc) {
 		this.environment = environment;
-		this.repoFetcher = repoFetcher;
-		this.projectService = projectService;
+		this.analysisApi = analysisApi;
 		this.interviewService = interviewService;
 		this.evaluator = evaluator;
-		this.codebase = codebase;
 		this.llm = llm;
 		this.jdbc = jdbc;
 	}
@@ -114,20 +106,22 @@ class QuestionQualityEvalTest {
 	void eCommerceRepo() {
 		assertThat(environment.getProperty("ANTHROPIC_API_KEY")).as("ANTHROPIC_API_KEY in .env (see .env.example)")
 				.isNotBlank();
-		// Free (ls-remote), before anything that costs money.
-		assertThat(repoFetcher.resolveHead(GithubUrl.parse(REPO)).commitSha())
+		long analysisStart = System.nanoTime();
+		ProjectDto project = analysisApi.submit(SUBMIT);
+		// Checked before any interview call. If the repo moved, analysis-service still analyzes the new commit (one
+		// Haiku summary, about $0.005): it no longer has a free check of its own to call first.
+		assertThat(project.commitSha())
 				.as("the golden repo moved since tasks 1.15/1.16: re-pin PINNED_COMMIT, the numbers no longer compare")
 				.startsWith(PINNED_COMMIT);
-
-		long analysisStart = System.nanoTime();
-		UUID projectId = projectService.submit(SUBMIT).getId();
+		UUID projectId = project.id();
 		await().atMost(Duration.ofMinutes(10)).pollInterval(Duration.ofSeconds(2)).until(() -> {
-			AnalysisStatus status = projectService.context(projectId).map(ProjectContext::status).orElseThrow();
+			AnalysisStatus status = analysisApi.context(projectId).status();
 			return status == AnalysisStatus.READY || status == AnalysisStatus.FAILED;
 		});
 		Duration analysis = Duration.ofNanos(System.nanoTime() - analysisStart);
-		assertThat(projectService.context(projectId).orElseThrow().status())
-				.as("analysis FAILED: see the log (Ollama running? network?)").isEqualTo(AnalysisStatus.READY);
+		assertThat(analysisApi.context(projectId).status())
+				.as("analysis FAILED: see analysis-service's log (Ollama running? network?)")
+				.isEqualTo(AnalysisStatus.READY);
 
 		StartResult started = interviewService.start(new StartInterviewCommand(projectId, Difficulty.JUNIOR, null, 5));
 		assertThat(started.error()).as("startInterview").isNull();
@@ -153,7 +147,7 @@ class QuestionQualityEvalTest {
 				grade(projectId, question, INJECTION), grade(projectId, question, EMPTY))).toList();
 		assertThat(main).hasSizeGreaterThanOrEqualTo(3);
 
-		Set<String> names = EvalMetrics.symbolNames(codebase.symbols(projectId));
+		Set<String> names = EvalMetrics.symbolNames(analysisApi.codeNames(projectId).symbols());
 		Ratio grounding = EvalMetrics.count(asked, question -> showsCode(projectId, question));
 		Ratio topicsAsked = jdbc.queryForObject("""
 				SELECT count(*) FILTER (WHERE status <> 'SKIPPED'), count(*) FROM interview_topic WHERE session_id = ?
@@ -195,6 +189,7 @@ class QuestionQualityEvalTest {
 					.append(interviewGrades.get(question.getId())).append(" | ").append(extraGrades).append(" | ")
 					.append(text.length() > 90 ? text.substring(0, 90) + "…" : text).append(" |\n");
 		}
+		// This app's calls only: the SUMMARY call is in analysis-service's own llm_call table (task 4.1).
 		out.append("\n| Purpose | Model | Calls | Failed | p50 | p95 | Max output tokens | Input tokens | Output tokens |\n");
 		jdbc.query("""
 				SELECT purpose, model, count(*) AS calls, count(*) FILTER (WHERE NOT success) AS failed,
@@ -222,7 +217,7 @@ class QuestionQualityEvalTest {
 
 	/** Grounding: at least one of the question's refs resolves to code the candidate sees (not a header-only ref). */
 	private boolean showsCode(UUID projectId, Question question) {
-		return codebase.snippets(question.getCodeRefs().stream()
+		return analysisApi.snippets(question.getCodeRefs().stream()
 				.map(ref -> new SnippetRef(projectId, ref.path(), ref.startLine(), ref.endLine())).toList())
 				.stream().anyMatch(Objects::nonNull);
 	}

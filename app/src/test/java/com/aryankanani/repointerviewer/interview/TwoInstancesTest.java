@@ -3,8 +3,8 @@ package com.aryankanani.repointerviewer.interview;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
+import com.aryankanani.repointerviewer.FakeAnalysisApi;
 import com.aryankanani.repointerviewer.FakeLlmGateway;
-import com.aryankanani.repointerviewer.FixtureIndexer;
 import com.aryankanani.repointerviewer.KafkaIntegrationTest;
 import com.aryankanani.repointerviewer.KafkaListeners;
 import com.aryankanani.repointerviewer.RepoInterviewerApplication;
@@ -55,7 +55,7 @@ class TwoInstancesTest {
 
 	private final GraphQlTester graphQlTester;
 
-	private final FixtureIndexer fixture;
+	private final FakeAnalysisApi fixture;
 
 	private final FakeLlmGateway llm;
 
@@ -67,7 +67,7 @@ class TwoInstancesTest {
 
 	private final List<Disposable> subscriptions = new CopyOnWriteArrayList<>();
 
-	TwoInstancesTest(@Autowired GraphQlTester graphQlTester, @Autowired FixtureIndexer fixture,
+	TwoInstancesTest(@Autowired GraphQlTester graphQlTester, @Autowired FakeAnalysisApi fixture,
 			@Autowired FakeLlmGateway llm, @Autowired JdbcTemplate jdbc, @Autowired ApplicationContext context) {
 		this.graphQlTester = graphQlTester;
 		this.fixture = fixture;
@@ -123,7 +123,8 @@ class TwoInstancesTest {
 	void aClientOnEitherInstanceGetsTheEventsOfWorkDoneByEither() {
 		KafkaListeners.awaitAssigned(context, InterviewEventsFanOut.LISTENER_ID, 6);
 		KafkaListeners.awaitAssigned(instanceB, InterviewEventsFanOut.LISTENER_ID, 6);
-		jdbc.update("DELETE FROM project");
+		jdbc.update("DELETE FROM interview_session");   // cascades to topics, questions and answers
+		fixture.reset();
 		llm.reset();
 		FakeLlmGateway llmB = instanceB.getBean(FakeLlmGateway.class);
 		llmB.reset();

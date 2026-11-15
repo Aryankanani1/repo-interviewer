@@ -1,8 +1,7 @@
 package com.aryankanani.repointerviewer.api.graphql;
 
-import com.aryankanani.repointerviewer.FakeEmbeddingModel;
+import com.aryankanani.repointerviewer.FakeAnalysisApi;
 import com.aryankanani.repointerviewer.FakeLlmGateway;
-import com.aryankanani.repointerviewer.FixtureIndexer;
 import com.aryankanani.repointerviewer.IntegrationTest;
 import com.aryankanani.repointerviewer.llm.LlmPurpose;
 import com.aryankanani.repointerviewer.llm.output.CodeRefOutput;
@@ -40,31 +39,28 @@ class EndInterviewGraphQlTest {
 
 	private final GraphQlTester graphQlTester;
 
-	private final FixtureIndexer fixture;
+	private final FakeAnalysisApi fixture;
 
 	private final FakeLlmGateway llm;
-
-	private final FakeEmbeddingModel embeddingModel;
 
 	private final JdbcTemplate jdbc;
 
 	private String sessionId;
 
 	@Autowired
-	EndInterviewGraphQlTest(GraphQlTester graphQlTester, FixtureIndexer fixture, FakeLlmGateway llm,
-			FakeEmbeddingModel embeddingModel, JdbcTemplate jdbc) {
+	EndInterviewGraphQlTest(GraphQlTester graphQlTester, FakeAnalysisApi fixture, FakeLlmGateway llm,
+			JdbcTemplate jdbc) {
 		this.graphQlTester = graphQlTester;
 		this.fixture = fixture;
 		this.llm = llm;
-		this.embeddingModel = embeddingModel;
 		this.jdbc = jdbc;
 	}
 
 	@BeforeEach
 	void startAndAnswerOnce() {
-		jdbc.update("DELETE FROM project");
+		jdbc.update("DELETE FROM interview_session");   // cascades to topics, questions and answers
+		fixture.reset();
 		llm.reset();
-		embeddingModel.reset();
 		String project = fixture.readyProject().toString();
 		llm.enqueue(LlmPurpose.QUESTION, new QuestionOutput("Why a RefundRequest body?",
 				List.of(new CodeRefOutput("src/main/java/com/example/shop/order/OrderController.java", 27, 30)),

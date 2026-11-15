@@ -13,7 +13,8 @@ import java.util.stream.Collectors;
 /**
  * The real app in a JVM of its own (task 2.7), so a test can kill it the way a crash does: {@link #kill} is SIGKILL,
  * with no shutdown hooks, no offset commit and no goodbye to the consumer group. Started from the test's own
- * classpath without {@code test-classes} (none of the test doubles), in an empty working directory (so no
+ * classpath without {@code test-classes} and {@code libs/test-support} (none of the test doubles; a scanned
+ * {@code KafkaContainerConfiguration} would start a broker of its own), in an empty working directory (so no
  * {@code .env} with a real API key is read), and without {@code ANTHROPIC_API_KEY} in its environment.
  */
 public final class WorkerProcess implements AutoCloseable {
@@ -28,7 +29,7 @@ public final class WorkerProcess implements AutoCloseable {
 	public static WorkerProcess start(List<String> arguments, Path log) throws IOException {
 		String java = ProcessHandle.current().info().command().orElse("java");
 		String classpath = Arrays.stream(System.getProperty("java.class.path").split(File.pathSeparator))
-				.filter(entry -> !entry.endsWith("test-classes"))
+				.filter(entry -> !entry.endsWith("test-classes") && !entry.contains("test-support"))
 				.collect(Collectors.joining(File.pathSeparator));
 		List<String> command = new ArrayList<>(List.of(java, "-Xmx512m", "-cp", classpath,
 				RepoInterviewerApplication.class.getName()));

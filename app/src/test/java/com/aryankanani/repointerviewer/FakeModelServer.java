@@ -6,8 +6,6 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -15,16 +13,14 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * A stand-in for the Anthropic Messages API and Ollama's embeddings on localhost (task 2.7), for an app process whose
- * real {@code SpringAiLlmGateway} and embedding client are pointed here ({@code spring.ai.anthropic.base-url},
- * {@code spring.ai.ollama.base-url}): no network, no cost. It answers EVALUATION and QUESTION requests (told apart by
- * the output schema's field names) with canned JSON about the fixture repository, and Ollama's {@code /api/embed}
- * with constant 768-dimension vectors (retrieval for the next question embeds its query). It can hold the first
- * EVALUATION request open, so a test knows a worker is in the middle of that call.
+ * A stand-in for the Anthropic Messages API on localhost (task 2.7), for an app process whose real
+ * {@code SpringAiLlmGateway} is pointed here ({@code spring.ai.anthropic.base-url}): no network, no cost. It answers
+ * EVALUATION and QUESTION requests (told apart by the output schema's field names) with canned JSON about the fixture
+ * repository. It can hold the first EVALUATION request open, so a test knows a worker is in the middle of that call.
+ * (Embeddings were faked here too until task 4.1: retrieval is analysis-service's now, see {@link FakeAnalysisServer}.)
  */
 public final class FakeModelServer implements AutoCloseable {
 
@@ -97,14 +93,6 @@ public final class FakeModelServer implements AutoCloseable {
 
 	private void handle(HttpExchange exchange) throws IOException {
 		String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
-		if (exchange.getRequestURI().getPath().equals("/api/embed")) {
-			JsonNode input = JSON.readTree(body).path("input");
-			float[] vector = new float[768];
-			Arrays.fill(vector, 0.01f);
-			respond(exchange, JSON.writeValueAsBytes(Map.of("model", "nomic-embed-text", "embeddings",
-					Collections.nCopies(input.isArray() ? input.size() : 1, vector))));
-			return;
-		}
 		Map<String, Object> output;
 		if (body.contains("followUpNeeded")) {
 			int number = evaluationRequests.incrementAndGet();

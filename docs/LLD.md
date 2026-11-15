@@ -49,23 +49,31 @@ A modular monolith: one deployable, packages as modules, dependencies one-way, e
 
 ### Maven modules (task 4.1, DECISIONS.md D-026)
 
-The root `pom.xml` is the parent of every module: versions, BOMs, the `eval` test switch. `./mvnw verify` at the root builds and tests all modules in dependency order; `./mvnw spring-boot:run` starts only the app (the parent sets `spring-boot.run.skip`, the app turns it off), in the root folder so `.env` is found. Step 1 moved files only: no package, class or behavior changed.
+The root `pom.xml` is the parent of every module: versions, BOMs, the `eval` test switch. `./mvnw verify` at the root builds and tests all modules in dependency order. `spring-boot:run` is skipped in the libraries (the parent sets `spring-boot.run.skip`, each app turns it off) and runs in the root folder so `.env` is found; since step 2b there are two apps, so start each one with `-pl`: `./mvnw -pl analysis-service -am spring-boot:run` (port 8082) and `./mvnw -pl app -am spring-boot:run` (8080). Step 1 moved files only: no package, class or behavior changed.
 
 | Module | Holds | May depend on |
 |---|---|---|
 | `libs/common` | `ri.common..` | Spring Boot starters only |
 | `libs/llm` | `ri.llm..` and `prompts/*.st` | `common` |
 | `libs/contracts` (step 2a) | `ri.contracts..`: `AnalysisApi` and the records it sends | `spring-web` only (the `@HttpExchange` annotations) |
-| `app` (until step 4) | everything else: `api`, `project`, `codebase`, `interview`, `application*.yml`, migrations, the GraphQL schema | `common`, `llm`, `contracts` |
+| `libs/test-support` (step 2b, test scope only) | `FakeLlmGateway`, `FakeAnalysisApi` + `FixtureAnalysis` (snapshot `fixtures/sample-repo-analysis.json`), the Kafka test helpers | `common`, `llm`, `contracts`, Spring Boot test |
+| `analysis-service` (step 2b) | `project`, `codebase`, `AnalysisServiceApplication`, its own `application*.yml`, `db/migration` (schema `analysis`) and `db/bootstrap.sql` | `common`, `llm`, `contracts` |
+| `app` (until step 4) | `api`, `interview`, `RepoInterviewerApplication`, `AnalysisClientConfiguration`, `application*.yml`, migrations (schema `public`), the GraphQL schema | `common`, `llm`, `contracts` |
 
-Maven now enforces part of the table below: `common` does not compile against `llm` or `app`, and `llm` does not compile against `app`. The rest is still `ArchitectureTest`, which runs in `app` and also reads the libraries' classes from their jars. A library's unit tests live in its module; tests that need the whole application stay in `app` for now. Steps 2 and 3 move `project` and `codebase` into `analysis-service` and `interview` into `interview-service`; `app` becomes `graphql-gateway` in step 4.
+Maven enforces part of the table below: a module compiles only against what its pom lists, so `app` cannot use a class of `analysis-service` and the libraries cannot use either app. The rest is each app's `ArchitectureTest` (its own module rules, with the libraries' classes read from their jars; `libs/test-support` left out). A library's unit tests live in its module.
+
+`app` reaches `analysis-service` only over HTTP: `AnalysisClientConfiguration` turns `AnalysisApi` into a client with `@ImportHttpServices` (base URL and timeouts in `spring.http.serviceclient.analysis.*`), and `common.web.DomainErrorHandler` turns analysis-service's problem details back into the same `DomainException` (503 LLM_UNAVAILABLE into `RemoteModelUnavailableException`, so workers retry it). The app's tests use `FakeAnalysisApi` instead; `FakeAnalysisApiContractTest` (analysis-service) checks that it answers like the real service, and `FixtureSnapshotTest` that its snapshot is up to date. Step 3 moves `interview` into `interview-service`; `app` becomes `graphql-gateway` in step 4.
 
 ```
 ri
-├── RepoInterviewerApplication.java
+├── RepoInterviewerApplication.java, AnalysisClientConfiguration   # app (AnalysisApi over HTTP, task 4.1)
+├── AnalysisServiceApplication.java                                 # analysis-service (task 4.1)
 ├── common/                 # shared kernel: ids, clock, errors, token estimator, JSON helpers
-│   ├── error/              # DomainException, ErrorCode (mirrors GraphQL enum)
+│   ├── error/              # DomainException, ErrorCode (mirrors GraphQL enum), ModelUnavailableException,
+│   │                       #   RemoteModelUnavailableException (another service's 503, task 4.1)
 │   ├── config/             # AppProperties (@ConfigurationProperties "app")
+│   ├── web/                # task 4.1: DomainProblems (DomainException <-> problem detail), DomainErrorHandler
+│   │                       #   (a RestClient's errors back into the same exceptions)
 │   └── messaging/          # Phase 2: Topics, KafkaTopicConfig (kafka profile), OutboxWriter, OutboxRelay
 │                           #   (kafka profile), EventEnvelope, AggregateType; OutboxEvent entity stays inside;
 │                           #   ProcessedEvents, EventAlreadyProcessed (idempotent consumers, task 2.3);
@@ -80,7 +88,7 @@ ri
 │   ├── LlmCallLedger.java          # writes llm_call rows (LlmCall entity, LlmCallRepository)
 │   ├── BudgetExceededException, LlmUnavailableException, LlmOutputException   # DomainException subclasses
 │   └── output/                     # records the model must return (structured output), LlmOutput
-├── codebase/               # files, chunks, embeddings, repo map, retrieval
+├── codebase/               # analysis-service: files, chunks, embeddings, repo map, retrieval
 │   ├── CodebaseIndexer, IndexResult, SummarySources   # the PARSING stage as one call (task 1.9)
 │   ├── CodebaseQueries     # read-only lookups (known names, paths, symbols, snippets); others use AnalysisApi
 │   ├── fetch/              # RepoFetcher, JGitRepoFetcher, LocalDirectoryRepoFetcher (tests),
@@ -98,7 +106,7 @@ ri
 │                           #   it sends: ProjectDto, ProjectPage, ProjectContext, RepoSummary (JSONB, with
 │                           #   ModuleSummary), AnalysisStatus, CodeNames, TopicQuery, LineRange, SnippetRef,
 │                           #   ChunkSearchRequest, ChunkRangesRequest, RetrievedContext, RetrievedChunk
-├── project/                # project aggregate + analysis orchestration
+├── project/                # analysis-service: project aggregate + analysis orchestration
 │   ├── Project.java, ProjectRepository.java, ProjectService.java (submit, reanalyze)
 │   ├── AnalysisApiController       # AnalysisApi over ProjectService, CodebaseQueries, Retriever (task 4.1)
 │   ├── AnalysisApiErrors           # DomainException → problem detail with code and field (task 4.1)
@@ -212,6 +220,18 @@ public record RetrievedChunk(UUID id, String path, String symbol, int startLine,
 ## 4. Database
 
 DDL lives in `src/main/resources/db/migration/V1__init.sql`, plus `V2__code_file_content.sql` (one nullable column), `V3__outbox.sql` (§13.1) and `V4__project_summary_sources.sql` (two nullable columns). Notes:
+
+**Since task 4.1 step 2b (DECISIONS.md D-026): one Postgres, one schema and one user per service.**
+
+| Service | Schema, user | Migrations | Tables |
+|---|---|---|---|
+| analysis-service | `analysis`, `analysis_svc` | `analysis-service/.../db/migration/V1__init.sql` (the analysis tables of the old V1-V4 in one file) | `project`, `code_file`, `code_chunk`, `llm_call`, `outbox_event`, `processed_event` |
+| app | `public`, `ri` (dev) | `app/.../db/migration/V1-V5` | the interview tables, `llm_call`, `outbox_event`, `processed_event`; the old `project`, `code_file`, `code_chunk` are left unused and not copied (D-026) |
+
+- `analysis-service/.../db/bootstrap.sql`, run once by the database admin (Compose on a new volume, Testcontainers in the tests): creates `analysis_svc`, the schema `analysis` it owns, its `search_path` (`analysis, public`) and pgvector in `public`. The service's own user cannot create users, schemas or extensions. Postgres refuses it everything outside its schema (`SchemaIsolationTest`).
+- `V5__drop_project_foreign_keys.sql` (app): `interview_session.project_id` and `llm_call.project_id` keep the id but lose the foreign key, since projects are in another service. The interview code checks the project through `AnalysisApi.context` before it saves a session.
+- Each service's `llm_call` counts only its own calls, so the daily cap is per service (stage: 20 + 80).
+- Exact hits sort paths with `COLLATE "C"` (byte order): Postgres' default collation follows the locale and put `OrderController.java` before `Order.java`, so a prompt could differ between databases (found by `FakeAnalysisApiContractTest`).
 
 - `project (github_url, commit_sha)` is unique. That is how FR-2 (dedupe) works.
 - `code_chunk.path` is denormalized from `code_file` so ref validation is a single indexed query.

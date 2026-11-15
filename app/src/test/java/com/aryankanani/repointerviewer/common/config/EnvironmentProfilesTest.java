@@ -26,7 +26,7 @@ class EnvironmentProfilesTest {
 
 	/** What a stage or prod deployment provides as environment variables. */
 	private static final String[] DEPLOYMENT_VARIABLES = { "DB_URL=jdbc:postgresql://db:5432/repo_interviewer",
-			"DB_USER=ri", "DB_PASSWORD=from-a-secret", "OLLAMA_BASE_URL=http://ollama:11434" };
+			"DB_USER=ri", "DB_PASSWORD=from-a-secret", "ANALYSIS_BASE_URL=http://analysis-service:8080" };
 
 	private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
 			.withInitializer(new ConfigDataApplicationContextInitializer())   // loads application*.yml
@@ -73,7 +73,7 @@ class EnvironmentProfilesTest {
 		run("dev", context -> {
 			Environment env = context.getEnvironment();
 			assertThat(env.getProperty("spring.datasource.url")).startsWith("jdbc:postgresql://localhost:");
-			assertThat(env.getProperty("spring.ai.ollama.base-url")).startsWith("http://localhost:");
+			assertThat(env.getProperty("spring.http.serviceclient.analysis.base-url")).isEqualTo("http://localhost:8082");
 			assertThat(env.getProperty("logging.level.com.aryankanani.repointerviewer")).isEqualTo("DEBUG");
 		});
 	}
@@ -85,15 +85,16 @@ class EnvironmentProfilesTest {
 			Environment env = context.getEnvironment();
 			assertThat(env.getProperty("spring.datasource.url")).isEqualTo("jdbc:postgresql://db:5432/repo_interviewer");
 			assertThat(env.getProperty("spring.datasource.password")).isEqualTo("from-a-secret");
-			assertThat(env.getProperty("spring.ai.ollama.base-url")).isEqualTo("http://ollama:11434");
+			assertThat(env.getProperty("spring.http.serviceclient.analysis.base-url"))
+					.isEqualTo("http://analysis-service:8080");
 		});
 	}
 
 	@Test
-	void devAndStageCapDailyLlmCallsBelowProd() {
-		run("dev", context -> assertThat(context.getBean(AppProperties.class).llm().maxCallsPerDay()).isEqualTo(60));
-		run("stage", context -> assertThat(context.getBean(AppProperties.class).llm().maxCallsPerDay()).isEqualTo(100));
-		run("prod", context -> assertThat(context.getBean(AppProperties.class).llm().maxCallsPerDay()).isEqualTo(300));
+	void devAndStageCapDailyLlmCallsBelowProd() {   // 4/5 of the old caps; analysis-service has the rest (D-026)
+		run("dev", context -> assertThat(context.getBean(AppProperties.class).llm().maxCallsPerDay()).isEqualTo(48));
+		run("stage", context -> assertThat(context.getBean(AppProperties.class).llm().maxCallsPerDay()).isEqualTo(80));
+		run("prod", context -> assertThat(context.getBean(AppProperties.class).llm().maxCallsPerDay()).isEqualTo(240));
 	}
 
 	/**

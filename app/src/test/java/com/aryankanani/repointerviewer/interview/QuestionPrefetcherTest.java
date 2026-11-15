@@ -2,9 +2,8 @@ package com.aryankanani.repointerviewer.interview;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.aryankanani.repointerviewer.FakeEmbeddingModel;
+import com.aryankanani.repointerviewer.FakeAnalysisApi;
 import com.aryankanani.repointerviewer.FakeLlmGateway;
-import com.aryankanani.repointerviewer.FixtureIndexer;
 import com.aryankanani.repointerviewer.IntegrationTest;
 import com.aryankanani.repointerviewer.llm.LlmPurpose;
 import com.aryankanani.repointerviewer.llm.LlmUnavailableException;
@@ -40,11 +39,9 @@ class QuestionPrefetcherTest {
 
 	private final QuestionRepository questions;
 
-	private final FixtureIndexer fixture;
+	private final FakeAnalysisApi fixture;
 
 	private final FakeLlmGateway llm;
-
-	private final FakeEmbeddingModel embeddingModel;
 
 	private final JdbcTemplate jdbc;
 
@@ -56,24 +53,22 @@ class QuestionPrefetcherTest {
 
 	QuestionPrefetcherTest(@Autowired InterviewService interviewService, @Autowired QuestionPrefetcher prefetcher,
 			@Autowired InterviewTopicRepository topics, @Autowired QuestionRepository questions,
-			@Autowired FixtureIndexer fixture, @Autowired FakeLlmGateway llm,
-			@Autowired FakeEmbeddingModel embeddingModel, @Autowired JdbcTemplate jdbc) {
+			@Autowired FakeAnalysisApi fixture, @Autowired FakeLlmGateway llm, @Autowired JdbcTemplate jdbc) {
 		this.interviewService = interviewService;
 		this.prefetcher = prefetcher;
 		this.topics = topics;
 		this.questions = questions;
 		this.fixture = fixture;
 		this.llm = llm;
-		this.embeddingModel = embeddingModel;
 		this.jdbc = jdbc;
 	}
 
 	/** The canned plan (OrderController, OrderService#refund, Order) and question 1 on OrderController#refund. */
 	@BeforeEach
 	void startInterview() {
-		jdbc.update("DELETE FROM project");
+		jdbc.update("DELETE FROM interview_session");   // cascades to topics, questions and answers
+		fixture.reset();
 		llm.reset();
-		embeddingModel.reset();
 		UUID project = fixture.readyProject();
 		llm.enqueue(LlmPurpose.QUESTION, question("Why does OrderController#refund take a RefundRequest body?",
 				ORDER + "OrderController.java", 27, 30));

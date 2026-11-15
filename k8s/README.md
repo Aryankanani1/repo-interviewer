@@ -4,6 +4,11 @@ The whole app on a local Kubernetes cluster: Postgres with pgvector and Kafka ru
 the app as three Deployments of one image (task 3.3), and KEDA scaling the workers on Kafka consumer lag (task 3.4).
 Design notes: `docs/LLD.md` §14; decisions D-022 to D-025 in `docs/DECISIONS.md`.
 
+> **Behind main during task 4.1.** These manifests deploy the single app of Phase 3. Since task 4.1 step 2b the app
+> calls `analysis-service` over HTTP, which is not deployed here yet: an image built from main now cannot analyze or
+> interview in the cluster. Task 4.1 step 4 adds one Deployment per service; until then, use the image built before
+> step 2b, or run the services locally (README).
+
 ```mermaid
 flowchart LR
   you["kubectl, k6, curl<br/>on the Mac"]

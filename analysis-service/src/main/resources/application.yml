@@ -1,0 +1,148 @@
+# analysis-service configuration (task 4.1, DECISIONS.md D-026): the default (base) settings that every environment
+# starts from, like the app's application.yml (environments: DECISIONS.md D-015). No localhost fallbacks here either.
+#
+# Its own database user and schema: DB_USER is analysis_svc in every environment, created once by the database admin
+# with db/bootstrap.sql. Flyway keeps its history table in the schema "analysis", and Hibernate validates and
+# writes the entities there; the user's search_path (analysis, public) resolves plain SQL and the pgvector type.
+
+spring:
+  application:
+    name: analysis-service
+  config:
+    import: optional:file:.env[.properties]
+  threads:
+    virtual:
+      enabled: true
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        default_schema: analysis
+  flyway:
+    enabled: true
+    schemas: analysis
+  # Kafka only with the "kafka" profile, as in the app (LLD §13): the analysis stages run on their own topics.
+  kafka:
+    admin:
+      fail-fast: true
+    producer:
+      properties:
+        max.block.ms: 5000
+        request.timeout.ms: 5000
+        delivery.timeout.ms: 10000
+    consumer:
+      auto-offset-reset: earliest
+      # One slow record per poll (embedding a big repo took 243 s in the 1.17 eval); 15 min like app.analysis.stale-after.
+      max-poll-records: 1
+      properties:
+        max.poll.interval.ms: 900000
+    listener:
+      ack-mode: record
+  ai:
+    model:
+      chat: anthropic        # the SUMMARY call
+      embedding: ollama
+    anthropic:
+      api-key: ${ANTHROPIC_API_KEY:}
+      max-retries: 2
+      chat:
+        model: claude-sonnet-5   # default; the gateway sets model and max tokens per purpose (app.llm.*)
+        max-tokens: 2048
+    ollama:
+      base-url: ${OLLAMA_BASE_URL}
+      embedding:
+        model: nomic-embed-text
+    retry:
+      max-attempts: 3
+
+server:
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        readiness:
+          include: readinessState,db
+
+logging:
+  pattern:
+    level: "%5p %X{projectId:-}%X{sessionId:-}"
+  level:
+    com.aryankanani.repointerviewer: INFO
+
+# AppProperties is still one record for both services (D-026): every section must be here, even the interview's,
+# which this service does not use. Split per service in task 4.1 step 4.
+app:
+  repo:
+    allowed-host: github.com
+    max-files: 1500
+    max-file-bytes: 300000
+    max-repo-bytes: 25000000
+    ls-remote-timeout: 15s
+    clone-timeout: 60s
+    work-dir: ${java.io.tmpdir}/analysis-service
+  chunking:
+    max-chunk-lines: 120
+    small-method-lines: 4
+  embedding:
+    batch-size: 32
+    dimensions: 768
+  retrieval:
+    top-k: 8
+    max-context-tokens: 6000
+  repo-map:
+    max-tokens: 12000
+  analysis:
+    stale-after: 15m
+  outbox:
+    poll-interval: 500ms
+    batch-size: 100
+  roles:
+    api: true                # this service's REST API (AnalysisApi)
+    analysis-worker: true    # the ingest, embed and summary consumers
+    interview-worker: false  # not in this service
+  consumer-retry:
+    max-retries: 3
+    initial-backoff: 1s
+  interview:                 # unused here (see above)
+    default-question-count: 5
+    min-question-count: 3
+    max-question-count: 8
+    max-follow-ups-per-topic: 1
+    follow-up-score-min: 3
+    follow-up-score-max: 7
+    answer-max-chars: 4000
+    prefetch-enabled: false
+  llm:
+    models:                  # this service makes only SUMMARY calls
+      summary: claude-haiku-4-5
+      plan: claude-sonnet-5
+      question: claude-sonnet-5
+      follow-up: claude-sonnet-5
+      evaluation: claude-sonnet-5
+      report: claude-haiku-4-5
+    max-output-tokens:
+      summary: 3000
+      plan: 3000
+      question: 7000
+      follow-up: 2000
+      evaluation: 3000
+      report: 3000
+    max-calls-per-session: 10   # no sessions here; must stay <= the smallest daily cap (dev: 12)
+    # The daily cap is per service (D-026), counted in this service's own llm_call table: 1/5 of the old total here,
+    # 4/5 in the app (dev 12 + 48, stage 20 + 80, prod 60 + 240).
+    max-calls-per-day: 60
+    timeout: 60s

@@ -1,19 +1,19 @@
 package com.aryankanani.repointerviewer.api.graphql;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
+import com.aryankanani.repointerviewer.FakeAnalysisApi;
 import com.aryankanani.repointerviewer.IntegrationTest;
-import com.aryankanani.repointerviewer.RecordingAnalysisPipeline;
-import com.aryankanani.repointerviewer.RecordingAnalysisPipeline.Start;
+import com.aryankanani.repointerviewer.contracts.analysis.AnalysisStatus;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.graphql.test.tester.GraphQlTester;
-import org.springframework.jdbc.core.JdbcTemplate;
 
-/** Task 1.9: {@code Mutation.reanalyzeProject}, and {@code Project.summary} read back from JSONB. */
+/**
+ * {@code Mutation.reanalyzeProject} and the {@code Project.summary} it shows (task 4.1: the rules are tested in
+ * analysis-service's {@code ReanalyzeProjectTest}).
+ */
 @IntegrationTest
 class ReanalyzeProjectTest {
 
@@ -28,47 +28,31 @@ class ReanalyzeProjectTest {
 
 	private final GraphQlTester graphQlTester;
 
-	private final JdbcTemplate jdbc;
+	private final FakeAnalysisApi analysis;
 
-	private final RecordingAnalysisPipeline pipeline;
-
-	ReanalyzeProjectTest(@Autowired GraphQlTester graphQlTester, @Autowired JdbcTemplate jdbc,
-			@Autowired RecordingAnalysisPipeline pipeline) {
+	ReanalyzeProjectTest(@Autowired GraphQlTester graphQlTester, @Autowired FakeAnalysisApi analysis) {
 		this.graphQlTester = graphQlTester;
-		this.jdbc = jdbc;
-		this.pipeline = pipeline;
+		this.analysis = analysis;
 	}
 
 	@BeforeEach
 	void resetState() {
-		jdbc.update("DELETE FROM project");
-		pipeline.reset();
+		analysis.reset();
 	}
 
 	@Test
-	void aFailedProjectIsSubmittedAgainAndStartsAfterCommit() {
-		UUID id = project("FAILED", "Analysis was interrupted. Use reanalyzeProject to retry.");
+	void aFailedProjectIsShownSubmittedAgain() {
+		UUID id = analysis.add(AnalysisStatus.FAILED).id();
 
 		GraphQlTester.Response response = reanalyze(id);
 
 		response.path("reanalyzeProject.errors").entityList(Object.class).hasSize(0);
 		response.path("reanalyzeProject.project.status").entity(String.class).isEqualTo("SUBMITTED");
 		response.path("reanalyzeProject.project.failureReason").valueIsNull();
-		assertThat(pipeline.starts()).containsExactly(new Start(id, true));
 	}
 
 	@Test
-	void aProjectThatDidNotFailIsReturnedUnchanged() {
-		UUID id = project("READY", null);
-
-		GraphQlTester.Response response = reanalyze(id);
-
-		response.path("reanalyzeProject.project.status").entity(String.class).isEqualTo("READY");
-		assertThat(pipeline.starts()).isEmpty();
-	}
-
-	@Test
-	void anUnknownProjectIsNotFound() {
+	void anUnknownProjectIsNotFoundOnTheProjectIdField() {
 		GraphQlTester.Response response = reanalyze(UUID.randomUUID());
 
 		response.path("reanalyzeProject.project").valueIsNull();
@@ -77,33 +61,21 @@ class ReanalyzeProjectTest {
 	}
 
 	@Test
-	void theStoredSummaryIsReadable() {
-		UUID id = project("READY", null);
-		jdbc.update("UPDATE project SET summary = CAST(? AS jsonb) WHERE id = ?", """
-				{"oneLiner": "A small order service.", "architectureStyle": "layered monolith",
-				 "techStack": ["Spring Boot"], "notablePatterns": [], "riskAreas": ["Refund races in OrderService"],
-				 "modules": [{"name": "order", "responsibility": "Orders", "keyClasses": ["OrderService"]}]}
-				""", id);
+	void theSummaryIsReadable() {
+		UUID id = analysis.readyProject();
 
 		graphQlTester.document("""
 				query ($id: ID!) { project(id: $id) { summary { oneLiner riskAreas modules { name keyClasses } } } }
 				""").variable("id", id).execute()
-				.path("project.summary.oneLiner").entity(String.class).isEqualTo("A small order service.")
-				.path("project.summary.riskAreas[0]").entity(String.class).isEqualTo("Refund races in OrderService")
+				.path("project.summary.oneLiner").entity(String.class)
+				.isEqualTo("A small order service that places and refunds orders.")
+				.path("project.summary.riskAreas[0]").entity(String.class)
+				.isEqualTo("Concurrent refunds on the same order in OrderService#refund")
 				.path("project.summary.modules[0].keyClasses[0]").entity(String.class).isEqualTo("OrderService");
 	}
 
 	private GraphQlTester.Response reanalyze(UUID id) {
 		return graphQlTester.document(REANALYZE).variable("input", Map.of("projectId", id)).execute();
-	}
-
-	private UUID project(String status, String failureReason) {
-		String repo = "shop-" + UUID.randomUUID();
-		return jdbc.queryForObject("""
-				INSERT INTO project (github_url, owner, repo_name, commit_sha, default_branch, status, failure_reason)
-				VALUES (?, 'acme', ?, '1111111111111111111111111111111111111111', 'main', ?, ?)
-				RETURNING id
-				""", UUID.class, "https://github.com/acme/" + repo, repo, status, failureReason);
 	}
 
 }

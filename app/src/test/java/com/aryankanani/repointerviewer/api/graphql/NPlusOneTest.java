@@ -2,8 +2,7 @@ package com.aryankanani.repointerviewer.api.graphql;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.aryankanani.repointerviewer.FakeEmbeddingModel;
-import com.aryankanani.repointerviewer.FixtureIndexer;
+import com.aryankanani.repointerviewer.FakeAnalysisApi;
 import com.aryankanani.repointerviewer.IntegrationTest;
 import com.aryankanani.repointerviewer.SqlStatementCounter;
 import java.util.List;
@@ -45,28 +44,25 @@ class NPlusOneTest {
 
 	private final SqlStatementCounter sql;
 
-	private final FixtureIndexer fixture;
-
-	private final FakeEmbeddingModel embeddingModel;
+	private final FakeAnalysisApi fixture;
 
 	private final JdbcTemplate jdbc;
 
 	private UUID project;
 
 	NPlusOneTest(@Autowired GraphQlTester graphQlTester, @Autowired SqlStatementCounter sql,
-			@Autowired FixtureIndexer fixture, @Autowired FakeEmbeddingModel embeddingModel,
+			@Autowired FakeAnalysisApi fixture,
 			@Autowired JdbcTemplate jdbc) {
 		this.graphQlTester = graphQlTester;
 		this.sql = sql;
 		this.fixture = fixture;
-		this.embeddingModel = embeddingModel;
 		this.jdbc = jdbc;
 	}
 
 	@BeforeEach
 	void readyProject() {
-		jdbc.update("DELETE FROM project");
-		embeddingModel.reset();
+		jdbc.update("DELETE FROM interview_session");   // cascades to topics, questions and answers
+		fixture.reset();
 		project = fixture.readyProject();
 	}
 

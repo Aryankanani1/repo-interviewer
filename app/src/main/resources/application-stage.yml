@@ -9,4 +9,4 @@ spring:
 
 app:
   llm:
-    max-calls-per-day: 100   # stage spends real money too: a lower cap than prod
+    max-calls-per-day: 80   # stage spends real money too: 80 here + 20 in analysis-service (D-026)

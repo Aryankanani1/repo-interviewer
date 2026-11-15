@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+	<parent>
+		<groupId>com.aryankanani</groupId>
+		<artifactId>repo-interviewer</artifactId>
+		<version>0.0.1-SNAPSHOT</version>
+		<relativePath>../../pom.xml</relativePath>
+	</parent>
+	<artifactId>test-support</artifactId>
+	<name>test-support</name>
+	<!-- Test code that more than one service needs (task 4.1): the fakes, a snapshot of the fixture repository's
+	     analysis, and the Kafka test helpers. Main code of this module, used only with <scope>test</scope>. -->
+	<description>Shared test doubles and helpers for the services' tests</description>
+
+	<dependencies>
+		<dependency>
+			<groupId>com.aryankanani</groupId>
+			<artifactId>common</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>com.aryankanani</groupId>
+			<artifactId>llm</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>com.aryankanani</groupId>
+			<artifactId>contracts</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-test</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-testcontainers</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>testcontainers-kafka</artifactId>
+		</dependency>
+	</dependencies>
+
+</project>

@@ -24,7 +24,11 @@ Evolves into Kafka-based pipelines (Phase 2), Kubernetes with lag-based autoscal
 cp .env.example .env            # add your ANTHROPIC_API_KEY
 docker compose up -d            # Postgres (pgvector) on localhost:5433
 # Ollama: see "Local infrastructure" below
-./mvnw spring-boot:run          # dev environment; GraphiQL: http://localhost:8080/graphiql
+# Two services since task 4.1, one terminal each:
+./mvnw -pl analysis-service -am spring-boot:run   # projects and code, port 8082 (ANALYSIS_PORT)
+./mvnw -pl app -am spring-boot:run                # GraphQL and interviews; GraphiQL: http://localhost:8080/graphiql
+# An existing Postgres volume (from before task 4.1) needs analysis-service's user and schema once:
+docker compose exec -T postgres psql -U ri -d repo_interviewer < analysis-service/src/main/resources/db/bootstrap.sql
 ```
 
 ## Environments
@@ -32,12 +36,12 @@ Code moves **dev → test → stage → prod**. `application.yml` holds the defa
 
 | Environment | File | How it starts |
 |---|---|---|
-| dev | `app/src/main/resources/application-dev.yml` | `./mvnw spring-boot:run` (local compose Postgres and Ollama, GraphiQL on) |
-| test | `app/src/test/resources/application-test.yml` | `./mvnw verify` locally and in CI (Testcontainers, fake models) |
-| stage | `app/src/main/resources/application-stage.yml` | `SPRING_PROFILES_ACTIVE=stage` + `DB_URL`, `DB_USER`, `DB_PASSWORD`, `OLLAMA_BASE_URL`, `ANTHROPIC_API_KEY` |
-| prod | `app/src/main/resources/application-prod.yml` | `SPRING_PROFILES_ACTIVE=prod` + the same variables |
+| dev | `<service>/src/main/resources/application-dev.yml` | `./mvnw -pl <service> -am spring-boot:run` (local compose Postgres and Ollama; app on 8080 with GraphiQL, analysis-service on 8082) |
+| test | `<service>/src/test/resources/application-test.yml` | `./mvnw verify` locally and in CI (Testcontainers, fake models, `FakeAnalysisApi` in the app) |
+| stage | `<service>/src/main/resources/application-stage.yml` | `SPRING_PROFILES_ACTIVE=stage` + `DB_URL`, `DB_USER`, `DB_PASSWORD`, `ANTHROPIC_API_KEY`, and `ANALYSIS_BASE_URL` (app) or `OLLAMA_BASE_URL` (analysis-service) |
+| prod | `<service>/src/main/resources/application-prod.yml` | `SPRING_PROFILES_ACTIVE=prod` + the same variables |
 
-Starting the jar without an environment stops with "No environment selected". Run another environment locally with `./mvnw spring-boot:run -Dspring-boot.run.profiles=stage`.
+`<service>` is `app` or `analysis-service` (task 4.1). Starting a jar without an environment stops with "No environment selected". Run another environment locally with `./mvnw -pl app -am spring-boot:run -Dspring-boot.run.profiles=stage`.
 
 ## Local infrastructure
 

@@ -7,5 +7,7 @@
 !pom.xml
 !libs/*/pom.xml
 !libs/*/src/main/
+!analysis-service/pom.xml
+!analysis-service/src/main/
 !app/pom.xml
 !app/src/main/

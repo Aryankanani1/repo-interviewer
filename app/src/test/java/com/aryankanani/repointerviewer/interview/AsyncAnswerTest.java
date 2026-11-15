@@ -5,9 +5,8 @@ import static org.awaitility.Awaitility.await;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 
-import com.aryankanani.repointerviewer.FakeEmbeddingModel;
+import com.aryankanani.repointerviewer.FakeAnalysisApi;
 import com.aryankanani.repointerviewer.FakeLlmGateway;
-import com.aryankanani.repointerviewer.FixtureIndexer;
 import com.aryankanani.repointerviewer.KafkaConsumerLag;
 import com.aryankanani.repointerviewer.KafkaIntegrationTest;
 import com.aryankanani.repointerviewer.KafkaListeners;
@@ -84,11 +83,9 @@ class AsyncAnswerTest {
 
 	private final GraphQlTester graphQlTester;
 
-	private final FixtureIndexer fixture;
+	private final FakeAnalysisApi fixture;
 
 	private final FakeLlmGateway llm;
-
-	private final FakeEmbeddingModel embeddingModel;
 
 	private final RecordingRetryListener retries;
 
@@ -106,14 +103,13 @@ class AsyncAnswerTest {
 
 	private Disposable subscription;
 
-	AsyncAnswerTest(@Autowired GraphQlTester graphQlTester, @Autowired FixtureIndexer fixture,
-			@Autowired FakeLlmGateway llm, @Autowired FakeEmbeddingModel embeddingModel,
+	AsyncAnswerTest(@Autowired GraphQlTester graphQlTester, @Autowired FakeAnalysisApi fixture,
+			@Autowired FakeLlmGateway llm,
 			@Autowired RecordingRetryListener retries, @Autowired KafkaAdmin kafkaAdmin, @Autowired JdbcTemplate jdbc,
 			@Autowired JsonMapper json, @Autowired ApplicationContext context) {
 		this.graphQlTester = graphQlTester;
 		this.fixture = fixture;
 		this.llm = llm;
-		this.embeddingModel = embeddingModel;
 		this.retries = retries;
 		this.kafkaAdmin = kafkaAdmin;
 		this.jdbc = jdbc;
@@ -123,11 +119,11 @@ class AsyncAnswerTest {
 
 	@BeforeEach
 	void startInterview() {
-		jdbc.update("DELETE FROM project");   // cascades to files, chunks and sessions
+		jdbc.update("DELETE FROM interview_session");   // cascades to topics, questions and answers
+		fixture.reset();
 		jdbc.update("DELETE FROM outbox_event");
 		jdbc.update("DELETE FROM processed_event");
 		llm.reset();
-		embeddingModel.reset();
 		retries.reset();
 		// The fan-out group starts at the newest event (task 2.6): it must be in before anything is sent.
 		KafkaListeners.awaitAssigned(context, InterviewEventsFanOut.LISTENER_ID, 6);
@@ -250,11 +246,13 @@ class AsyncAnswerTest {
 	/**
 	 * Task 3.6 acceptance criterion: the embedding model fails twice while the orchestrator searches the code for the
 	 * next question (Ollama unreachable for a moment, as in the 3.4 load test); the step is retried and goes on.
+	 * Since task 4.1 the search is analysis-service's: it answers 503 LLM_UNAVAILABLE, and the client rebuilds a
+	 * {@code ModelUnavailableException}, which the orchestrator retries like a model of its own.
 	 */
 	@Test
 	void anEmbeddingModelThatComesBackDuringTheRetriesLetsTheInterviewGoOn() {
 		llm.enqueue(LlmPurpose.EVALUATION, strong());   // no follow-up: the next topic's question needs a search
-		embeddingModel.failNextCalls(2);
+		fixture.failNextSearches(2);
 
 		submit(firstQuestionId, "Both read the same refundedAmount.");
 		pumpUntil(() -> currentQuestionOrder() == 2);
@@ -270,7 +268,7 @@ class AsyncAnswerTest {
 	void anEmbeddingModelThatStaysDownFailsTheSessionWithItsOwnReason() {
 		List<GraphQlTester.Response> events = subscribe();
 		llm.enqueue(LlmPurpose.EVALUATION, strong());
-		embeddingModel.failNextCalls(4);
+		fixture.failNextSearches(4);
 
 		submit(firstQuestionId, "Both read the same refundedAmount.");
 		pumpUntil(() -> types(events).contains("SESSION_FAILED"));
@@ -278,7 +276,7 @@ class AsyncAnswerTest {
 		assertThat(retries.failedAttempts(Topics.ANSWER_EVALUATED, sessionId)).containsExactly(1, 2, 3, 4);
 		assertThat(retries.deadLettered(Topics.ANSWER_EVALUATED, sessionId)).isEqualTo(1);
 		events.getLast().path("interviewEvents.session.failureReason").entity(String.class)
-				.isEqualTo("The code search model is not available right now. Try again in a minute.");
+				.isEqualTo(FakeAnalysisApi.EMBEDDING_UNAVAILABLE);   // analysis-service's message, over the wire
 	}
 
 	/** A reply the model would get wrong again is not retried: the session fails at once, after one call. */

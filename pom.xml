@@ -21,6 +21,8 @@
 		<module>libs/common</module>
 		<module>libs/llm</module>
 		<module>libs/contracts</module>
+		<module>libs/test-support</module>
+		<module>analysis-service</module>
 		<module>app</module>
 	</modules>
 
@@ -61,6 +63,11 @@
 			<dependency>
 				<groupId>com.aryankanani</groupId>
 				<artifactId>contracts</artifactId>
+				<version>${project.version}</version>
+			</dependency>
+			<dependency>
+				<groupId>com.aryankanani</groupId>
+				<artifactId>test-support</artifactId>
 				<version>${project.version}</version>
 			</dependency>
 

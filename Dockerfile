@@ -1,20 +1,26 @@
 # syntax=docker/dockerfile:1
-# Repo Interviewer image (task 3.1, docs/LLD.md §14.1). Build: docker build -t repo-interviewer:local .
+# Repo Interviewer images (task 3.1, docs/LLD.md §14.1), one per service since task 4.1:
+#   docker build -t repo-interviewer:local .                                            (the app, the default)
+#   docker build --build-arg SERVICE=analysis-service -t analysis-service:local .
 
 # --- Build stage: package the app with the Maven wrapper, then split the jar into layers ---------------------------
 FROM eclipse-temurin:21-jdk-noble AS build
+# The Maven module to build, which is also its folder and its jar's name.
+ARG SERVICE=app
 WORKDIR /build
 COPY mvnw pom.xml ./
 COPY .mvn/ .mvn/
-# Each module's pom.xml and src/main only (.dockerignore): the libraries and the app (task 4.1).
+# Each module's pom.xml and src/main only (.dockerignore). Maven reads every module the parent pom lists, so all of
+# them are here; only SERVICE and the libraries it needs are built.
 COPY libs/ libs/
+COPY analysis-service/ analysis-service/
 COPY app/ app/
 # Tests are not run or compiled here: ./mvnw verify and CI run them (Testcontainers needs a Docker daemon, which a
 # build step does not have). The cache mount keeps ~/.m2 between builds, so dependencies are downloaded only once.
-# -pl app -am: the app and the libraries it needs ("also make"), each library as a plain jar inside the fat jar.
+# -pl SERVICE -am: that service and the libraries it needs ("also make"), each library a plain jar in the fat jar.
 RUN --mount=type=cache,target=/root/.m2 \
-    ./mvnw -B -q package -Dmaven.test.skip=true -pl app -am \
- && cp app/target/app-*.jar application.jar \
+    ./mvnw -B -q package -Dmaven.test.skip=true -pl ${SERVICE} -am \
+ && cp ${SERVICE}/target/${SERVICE}-*.jar application.jar \
  && java -Djarmode=tools -jar application.jar extract --layers --destination extracted
 
 # --- Runtime stage: a JRE only (no JDK, no Maven, no sources), not root -------------------------------------------

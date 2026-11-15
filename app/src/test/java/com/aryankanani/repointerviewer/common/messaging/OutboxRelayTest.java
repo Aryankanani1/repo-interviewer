@@ -9,7 +9,6 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.spy;
 
-import com.aryankanani.repointerviewer.FixtureIndexer;
 import com.aryankanani.repointerviewer.KafkaIntegrationTest;
 import com.aryankanani.repointerviewer.common.config.AppProperties;
 import java.time.Duration;
@@ -70,8 +69,6 @@ class OutboxRelayTest {
 
 	private final AppProperties properties;
 
-	private final FixtureIndexer fixture;
-
 	private final JdbcTemplate jdbc;
 
 	private final List<ScheduledTaskHolder> scheduled;
@@ -80,8 +77,7 @@ class OutboxRelayTest {
 			@Autowired OutboxEventRepository events, @Autowired KafkaTemplate<String, String> kafkaTemplate,
 			@Autowired KafkaAdmin kafkaAdmin, @Autowired JsonMapper json,
 			@Autowired PlatformTransactionManager transactionManager, @Autowired AppProperties properties,
-			@Autowired FixtureIndexer fixture, @Autowired JdbcTemplate jdbc,
-			@Autowired List<ScheduledTaskHolder> scheduled) {
+			@Autowired JdbcTemplate jdbc, @Autowired List<ScheduledTaskHolder> scheduled) {
 		this.relay = relay;
 		this.writer = writer;
 		this.events = events;
@@ -91,7 +87,6 @@ class OutboxRelayTest {
 		this.transactionManager = transactionManager;
 		this.transaction = new TransactionTemplate(transactionManager);
 		this.properties = properties;
-		this.fixture = fixture;
 		this.jdbc = jdbc;
 		this.scheduled = scheduled;
 	}
@@ -99,14 +94,13 @@ class OutboxRelayTest {
 	@BeforeEach
 	void emptyTables() {
 		jdbc.update("DELETE FROM outbox_event");
-		jdbc.update("DELETE FROM project");
 	}
 
 	/** Acceptance criterion: state and outbox in one committed transaction → exactly one event. */
 	@Test
 	void aStateChangeCommittedWithItsEventPublishesExactlyOneEvent() {
 		UUID[] written = transaction.execute(status -> {
-			UUID project = fixture.newProject();
+			UUID project = UUID.randomUUID();   // any aggregate: the outbox does not check it
 			return new UUID[] { project, writer.write(TOPIC, AggregateType.PROJECT, project, "AnalysisRequested",
 					Map.of("projectId", project)) };
 		});
@@ -134,7 +128,7 @@ class OutboxRelayTest {
 		AtomicReference<UUID> project = new AtomicReference<>();
 
 		assertThatThrownBy(() -> transaction.executeWithoutResult(status -> {
-			project.set(fixture.newProject());
+			project.set(UUID.randomUUID());
 			writer.write(TOPIC, AggregateType.PROJECT, project.get(), "AnalysisRequested", Map.of());
 			throw new IllegalStateException("rolled back on purpose");
 		})).hasMessage("rolled back on purpose");

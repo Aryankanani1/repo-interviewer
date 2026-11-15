@@ -11,7 +11,7 @@
 	<name>app</name>
 	<!-- Task 4.1, step 1: everything that is not a library yet. Steps 2 and 3 move analysis and interview out into
 	     their own services; what stays becomes graphql-gateway. -->
-	<description>The Spring Boot application: GraphQL API, analysis pipeline and interview engine</description>
+	<description>The Spring Boot application: GraphQL API and interview engine (analysis: analysis-service)</description>
 
 	<properties>
 		<spring-boot.run.skip>false</spring-boot.run.skip>
@@ -73,20 +73,11 @@
 			<artifactId>spring-boot-starter-kafka</artifactId>
 		</dependency>
 
-		<!-- Spring AI: Ollama for embeddings (Anthropic chat comes with the llm library) -->
+		<!-- The HTTP client for analysis-service's AnalysisApi (@ImportHttpServices, task 4.1). Anthropic chat comes
+		     with the llm library; embeddings, JGit and JavaParser moved to analysis-service. -->
 		<dependency>
-			<groupId>org.springframework.ai</groupId>
-			<artifactId>spring-ai-starter-model-ollama</artifactId>
-		</dependency>
-
-		<!-- Static analysis of submitted repositories -->
-		<dependency>
-			<groupId>com.github.javaparser</groupId>
-			<artifactId>javaparser-core</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>org.eclipse.jgit</groupId>
-			<artifactId>org.eclipse.jgit</artifactId>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-restclient</artifactId>
 		</dependency>
 
 		<!-- GraphQL DateTime scalar -->
@@ -96,6 +87,11 @@
 		</dependency>
 
 		<!-- Tests -->
+		<dependency>
+			<groupId>com.aryankanani</groupId>
+			<artifactId>test-support</artifactId>
+			<scope>test</scope>
+		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-webmvc-test</artifactId>

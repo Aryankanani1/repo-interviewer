@@ -118,7 +118,8 @@ public class ChunkStore {
 	 * <li>the TYPE_HEADER of every named file and class;</li>
 	 * <li>the other chunks of those files and classes, in file order.</li>
 	 * </ol>
-	 * Similarity is reported as 1: these were asked for by name, not found by meaning.
+	 * Similarity is reported as 1: these were asked for by name, not found by meaning. Paths sort in byte order
+	 * ({@code COLLATE "C"}), so the prompt is the same on every database whatever its locale (task 4.1).
 	 *
 	 * @param paths repo-relative file paths
 	 * @param symbols class names ({@code Order}, {@code Order.Status}) or methods ({@code OrderService#refund})
@@ -139,7 +140,7 @@ public class ChunkStore {
 					FROM code_chunk c
 					WHERE c.project_id = ?
 					  AND (c.path = ANY(?) OR c.symbol = ANY(?) OR c.symbol LIKE ANY(?))
-					ORDER BY rank, c.path, c.start_line
+					ORDER BY rank, c.path COLLATE "C", c.start_line
 					""");
 			statement.setArray(1, connection.createArrayOf("text", methods.toArray()));
 			statement.setArray(2, connection.createArrayOf("text", methodPatterns.toArray()));

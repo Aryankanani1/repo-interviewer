@@ -1,0 +1,26 @@
+# dev: your machine (DECISIONS.md D-015). Run next to the app: ./mvnw -pl analysis-service -am spring-boot:run
+# Needs Compose Postgres with db/bootstrap.sql applied once (README) and Ollama on localhost:11434.
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:${DB_PORT:5433}/repo_interviewer
+    # Not DB_USER: .env sets that to the Compose admin user for the app.
+    username: ${ANALYSIS_DB_USER:analysis_svc}
+    password: ${ANALYSIS_DB_PASSWORD:analysis_svc}
+  ai:
+    ollama:
+      base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+  kafka:
+    bootstrap-servers: localhost:${KAFKA_PORT:9094}
+
+server:
+  # The app is on 8080 and calls this one. Not 8081: often held by another local tool (a Node app here, task 2.1).
+  # ANALYSIS_PORT changes it for both services.
+  port: ${ANALYSIS_PORT:8082}
+
+logging:
+  level:
+    com.aryankanani.repointerviewer: DEBUG
+
+app:
+  llm:
+    max-calls-per-day: 12

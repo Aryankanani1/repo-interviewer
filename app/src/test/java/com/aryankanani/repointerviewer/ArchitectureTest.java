@@ -6,6 +6,7 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.library.Architectures.layeredArchitecture;
 
 import com.tngtech.archunit.core.importer.ImportOption;
+import com.tngtech.archunit.core.importer.Location;
 import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchRule;
@@ -17,7 +18,8 @@ import java.util.List;
  * Module boundaries from docs/LLD.md §2, checked on the compiled main classes (not tests).
  * Never weaken a rule to make code compile; fix the design instead.
  */
-@AnalyzeClasses(packages = ArchitectureTest.BASE, importOptions = ImportOption.DoNotIncludeTests.class)
+@AnalyzeClasses(packages = ArchitectureTest.BASE,
+		importOptions = { ImportOption.DoNotIncludeTests.class, ArchitectureTest.DoNotIncludeTestSupport.class })
 class ArchitectureTest {
 
 	static final String BASE = "com.aryankanani.repointerviewer";
@@ -76,6 +78,16 @@ class ArchitectureTest {
 				.that().resideOutsideOfPackages(modulePackage, BASE + ".api..")
 				.should().dependOnClassesThat(resideInAPackage(modulePackage).and(annotatedWith(Entity.class)))
 				.because("entities stay inside their module (docs/LLD.md §2)");
+	}
+
+	/** {@code libs/test-support} is test code in a jar (its fakes live in the base package): not checked here. */
+	static final class DoNotIncludeTestSupport implements ImportOption {
+
+		@Override
+		public boolean includes(Location location) {
+			return !location.contains("test-support");
+		}
+
 	}
 
 }

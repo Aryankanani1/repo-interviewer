@@ -3,7 +3,6 @@ package com.aryankanani.repointerviewer.llm;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.aryankanani.repointerviewer.FixtureIndexer;
 import com.aryankanani.repointerviewer.IntegrationTest;
 import com.aryankanani.repointerviewer.common.error.ErrorCode;
 import java.util.ArrayList;
@@ -28,20 +27,17 @@ class LlmBudgetTest {
 
 	private final JdbcTemplate jdbc;
 
-	private final FixtureIndexer fixture;
-
 	private final LlmBudget budget;
 
-	LlmBudgetTest(@Autowired LlmCallRepository calls, @Autowired JdbcTemplate jdbc, @Autowired FixtureIndexer fixture) {
+	LlmBudgetTest(@Autowired LlmCallRepository calls, @Autowired JdbcTemplate jdbc) {
 		this.jdbc = jdbc;
-		this.fixture = fixture;
 		this.budget = new LlmBudget(calls, jdbc, PER_SESSION, PER_DAY);
 	}
 
 	@BeforeEach
 	void deleteState() {
 		jdbc.update("DELETE FROM llm_call");
-		jdbc.update("DELETE FROM project");   // cascades to interview_session
+		jdbc.update("DELETE FROM interview_session");   // cascades to topics, questions and answers
 	}
 
 	@Test
@@ -128,7 +124,7 @@ class LlmBudgetTest {
 				INSERT INTO interview_session (project_id, status, difficulty, planned_question_count)
 				VALUES (?, 'IN_PROGRESS', 'JUNIOR', 5)
 				RETURNING id
-				""", UUID.class, fixture.newProject());
+				""", UUID.class, UUID.randomUUID());   // no foreign key to the project since V5
 	}
 
 	private int callCount(UUID session) {

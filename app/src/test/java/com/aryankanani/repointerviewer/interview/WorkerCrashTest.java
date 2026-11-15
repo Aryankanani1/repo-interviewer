@@ -3,9 +3,10 @@ package com.aryankanani.repointerviewer.interview;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
-import com.aryankanani.repointerviewer.FakeModelServer;
+import com.aryankanani.repointerviewer.FakeAnalysisApi;
+import com.aryankanani.repointerviewer.FakeAnalysisServer;
 import com.aryankanani.repointerviewer.FakeLlmGateway;
-import com.aryankanani.repointerviewer.FixtureIndexer;
+import com.aryankanani.repointerviewer.FakeModelServer;
 import com.aryankanani.repointerviewer.KafkaIntegrationTest;
 import com.aryankanani.repointerviewer.WorkerProcess;
 import com.aryankanani.repointerviewer.common.messaging.Topics;
@@ -32,7 +33,8 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 /**
  * Task 2.7 acceptance test: a worker killed in the middle of the EVALUATION call, then restarted. The workers are
  * real app processes ({@link WorkerProcess}) with the real {@code SpringAiLlmGateway}, budget and {@code llm_call}
- * ledger, talking to {@link FakeModelServer} instead of Anthropic and Ollama; this test's own context starts the
+ * ledger, talking to {@link FakeModelServer} instead of Anthropic and to {@link FakeAnalysisServer} instead of
+ * analysis-service (task 4.1); this test's own context starts the
  * interview and takes the answer, and its listeners are stopped meanwhile, so only the worker processes consume.
  *
  * <p>About 40 s: two app starts, and the broker waits for the killed member's session timeout (6 s here, 45 s by
@@ -43,7 +45,7 @@ class WorkerCrashTest {
 
 	private final GraphQlTester graphQlTester;
 
-	private final FixtureIndexer fixture;
+	private final FakeAnalysisApi fixture;
 
 	private final FakeLlmGateway llm;
 
@@ -57,7 +59,9 @@ class WorkerCrashTest {
 
 	private FakeModelServer models;
 
-	WorkerCrashTest(@Autowired GraphQlTester graphQlTester, @Autowired FixtureIndexer fixture,
+	private FakeAnalysisServer analysis;
+
+	WorkerCrashTest(@Autowired GraphQlTester graphQlTester, @Autowired FakeAnalysisApi fixture,
 			@Autowired FakeLlmGateway llm, @Autowired KafkaAdmin kafkaAdmin, @Autowired JdbcTemplate jdbc,
 			@Autowired ApplicationContext context) {
 		this.graphQlTester = graphQlTester;
@@ -70,12 +74,14 @@ class WorkerCrashTest {
 
 	@BeforeEach
 	void setUp() throws Exception {
-		jdbc.update("DELETE FROM project");   // cascades to files, chunks and sessions
+		jdbc.update("DELETE FROM interview_session");   // cascades to topics, questions and answers
+		fixture.reset();
 		jdbc.update("DELETE FROM outbox_event");
 		jdbc.update("DELETE FROM processed_event");
 		llm.reset();
 		context.getBean(KafkaListenerEndpointRegistry.class).stop();   // this JVM consumes nothing during the test
 		models = new FakeModelServer();
+		analysis = new FakeAnalysisServer();
 	}
 
 	@AfterEach
@@ -84,6 +90,7 @@ class WorkerCrashTest {
 			worker.close();
 		}
 		models.close();
+		analysis.close();
 		context.getBean(KafkaListenerEndpointRegistry.class).start();
 	}
 
@@ -154,7 +161,7 @@ class WorkerCrashTest {
 				"--spring.ai.anthropic.base-url=" + models.baseUrl(),
 				"--spring.ai.anthropic.api-key=test-key-not-used",
 				"--spring.ai.anthropic.max-retries=0",
-				"--spring.ai.ollama.base-url=" + models.baseUrl(),
+				"--spring.http.serviceclient.analysis.base-url=" + analysis.baseUrl(),
 				"--app.interview.prefetch-enabled=false",
 				"--logging.level.com.aryankanani.repointerviewer=INFO"),
 				Path.of("target", "worker-crash-" + name + ".log"));

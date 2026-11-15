@@ -1,0 +1,5 @@
+# stage: production-like, before release (DECISIONS.md D-015). DB_URL, DB_USER (analysis_svc), DB_PASSWORD,
+# OLLAMA_BASE_URL and ANTHROPIC_API_KEY come from the environment.
+app:
+  llm:
+    max-calls-per-day: 20   # stage spends real money too: 20 here + 80 in the app (D-026)

@@ -3,9 +3,8 @@ package com.aryankanani.repointerviewer.interview;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.aryankanani.repointerviewer.FakeEmbeddingModel;
+import com.aryankanani.repointerviewer.FakeAnalysisApi;
 import com.aryankanani.repointerviewer.FakeLlmGateway;
-import com.aryankanani.repointerviewer.FixtureIndexer;
 import com.aryankanani.repointerviewer.IntegrationTest;
 import com.aryankanani.repointerviewer.common.error.DomainException;
 import com.aryankanani.repointerviewer.common.error.ErrorCode;
@@ -17,9 +16,9 @@ import com.aryankanani.repointerviewer.llm.output.CodeRefOutput;
 import com.aryankanani.repointerviewer.llm.output.EvaluationOutput;
 import com.aryankanani.repointerviewer.llm.output.QuestionOutput;
 import com.aryankanani.repointerviewer.llm.output.RubricOutput;
-import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import java.util.List;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -42,11 +41,9 @@ class SubmitAnswerTest {
 
 	private final InterviewTopicRepository topics;
 
-	private final FixtureIndexer fixture;
+	private final FakeAnalysisApi fixture;
 
 	private final FakeLlmGateway llm;
-
-	private final FakeEmbeddingModel embeddingModel;
 
 	private final JdbcTemplate jdbc;
 
@@ -55,21 +52,19 @@ class SubmitAnswerTest {
 	private Question first;
 
 	SubmitAnswerTest(@Autowired InterviewService interviewService, @Autowired InterviewTopicRepository topics,
-			@Autowired FixtureIndexer fixture, @Autowired FakeLlmGateway llm,
-			@Autowired FakeEmbeddingModel embeddingModel, @Autowired JdbcTemplate jdbc) {
+			@Autowired FakeAnalysisApi fixture, @Autowired FakeLlmGateway llm, @Autowired JdbcTemplate jdbc) {
 		this.interviewService = interviewService;
 		this.topics = topics;
 		this.fixture = fixture;
 		this.llm = llm;
-		this.embeddingModel = embeddingModel;
 		this.jdbc = jdbc;
 	}
 
 	@BeforeEach
 	void startInterview() {
-		jdbc.update("DELETE FROM project");
+		jdbc.update("DELETE FROM interview_session");   // cascades to topics, questions and answers
+		fixture.reset();
 		llm.reset();
-		embeddingModel.reset();
 		UUID project = fixture.readyProject();
 		llm.enqueue(LlmPurpose.QUESTION, question("Why does OrderController#refund take a RefundRequest body?",
 				ORDER + "OrderController.java", 27, 30));

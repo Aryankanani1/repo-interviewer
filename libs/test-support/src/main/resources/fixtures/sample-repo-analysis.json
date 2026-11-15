@@ -1,0 +1,300 @@
+{
+  "repoMap" : "./\n  README.md [DOC]\n  pom.xml [BUILD]\nsrc/main/java/com/example/shop/\n  ShopApplication [OTHER] @SpringBootApplication\n    + main(String[] args): void\nsrc/main/java/com/example/shop/order/\n  Order [ENTITY] @Entity @Table(name = \"orders\")\n    enum Status { PAID, REFUNDED }\n    - id: UUID @Id @GeneratedValue\n    - customerEmail: String @Column(nullable = false)\n    - total: BigDecimal @Column(nullable = false)\n    - refundedAmount: BigDecimal @Column(nullable = false)\n    - status: Status @Enumerated(EnumType.STRING) @Column(nullable = false)\n    - createdAt: Instant @Column(nullable = false, updatable = false)\n  OrderController [CONTROLLER] @RestController @RequestMapping(\"/orders\")\n    + get(UUID id): Order @GetMapping(\"/{id}\")\n    + refund(UUID id, RefundRequest request): Order @PostMapping(\"/{id}/refund\")\n  OrderRepository [REPOSITORY] extends JpaRepository<Order,UUID>\n    + findByCustomerEmailOrderByCreatedAtDesc(String customerEmail): List<Order>\n  OrderService [SERVICE] @Service\n    + find(UUID id): Order @Transactional(readOnly = true)\n    + place(String customerEmail, BigDecimal total): Order @Transactional\n    + refund(UUID orderId, RefundRequest request): Order @Transactional\n  RefundRequest [DTO] record(BigDecimal amount)\nsrc/main/resources/\n  application.yml [CONFIG]\nsrc/main/resources/db/migration/\n  V1__orders.sql [MIGRATION]\nsrc/test/java/com/example/shop/order/\n  OrderServiceTest [TEST] @ExtendWith(MockitoExtension.class)\n    refundCannotExceedWhatWasPaid(): void @Test",
+  "summary" : {
+    "oneLiner" : "A small order service that places and refunds orders.",
+    "architectureStyle" : "layered monolith",
+    "techStack" : [ "Spring Boot", "Spring Data JPA", "PostgreSQL", "Flyway" ],
+    "modules" : [ {
+      "name" : "order",
+      "responsibility" : "Orders and refunds",
+      "keyClasses" : [ "OrderService", "OrderController", "Order" ]
+    } ],
+    "notablePatterns" : [ "Refund limit checked in OrderService#refund" ],
+    "riskAreas" : [ "Concurrent refunds on the same order in OrderService#refund" ]
+  },
+  "stats" : {
+    "fileCount" : 11,
+    "javaFileCount" : 7,
+    "totalLines" : 319,
+    "chunkCount" : 29,
+    "primaryLanguage" : "java"
+  },
+  "files" : [ {
+    "path" : "README.md",
+    "role" : "DOC",
+    "content" : "# Shop\n\nA small order service built with Spring Boot: place orders, look them up, and refund them in full or in part.\n\n## Run\n\nStart PostgreSQL on localhost:5432 with a `shop` database, then:\n\n    mvn spring-boot:run\n\nFlyway creates the schema on startup.\n\n## API\n\n- `GET /orders/{id}` returns one order.\n- `POST /orders/{id}/refund` with `{\"amount\": 10.00}` refunds part of a paid order. The total refunded can never exceed what the customer paid.\n"
+  }, {
+    "path" : "pom.xml",
+    "role" : "BUILD",
+    "content" : "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<project xmlns=\"http://maven.apache.org/POM/4.0.0\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\n         xsi:schemaLocation=\"http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd\">\n    <modelVersion>4.0.0</modelVersion>\n\n    <parent>\n        <groupId>org.springframework.boot</groupId>\n        <artifactId>spring-boot-starter-parent</artifactId>\n        <version>4.1.2</version>\n        <relativePath/>\n    </parent>\n\n    <groupId>com.example</groupId>\n    <artifactId>shop</artifactId>\n    <version>0.0.1-SNAPSHOT</version>\n    <name>shop</name>\n\n    <properties>\n        <java.version>21</java.version>\n    </properties>\n\n    <dependencies>\n        <dependency>\n            <groupId>org.springframework.boot</groupId>\n            <artifactId>spring-boot-starter-webmvc</artifactId>\n        </dependency>\n        <dependency>\n            <groupId>org.springframework.boot</groupId>\n            <artifactId>spring-boot-starter-data-jpa</artifactId>\n        </dependency>\n        <dependency>\n            <groupId>org.springframework.boot</groupId>\n            <artifactId>spring-boot-starter-validation</artifactId>\n        </dependency>\n        <dependency>\n            <groupId>org.springframework.boot</groupId>\n            <artifactId>spring-boot-starter-flyway</artifactId>\n        </dependency>\n        <dependency>\n            <groupId>org.flywaydb</groupId>\n            <artifactId>flyway-database-postgresql</artifactId>\n        </dependency>\n        <dependency>\n            <groupId>org.postgresql</groupId>\n            <artifactId>postgresql</artifactId>\n            <scope>runtime</scope>\n        </dependency>\n        <dependency>\n            <groupId>org.springframework.boot</groupId>\n            <artifactId>spring-boot-starter-webmvc-test</artifactId>\n            <scope>test</scope>\n        </dependency>\n    </dependencies>\n\n    <build>\n        <plugins>\n            <plugin>\n                <groupId>org.springframework.boot</groupId>\n                <artifactId>spring-boot-maven-plugin</artifactId>\n            </plugin>\n        </plugins>\n    </build>\n</project>\n"
+  }, {
+    "path" : "src/main/java/com/example/shop/ShopApplication.java",
+    "role" : "OTHER",
+    "content" : "package com.example.shop;\n\nimport org.springframework.boot.SpringApplication;\nimport org.springframework.boot.autoconfigure.SpringBootApplication;\n\n@SpringBootApplication\npublic class ShopApplication {\n\n    public static void main(String[] args) {\n        SpringApplication.run(ShopApplication.class, args);\n    }\n}\n"
+  }, {
+    "path" : "src/main/java/com/example/shop/order/Order.java",
+    "role" : "ENTITY",
+    "content" : "package com.example.shop.order;\n\nimport jakarta.persistence.Column;\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.EnumType;\nimport jakarta.persistence.Enumerated;\nimport jakarta.persistence.GeneratedValue;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.Table;\nimport java.math.BigDecimal;\nimport java.time.Instant;\nimport java.util.UUID;\n\n@Entity\n@Table(name = \"orders\")\npublic class Order {\n\n    public enum Status { PAID, REFUNDED }\n\n    @Id\n    @GeneratedValue\n    private UUID id;\n\n    @Column(nullable = false)\n    private String customerEmail;\n\n    @Column(nullable = false)\n    private BigDecimal total;\n\n    @Column(nullable = false)\n    private BigDecimal refundedAmount = BigDecimal.ZERO;\n\n    @Enumerated(EnumType.STRING)\n    @Column(nullable = false)\n    private Status status = Status.PAID;\n\n    @Column(nullable = false, updatable = false)\n    private Instant createdAt = Instant.now();\n\n    protected Order() {\n    }\n\n    public Order(String customerEmail, BigDecimal total) {\n        this.customerEmail = customerEmail;\n        this.total = total;\n    }\n\n    void markRefunded(BigDecimal amount) {\n        refundedAmount = refundedAmount.add(amount);\n        if (refundedAmount.compareTo(total) == 0) {\n            status = Status.REFUNDED;\n        }\n    }\n\n    public UUID getId() {\n        return id;\n    }\n\n    public String getCustomerEmail() {\n        return customerEmail;\n    }\n\n    public BigDecimal getTotal() {\n        return total;\n    }\n\n    public BigDecimal getRefundedAmount() {\n        return refundedAmount;\n    }\n\n    public Status getStatus() {\n        return status;\n    }\n\n    public Instant getCreatedAt() {\n        return createdAt;\n    }\n}\n"
+  }, {
+    "path" : "src/main/java/com/example/shop/order/OrderController.java",
+    "role" : "CONTROLLER",
+    "content" : "package com.example.shop.order;\n\nimport jakarta.validation.Valid;\nimport java.util.UUID;\nimport org.springframework.web.bind.annotation.GetMapping;\nimport org.springframework.web.bind.annotation.PathVariable;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RequestMapping;\nimport org.springframework.web.bind.annotation.RestController;\n\n@RestController\n@RequestMapping(\"/orders\")\npublic class OrderController {\n\n    private final OrderService orderService;\n\n    public OrderController(OrderService orderService) {\n        this.orderService = orderService;\n    }\n\n    @GetMapping(\"/{id}\")\n    public Order get(@PathVariable UUID id) {\n        return orderService.find(id);\n    }\n\n    @PostMapping(\"/{id}/refund\")\n    public Order refund(@PathVariable UUID id, @Valid @RequestBody RefundRequest request) {\n        return orderService.refund(id, request);\n    }\n}\n"
+  }, {
+    "path" : "src/main/java/com/example/shop/order/OrderRepository.java",
+    "role" : "REPOSITORY",
+    "content" : "package com.example.shop.order;\n\nimport java.util.List;\nimport java.util.UUID;\nimport org.springframework.data.jpa.repository.JpaRepository;\n\npublic interface OrderRepository extends JpaRepository<Order, UUID> {\n\n    List<Order> findByCustomerEmailOrderByCreatedAtDesc(String customerEmail);\n}\n"
+  }, {
+    "path" : "src/main/java/com/example/shop/order/OrderService.java",
+    "role" : "SERVICE",
+    "content" : "package com.example.shop.order;\n\nimport java.math.BigDecimal;\nimport java.util.UUID;\nimport org.springframework.stereotype.Service;\nimport org.springframework.transaction.annotation.Transactional;\n\n@Service\npublic class OrderService {\n\n    private final OrderRepository orderRepository;\n\n    public OrderService(OrderRepository orderRepository) {\n        this.orderRepository = orderRepository;\n    }\n\n    @Transactional(readOnly = true)\n    public Order find(UUID id) {\n        return orderRepository.findById(id).orElseThrow();\n    }\n\n    @Transactional\n    public Order place(String customerEmail, BigDecimal total) {\n        return orderRepository.save(new Order(customerEmail, total));\n    }\n\n    /**\n     * Refunds part or all of a paid order. The total refunded can never exceed what the customer paid.\n     */\n    @Transactional\n    public Order refund(UUID orderId, RefundRequest request) {\n        Order order = find(orderId);\n        if (order.getStatus() != Order.Status.PAID) {\n            throw new IllegalStateException(\"Only paid orders can be refunded, this one is \" + order.getStatus());\n        }\n        BigDecimal refundable = order.getTotal().subtract(order.getRefundedAmount());\n        if (request.amount().compareTo(refundable) > 0) {\n            throw new IllegalArgumentException(\"Refund of \" + request.amount() + \" exceeds the refundable \" + refundable);\n        }\n        order.markRefunded(request.amount());\n        return order;\n    }\n}\n"
+  }, {
+    "path" : "src/main/java/com/example/shop/order/RefundRequest.java",
+    "role" : "DTO",
+    "content" : "package com.example.shop.order;\n\nimport jakarta.validation.constraints.NotNull;\nimport jakarta.validation.constraints.Positive;\nimport java.math.BigDecimal;\n\npublic record RefundRequest(@NotNull @Positive BigDecimal amount) {\n}\n"
+  }, {
+    "path" : "src/main/resources/application.yml",
+    "role" : "CONFIG",
+    "content" : "spring:\n  application:\n    name: shop\n  datasource:\n    url: jdbc:postgresql://localhost:5432/shop\n    username: ${DB_USERNAME:shop}\n    # Fake credential, on purpose: the analyzer must redact it before storing or embedding this file.\n    password: <REDACTED:password>\n  jpa:\n    open-in-view: false\n\nshop:\n  refunds:\n    max-days-after-purchase: 30\n  payment:\n    api-key: ${PAYMENT_API_KEY}\n"
+  }, {
+    "path" : "src/main/resources/db/migration/V1__orders.sql",
+    "role" : "MIGRATION",
+    "content" : "CREATE TABLE orders (\n    id              UUID PRIMARY KEY,\n    customer_email  VARCHAR(255)   NOT NULL,\n    total           NUMERIC(12, 2) NOT NULL,\n    refunded_amount NUMERIC(12, 2) NOT NULL DEFAULT 0,\n    status          VARCHAR(20)    NOT NULL,\n    created_at      TIMESTAMPTZ    NOT NULL\n);\n\nCREATE INDEX idx_orders_customer_email ON orders (customer_email, created_at DESC);\n"
+  }, {
+    "path" : "src/test/java/com/example/shop/order/OrderServiceTest.java",
+    "role" : "TEST",
+    "content" : "package com.example.shop.order;\n\nimport static org.assertj.core.api.Assertions.assertThatThrownBy;\nimport static org.mockito.Mockito.when;\n\nimport java.math.BigDecimal;\nimport java.util.Optional;\nimport java.util.UUID;\nimport org.junit.jupiter.api.Test;\nimport org.junit.jupiter.api.extension.ExtendWith;\nimport org.mockito.InjectMocks;\nimport org.mockito.Mock;\nimport org.mockito.junit.jupiter.MockitoExtension;\n\n@ExtendWith(MockitoExtension.class)\nclass OrderServiceTest {\n\n    @Mock\n    OrderRepository orderRepository;\n\n    @InjectMocks\n    OrderService orderService;\n\n    @Test\n    void refundCannotExceedWhatWasPaid() {\n        UUID id = UUID.randomUUID();\n        when(orderRepository.findById(id)).thenReturn(Optional.of(new Order(\"ada@example.com\", new BigDecimal(\"50.00\"))));\n\n        assertThatThrownBy(() -> orderService.refund(id, new RefundRequest(new BigDecimal(\"60.00\"))))\n                .isInstanceOf(IllegalArgumentException.class);\n    }\n}\n"
+  } ],
+  "chunks" : [ {
+    "path" : "README.md",
+    "symbol" : null,
+    "chunkType" : "DOC",
+    "startLine" : 1,
+    "endLine" : 3,
+    "content" : "# Shop\n\nA small order service built with Spring Boot: place orders, look them up, and refund them in full or in part.",
+    "tokenEstimate" : 30
+  }, {
+    "path" : "README.md",
+    "symbol" : null,
+    "chunkType" : "DOC",
+    "startLine" : 5,
+    "endLine" : 11,
+    "content" : "## Run\n\nStart PostgreSQL on localhost:5432 with a `shop` database, then:\n\n    mvn spring-boot:run\n\nFlyway creates the schema on startup.",
+    "tokenEstimate" : 34
+  }, {
+    "path" : "README.md",
+    "symbol" : null,
+    "chunkType" : "DOC",
+    "startLine" : 13,
+    "endLine" : 16,
+    "content" : "## API\n\n- `GET /orders/{id}` returns one order.\n- `POST /orders/{id}/refund` with `{\"amount\": 10.00}` refunds part of a paid order. The total refunded can never exceed what the customer paid.",
+    "tokenEstimate" : 48
+  }, {
+    "path" : "pom.xml",
+    "symbol" : null,
+    "chunkType" : "TEXT",
+    "startLine" : 1,
+    "endLine" : 63,
+    "content" : "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<project xmlns=\"http://maven.apache.org/POM/4.0.0\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\n         xsi:schemaLocation=\"http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd\">\n    <modelVersion>4.0.0</modelVersion>\n\n    <parent>\n        <groupId>org.springframework.boot</groupId>\n        <artifactId>spring-boot-starter-parent</artifactId>\n        <version>4.1.2</version>\n        <relativePath/>\n    </parent>\n\n    <groupId>com.example</groupId>\n    <artifactId>shop</artifactId>\n    <version>0.0.1-SNAPSHOT</version>\n    <name>shop</name>\n\n    <properties>\n        <java.version>21</java.version>\n    </properties>\n\n    <dependencies>\n        <dependency>\n            <groupId>org.springframework.boot</groupId>\n            <artifactId>spring-boot-starter-webmvc</artifactId>\n        </dependency>\n        <dependency>\n            <groupId>org.springframework.boot</groupId>\n            <artifactId>spring-boot-starter-data-jpa</artifactId>\n        </dependency>\n        <dependency>\n            <groupId>org.springframework.boot</groupId>\n            <artifactId>spring-boot-starter-validation</artifactId>\n        </dependency>\n        <dependency>\n            <groupId>org.springframework.boot</groupId>\n            <artifactId>spring-boot-starter-flyway</artifactId>\n        </dependency>\n        <dependency>\n            <groupId>org.flywaydb</groupId>\n            <artifactId>flyway-database-postgresql</artifactId>\n        </dependency>\n        <dependency>\n            <groupId>org.postgresql</groupId>\n            <artifactId>postgresql</artifactId>\n            <scope>runtime</scope>\n        </dependency>\n        <dependency>\n            <groupId>org.springframework.boot</groupId>\n            <artifactId>spring-boot-starter-webmvc-test</artifactId>\n            <scope>test</scope>\n        </dependency>\n    </dependencies>\n\n    <build>\n        <plugins>\n            <plugin>\n                <groupId>org.springframework.boot</groupId>\n                <artifactId>spring-boot-maven-plugin</artifactId>\n            </plugin>\n        </plugins>\n    </build>\n</project>",
+    "tokenEstimate" : 540
+  }, {
+    "path" : "src/main/java/com/example/shop/ShopApplication.java",
+    "symbol" : "ShopApplication",
+    "chunkType" : "TYPE_HEADER",
+    "startLine" : 6,
+    "endLine" : 12,
+    "content" : "package com.example.shop;\n\nimport org.springframework.boot.SpringApplication;\nimport org.springframework.boot.autoconfigure.SpringBootApplication;\n\n@SpringBootApplication\npublic class ShopApplication {\n    public static void main(String[] args);\n}",
+    "tokenEstimate" : 62
+  }, {
+    "path" : "src/main/java/com/example/shop/ShopApplication.java",
+    "symbol" : "ShopApplication#small-methods",
+    "chunkType" : "METHOD",
+    "startLine" : 9,
+    "endLine" : 11,
+    "content" : "    public static void main(String[] args) {\n        SpringApplication.run(ShopApplication.class, args);\n    }",
+    "tokenEstimate" : 28
+  }, {
+    "path" : "src/main/java/com/example/shop/order/Order.java",
+    "symbol" : "Order",
+    "chunkType" : "TYPE_HEADER",
+    "startLine" : 14,
+    "endLine" : 78,
+    "content" : "package com.example.shop.order;\n\nimport jakarta.persistence.Column;\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.EnumType;\nimport jakarta.persistence.Enumerated;\nimport jakarta.persistence.GeneratedValue;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.Table;\nimport java.math.BigDecimal;\nimport java.time.Instant;\nimport java.util.UUID;\n\n@Entity\n@Table(name = \"orders\")\npublic class Order {\n    public enum Status { ... }\n    @Id\n    @GeneratedValue\n    private UUID id;\n    @Column(nullable = false)\n    private String customerEmail;\n    @Column(nullable = false)\n    private BigDecimal total;\n    @Column(nullable = false)\n    private BigDecimal refundedAmount = BigDecimal.ZERO;\n    @Enumerated(EnumType.STRING)\n    @Column(nullable = false)\n    private Status status = Status.PAID;\n    @Column(nullable = false, updatable = false)\n    private Instant createdAt = Instant.now();\n    protected Order();\n    public Order(String customerEmail, BigDecimal total);\n    void markRefunded(BigDecimal amount);\n    public UUID getId();\n    public String getCustomerEmail();\n    public BigDecimal getTotal();\n    public BigDecimal getRefundedAmount();\n    public Status getStatus();\n    public Instant getCreatedAt();\n}",
+    "tokenEstimate" : 310
+  }, {
+    "path" : "src/main/java/com/example/shop/order/Order.java",
+    "symbol" : "Order.Status",
+    "chunkType" : "TYPE_HEADER",
+    "startLine" : 18,
+    "endLine" : 18,
+    "content" : "package com.example.shop.order;\n\nimport jakarta.persistence.Column;\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.EnumType;\nimport jakarta.persistence.Enumerated;\nimport jakarta.persistence.GeneratedValue;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.Table;\nimport java.math.BigDecimal;\nimport java.time.Instant;\nimport java.util.UUID;\n\npublic enum Status {\n\n    PAID, REFUNDED\n}",
+    "tokenEstimate" : 102
+  }, {
+    "path" : "src/main/java/com/example/shop/order/Order.java",
+    "symbol" : "Order#small-methods",
+    "chunkType" : "METHOD",
+    "startLine" : 40,
+    "endLine" : 41,
+    "content" : "    protected Order() {\n    }",
+    "tokenEstimate" : 8
+  }, {
+    "path" : "src/main/java/com/example/shop/order/Order.java",
+    "symbol" : "Order#Order(String,BigDecimal)",
+    "chunkType" : "METHOD",
+    "startLine" : 43,
+    "endLine" : 46,
+    "content" : "    public Order(String customerEmail, BigDecimal total) {\n        this.customerEmail = customerEmail;\n        this.total = total;\n    }",
+    "tokenEstimate" : 34
+  }, {
+    "path" : "src/main/java/com/example/shop/order/Order.java",
+    "symbol" : "Order#markRefunded",
+    "chunkType" : "METHOD",
+    "startLine" : 48,
+    "endLine" : 53,
+    "content" : "    void markRefunded(BigDecimal amount) {\n        refundedAmount = refundedAmount.add(amount);\n        if (refundedAmount.compareTo(total) == 0) {\n            status = Status.REFUNDED;\n        }\n    }",
+    "tokenEstimate" : 51
+  }, {
+    "path" : "src/main/java/com/example/shop/order/Order.java",
+    "symbol" : "Order#small-methods-2",
+    "chunkType" : "METHOD",
+    "startLine" : 55,
+    "endLine" : 77,
+    "content" : "    public UUID getId() {\n        return id;\n    }\n\n    public String getCustomerEmail() {\n        return customerEmail;\n    }\n\n    public BigDecimal getTotal() {\n        return total;\n    }\n\n    public BigDecimal getRefundedAmount() {\n        return refundedAmount;\n    }\n\n    public Status getStatus() {\n        return status;\n    }\n\n    public Instant getCreatedAt() {\n        return createdAt;\n    }",
+    "tokenEstimate" : 101
+  }, {
+    "path" : "src/main/java/com/example/shop/order/OrderController.java",
+    "symbol" : "OrderController",
+    "chunkType" : "TYPE_HEADER",
+    "startLine" : 12,
+    "endLine" : 31,
+    "content" : "package com.example.shop.order;\n\nimport jakarta.validation.Valid;\nimport java.util.UUID;\nimport org.springframework.web.bind.annotation.GetMapping;\nimport org.springframework.web.bind.annotation.PathVariable;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RequestMapping;\nimport org.springframework.web.bind.annotation.RestController;\n\n@RestController\n@RequestMapping(\"/orders\")\npublic class OrderController {\n    private final OrderService orderService;\n    public OrderController(OrderService orderService);\n    @GetMapping(\"/{id}\")\n    public Order get(@PathVariable UUID id);\n    @PostMapping(\"/{id}/refund\")\n    public Order refund(@PathVariable UUID id, @Valid @RequestBody RefundRequest request);\n}",
+    "tokenEstimate" : 207
+  }, {
+    "path" : "src/main/java/com/example/shop/order/OrderController.java",
+    "symbol" : "OrderController#small-methods",
+    "chunkType" : "METHOD",
+    "startLine" : 18,
+    "endLine" : 20,
+    "content" : "    public OrderController(OrderService orderService) {\n        this.orderService = orderService;\n    }",
+    "tokenEstimate" : 26
+  }, {
+    "path" : "src/main/java/com/example/shop/order/OrderController.java",
+    "symbol" : "OrderController#get",
+    "chunkType" : "METHOD",
+    "startLine" : 22,
+    "endLine" : 25,
+    "content" : "    @GetMapping(\"/{id}\")\n    public Order get(@PathVariable UUID id) {\n        return orderService.find(id);\n    }",
+    "tokenEstimate" : 29
+  }, {
+    "path" : "src/main/java/com/example/shop/order/OrderController.java",
+    "symbol" : "OrderController#refund",
+    "chunkType" : "METHOD",
+    "startLine" : 27,
+    "endLine" : 30,
+    "content" : "    @PostMapping(\"/{id}/refund\")\n    public Order refund(@PathVariable UUID id, @Valid @RequestBody RefundRequest request) {\n        return orderService.refund(id, request);\n    }",
+    "tokenEstimate" : 45
+  }, {
+    "path" : "src/main/java/com/example/shop/order/OrderRepository.java",
+    "symbol" : "OrderRepository",
+    "chunkType" : "TYPE_HEADER",
+    "startLine" : 7,
+    "endLine" : 10,
+    "content" : "package com.example.shop.order;\n\nimport java.util.List;\nimport java.util.UUID;\nimport org.springframework.data.jpa.repository.JpaRepository;\n\npublic interface OrderRepository extends JpaRepository<Order, UUID> {\n    List<Order> findByCustomerEmailOrderByCreatedAtDesc(String customerEmail);\n}",
+    "tokenEstimate" : 73
+  }, {
+    "path" : "src/main/java/com/example/shop/order/OrderRepository.java",
+    "symbol" : "OrderRepository#small-methods",
+    "chunkType" : "METHOD",
+    "startLine" : 9,
+    "endLine" : 9,
+    "content" : "    List<Order> findByCustomerEmailOrderByCreatedAtDesc(String customerEmail);",
+    "tokenEstimate" : 20
+  }, {
+    "path" : "src/main/java/com/example/shop/order/OrderService.java",
+    "symbol" : "OrderService",
+    "chunkType" : "TYPE_HEADER",
+    "startLine" : 8,
+    "endLine" : 43,
+    "content" : "package com.example.shop.order;\n\nimport java.math.BigDecimal;\nimport java.util.UUID;\nimport org.springframework.stereotype.Service;\nimport org.springframework.transaction.annotation.Transactional;\n\n@Service\npublic class OrderService {\n    private final OrderRepository orderRepository;\n    public OrderService(OrderRepository orderRepository);\n    @Transactional(readOnly = true)\n    public Order find(UUID id);\n    @Transactional\n    public Order place(String customerEmail, BigDecimal total);\n    @Transactional\n    public Order refund(UUID orderId, RefundRequest request);\n}",
+    "tokenEstimate" : 145
+  }, {
+    "path" : "src/main/java/com/example/shop/order/OrderService.java",
+    "symbol" : "OrderService#small-methods",
+    "chunkType" : "METHOD",
+    "startLine" : 13,
+    "endLine" : 15,
+    "content" : "    public OrderService(OrderRepository orderRepository) {\n        this.orderRepository = orderRepository;\n    }",
+    "tokenEstimate" : 28
+  }, {
+    "path" : "src/main/java/com/example/shop/order/OrderService.java",
+    "symbol" : "OrderService#find",
+    "chunkType" : "METHOD",
+    "startLine" : 17,
+    "endLine" : 20,
+    "content" : "    @Transactional(readOnly = true)\n    public Order find(UUID id) {\n        return orderRepository.findById(id).orElseThrow();\n    }",
+    "tokenEstimate" : 34
+  }, {
+    "path" : "src/main/java/com/example/shop/order/OrderService.java",
+    "symbol" : "OrderService#place",
+    "chunkType" : "METHOD",
+    "startLine" : 22,
+    "endLine" : 25,
+    "content" : "    @Transactional\n    public Order place(String customerEmail, BigDecimal total) {\n        return orderRepository.save(new Order(customerEmail, total));\n    }",
+    "tokenEstimate" : 40
+  }, {
+    "path" : "src/main/java/com/example/shop/order/OrderService.java",
+    "symbol" : "OrderService#refund",
+    "chunkType" : "METHOD",
+    "startLine" : 27,
+    "endLine" : 42,
+    "content" : "    /**\n     * Refunds part or all of a paid order. The total refunded can never exceed what the customer paid.\n     */\n    @Transactional\n    public Order refund(UUID orderId, RefundRequest request) {\n        Order order = find(orderId);\n        if (order.getStatus() != Order.Status.PAID) {\n            throw new IllegalStateException(\"Only paid orders can be refunded, this one is \" + order.getStatus());\n        }\n        BigDecimal refundable = order.getTotal().subtract(order.getRefundedAmount());\n        if (request.amount().compareTo(refundable) > 0) {\n            throw new IllegalArgumentException(\"Refund of \" + request.amount() + \" exceeds the refundable \" + refundable);\n        }\n        order.markRefunded(request.amount());\n        return order;\n    }",
+    "tokenEstimate" : 192
+  }, {
+    "path" : "src/main/java/com/example/shop/order/RefundRequest.java",
+    "symbol" : "RefundRequest",
+    "chunkType" : "TYPE_HEADER",
+    "startLine" : 7,
+    "endLine" : 8,
+    "content" : "package com.example.shop.order;\n\nimport jakarta.validation.constraints.NotNull;\nimport jakarta.validation.constraints.Positive;\nimport java.math.BigDecimal;\n\npublic record RefundRequest(@NotNull @Positive BigDecimal amount) {\n}",
+    "tokenEstimate" : 57
+  }, {
+    "path" : "src/main/resources/application.yml",
+    "symbol" : null,
+    "chunkType" : "CONFIG",
+    "startLine" : 1,
+    "endLine" : 10,
+    "content" : "spring:\n  application:\n    name: shop\n  datasource:\n    url: jdbc:postgresql://localhost:5432/shop\n    username: ${DB_USERNAME:shop}\n    # Fake credential, on purpose: the analyzer must redact it before storing or embedding this file.\n    password: <REDACTED:password>\n  jpa:\n    open-in-view: false",
+    "tokenEstimate" : 75
+  }, {
+    "path" : "src/main/resources/application.yml",
+    "symbol" : null,
+    "chunkType" : "CONFIG",
+    "startLine" : 12,
+    "endLine" : 16,
+    "content" : "shop:\n  refunds:\n    max-days-after-purchase: 30\n  payment:\n    api-key: ${PAYMENT_API_KEY}",
+    "tokenEstimate" : 23
+  }, {
+    "path" : "src/main/resources/db/migration/V1__orders.sql",
+    "symbol" : null,
+    "chunkType" : "SQL",
+    "startLine" : 1,
+    "endLine" : 10,
+    "content" : "CREATE TABLE orders (\n    id              UUID PRIMARY KEY,\n    customer_email  VARCHAR(255)   NOT NULL,\n    total           NUMERIC(12, 2) NOT NULL,\n    refunded_amount NUMERIC(12, 2) NOT NULL DEFAULT 0,\n    status          VARCHAR(20)    NOT NULL,\n    created_at      TIMESTAMPTZ    NOT NULL\n);\n\nCREATE INDEX idx_orders_customer_email ON orders (customer_email, created_at DESC);",
+    "tokenEstimate" : 96
+  }, {
+    "path" : "src/test/java/com/example/shop/order/OrderServiceTest.java",
+    "symbol" : "OrderServiceTest",
+    "chunkType" : "TYPE_HEADER",
+    "startLine" : 15,
+    "endLine" : 32,
+    "content" : "package com.example.shop.order;\n\nimport static org.assertj.core.api.Assertions.assertThatThrownBy;\nimport static org.mockito.Mockito.when;\nimport java.math.BigDecimal;\nimport java.util.Optional;\nimport java.util.UUID;\nimport org.junit.jupiter.api.Test;\nimport org.junit.jupiter.api.extension.ExtendWith;\nimport org.mockito.InjectMocks;\nimport org.mockito.Mock;\nimport org.mockito.junit.jupiter.MockitoExtension;\n\n@ExtendWith(MockitoExtension.class)\nclass OrderServiceTest {\n    @Mock\n    OrderRepository orderRepository;\n    @InjectMocks\n    OrderService orderService;\n    @Test\n    void refundCannotExceedWhatWasPaid();\n}",
+    "tokenEstimate" : 156
+  }, {
+    "path" : "src/test/java/com/example/shop/order/OrderServiceTest.java",
+    "symbol" : "OrderServiceTest#refundCannotExceedWhatWasPaid",
+    "chunkType" : "METHOD",
+    "startLine" : 24,
+    "endLine" : 31,
+    "content" : "    @Test\n    void refundCannotExceedWhatWasPaid() {\n        UUID id = UUID.randomUUID();\n        when(orderRepository.findById(id)).thenReturn(Optional.of(new Order(\"ada@example.com\", new BigDecimal(\"50.00\"))));\n\n        assertThatThrownBy(() -> orderService.refund(id, new RefundRequest(new BigDecimal(\"60.00\"))))\n                .isInstanceOf(IllegalArgumentException.class);\n    }",
+    "tokenEstimate" : 96
+  } ]
+}

@@ -2,27 +2,26 @@ package com.aryankanani.repointerviewer.api.graphql;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.aryankanani.repointerviewer.FakeAnalysisApi;
 import com.aryankanani.repointerviewer.IntegrationTest;
+import com.aryankanani.repointerviewer.contracts.analysis.AnalysisStatus;
+import com.aryankanani.repointerviewer.contracts.analysis.ProjectDto;
 import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.graphql.test.tester.GraphQlTester;
-import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
- * Task 1.1 acceptance tests for {@code Query.project} and {@code Query.projects}.
- *
- * <p>Written before the implementation. They use only the GraphQL schema and plain SQL inserts,
- * so they do not depend on how the entity, repository, service or controller are designed.
+ * Task 1.11 acceptance tests for {@code Query.project} and {@code Query.projects}, over analysis-service's answers
+ * (task 4.1). The keyset itself, ties included, is tested in analysis-service's {@code ProjectPagingTest}; here, that
+ * a GraphQL cursor leads to the right next page ({@code ProjectController} writes it and reads it back).
  */
 @IntegrationTest
 class ProjectQueriesTest {
-
-	private static final String SHA = "0123456789abcdef0123456789abcdef01234567";
 
 	private static final String PROJECT_BY_ID = """
 			query ($id: ID!) {
@@ -40,27 +39,28 @@ class ProjectQueriesTest {
 			""";
 
 	private final GraphQlTester graphQlTester;
-	private final JdbcTemplate jdbc;
 
-	ProjectQueriesTest(@Autowired GraphQlTester graphQlTester, @Autowired JdbcTemplate jdbc) {
+	private final FakeAnalysisApi analysis;
+
+	ProjectQueriesTest(@Autowired GraphQlTester graphQlTester, @Autowired FakeAnalysisApi analysis) {
 		this.graphQlTester = graphQlTester;
-		this.jdbc = jdbc;
+		this.analysis = analysis;
 	}
 
 	@BeforeEach
 	void deleteAllProjects() {
-		jdbc.update("DELETE FROM project");
+		analysis.reset();
 	}
 
 	@Test
 	void projectReturnsTheProjectWhenFound() {
-		UUID id = insertProject(1, "repo-1", at(10));
+		ProjectDto project = analysis.add(AnalysisStatus.READY);
 
-		graphQlTester.document(PROJECT_BY_ID).variable("id", id).execute()
-				.path("project.id").entity(String.class).isEqualTo(id.toString())
-				.path("project.githubUrl").entity(String.class).isEqualTo("https://github.com/acme/repo-1")
-				.path("project.name").entity(String.class).isEqualTo("acme/repo-1")
-				.path("project.commitSha").entity(String.class).isEqualTo(SHA)
+		graphQlTester.document(PROJECT_BY_ID).variable("id", project.id()).execute()
+				.path("project.id").entity(String.class).isEqualTo(project.id().toString())
+				.path("project.githubUrl").entity(String.class).isEqualTo(project.githubUrl())
+				.path("project.name").entity(String.class).isEqualTo("acme/" + project.repoName())
+				.path("project.commitSha").entity(String.class).isEqualTo(project.commitSha())
 				.path("project.status").entity(String.class).isEqualTo("READY");
 	}
 
@@ -72,29 +72,23 @@ class ProjectQueriesTest {
 
 	@Test
 	void createdAtIsAnIso8601String() {
-		OffsetDateTime createdAt = OffsetDateTime.of(2026, 10, 20, 10, 30, 15, 0, ZoneOffset.UTC);
-		UUID id = insertProject(1, "repo-1", createdAt);
+		ProjectDto project = analysis.add(AnalysisStatus.READY);
 
-		String value = graphQlTester.document(PROJECT_BY_ID).variable("id", id).execute()
+		String value = graphQlTester.document(PROJECT_BY_ID).variable("id", project.id()).execute()
 				.path("project.createdAt").entity(String.class).get();
 
 		// Any offset is fine ("Z", "+00:00", "-04:00") as long as it is ISO-8601 and the same instant.
-		assertThat(OffsetDateTime.parse(value).toInstant()).isEqualTo(createdAt.toInstant());
+		assertThat(OffsetDateTime.parse(value).toInstant()).isEqualTo(project.createdAt());
 	}
 
 	@Test
 	void projectsPagesNewestFirstAcrossThreePages() {
-		insertProject(1, "repo-1", at(10));
-		insertProject(2, "repo-2", at(11));
-		// Same created_at: the id breaks the tie (DESC, so repo-4 comes first). They sit on both sides
-		// of the page 1 / page 2 boundary, so a wrong keyset would skip or repeat one of them.
-		insertProject(3, "repo-3", at(12));
-		insertProject(4, "repo-4", at(12));
-		insertProject(5, "repo-5", at(13));
+		List<String> newestFirst = IntStream.range(0, 5).mapToObj(i -> analysis.add(AnalysisStatus.READY))
+				.map(project -> "acme/" + project.repoName()).toList().reversed();
 
-		String afterPage1 = assertPage(null, List.of("acme/repo-5", "acme/repo-4"), true);
-		String afterPage2 = assertPage(afterPage1, List.of("acme/repo-3", "acme/repo-2"), true);
-		assertPage(afterPage2, List.of("acme/repo-1"), false);
+		String afterPage1 = assertPage(null, newestFirst.subList(0, 2), true);
+		String afterPage2 = assertPage(afterPage1, newestFirst.subList(2, 4), true);
+		assertPage(afterPage2, newestFirst.subList(4, 5), false);
 	}
 
 	/** Fetches one page of 2 and checks names in order; returns the cursor for the next page. */
@@ -109,20 +103,6 @@ class ProjectQueriesTest {
 				.containsExactly(expectedNames.toArray(String[]::new));
 		response.path("projects.pageInfo.hasNextPage").entity(Boolean.class).isEqualTo(expectedHasNextPage);
 		return response.path("projects.pageInfo.endCursor").entity(String.class).get();
-	}
-
-	/** Inserts a READY project with a predictable id (…0001, …0002, ...) and the given created_at. */
-	private UUID insertProject(int number, String repoName, OffsetDateTime createdAt) {
-		UUID id = UUID.fromString("00000000-0000-0000-0000-%012d".formatted(number));
-		jdbc.update("""
-				INSERT INTO project (id, github_url, owner, repo_name, commit_sha, status, created_at, updated_at)
-				VALUES (?, ?, 'acme', ?, ?, 'READY', ?, ?)
-				""", id, "https://github.com/acme/" + repoName, repoName, SHA, createdAt, createdAt);
-		return id;
-	}
-
-	private static OffsetDateTime at(int hour) {
-		return OffsetDateTime.of(2026, 10, 20, hour, 0, 0, 0, ZoneOffset.UTC);
 	}
 
 }
