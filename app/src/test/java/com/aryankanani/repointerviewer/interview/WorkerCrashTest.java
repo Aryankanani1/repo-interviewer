@@ -18,6 +18,7 @@ import java.util.Map;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.ConsumerGroupDescription;
+import org.apache.kafka.common.errors.GroupIdNotFoundException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -169,11 +170,15 @@ class WorkerCrashTest {
 		return worker;
 	}
 
-	/** Until a member of the evaluation group holds all three partitions of its topic. */
+	/**
+	 * Until a member of the evaluation group holds all three partitions of its topic. Until someone joins it, the
+	 * group may not exist at all, and describing it fails with {@link GroupIdNotFoundException}: not joined yet.
+	 */
 	private void awaitEvaluationWorkerJoined() {
 		Object bootstrap = kafkaAdmin.getConfigurationProperties().get(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG);
 		try (Admin admin = Admin.create(Map.of(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrap))) {
-			await().atMost(Duration.ofSeconds(90)).pollInterval(Duration.ofMillis(500)).until(() -> {
+			await().atMost(Duration.ofSeconds(90)).pollInterval(Duration.ofMillis(500))
+					.ignoreExceptionsMatching(ex -> ex.getCause() instanceof GroupIdNotFoundException).until(() -> {
 				ConsumerGroupDescription group = admin.describeConsumerGroups(List.of(AnswerEvaluationConsumer.NAME))
 						.all().get().get(AnswerEvaluationConsumer.NAME);
 				return group.members().stream().anyMatch(member -> member.assignment().topicPartitions().stream()
