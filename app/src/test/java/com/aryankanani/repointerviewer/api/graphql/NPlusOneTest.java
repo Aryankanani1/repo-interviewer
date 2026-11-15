@@ -3,27 +3,29 @@ package com.aryankanani.repointerviewer.api.graphql;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.aryankanani.repointerviewer.FakeAnalysisApi;
+import com.aryankanani.repointerviewer.FakeInterviewApi;
 import com.aryankanani.repointerviewer.IntegrationTest;
-import com.aryankanani.repointerviewer.SqlStatementCounter;
+import com.aryankanani.repointerviewer.contracts.interview.QuestionDto;
+import com.aryankanani.repointerviewer.contracts.interview.SessionDto;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.graphql.test.tester.GraphQlTester;
-import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
- * Task 1.13 acceptance test: one query for a session with every nested field costs the same number of SQL
- * statements whether the session has 3 questions or 8. Without batching, each question would add its own queries
- * (the N+1 problem); with {@code @BatchMapping} each field costs one query for all its parents.
+ * Task 1.13 acceptance test: a session query costs the same whatever the number of questions. Since task 4.1 the
+ * data is behind two services, so the cost is counted in calls to their APIs, each one an HTTP request: one per
+ * resolved field ({@code @BatchMapping}), never one per question. That each of those calls is a fixed number of SQL
+ * queries is interview-service's {@code BatchReadsTest}.
  */
 @IntegrationTest
 class NPlusOneTest {
 
-	private static final String SERVICE = "src/main/java/com/example/shop/order/OrderService.java";
-
-	/** Every field that is resolved from the database, nested the way a client would ask for them. */
+	/** Every field that comes from another service, nested the way a client would ask for them. */
 	private static final String SESSION = """
 			query ($id: ID!) {
 			  interviewSession(id: $id) {
@@ -40,100 +42,90 @@ class NPlusOneTest {
 			}
 			""";
 
-	private final GraphQlTester graphQlTester;
+	private static final List<String> INTERVIEW_READS = List.of("sessions", "sessionsByProject", "questions",
+			"askedQuestions", "answers");
 
-	private final SqlStatementCounter sql;
+	private static final List<String> ANALYSIS_READS = List.of("findByIds", "snippets");
+
+	private final GraphQlTester graphQlTester;
 
 	private final FakeAnalysisApi fixture;
 
-	private final JdbcTemplate jdbc;
+	private final FakeInterviewApi interviews;
 
 	private UUID project;
 
-	NPlusOneTest(@Autowired GraphQlTester graphQlTester, @Autowired SqlStatementCounter sql,
-			@Autowired FakeAnalysisApi fixture,
-			@Autowired JdbcTemplate jdbc) {
+	NPlusOneTest(@Autowired GraphQlTester graphQlTester, @Autowired FakeAnalysisApi fixture,
+			@Autowired FakeInterviewApi interviews) {
 		this.graphQlTester = graphQlTester;
-		this.sql = sql;
 		this.fixture = fixture;
-		this.jdbc = jdbc;
+		this.interviews = interviews;
 	}
 
 	@BeforeEach
 	void readyProject() {
-		jdbc.update("DELETE FROM interview_session");   // cascades to topics, questions and answers
 		fixture.reset();
+		interviews.reset();
 		project = fixture.readyProject();
 	}
 
 	/** Acceptance criterion. */
 	@Test
-	void aSessionWithEightQuestionsCostsAsManyQueriesAsOneWithThree() {
-		List<String> three = statementsFor(sessionWith(3));
-		List<String> eight = statementsFor(sessionWith(8));
+	void aSessionWithEightQuestionsCostsAsManyCallsAsOneWithThree() {
+		Map<String, Integer> three = callsFor(sessionWith(3));
+		Map<String, Integer> eight = callsFor(sessionWith(8));
 
-		System.out.printf("%nSQL statements for one session query: 3 questions = %d, 8 questions = %d%n%n",
-				three.size(), eight.size());
-		assertThat(eight).as("SQL for 8 questions:\n%s", String.join("\n", eight)).hasSameSizeAs(three);
-		assertThat(eight).hasSizeLessThanOrEqualTo(10);   // one query per resolved field, plus the session itself
+		System.out.printf("%nService calls for one session query: 3 questions = %s, 8 questions = %s%n%n", three,
+				eight);
+		assertThat(eight).isEqualTo(three);
+		assertThat(eight.values()).allMatch(calls -> calls <= 2);   // currentQuestion and parent both load questions
+		assertThat(eight.values().stream().mapToInt(Integer::intValue).sum()).isLessThanOrEqualTo(9);
 	}
 
+	/** The snippet comes from analysis-service, for the session's project and the cited lines. */
 	@Test
 	void theSnippetOfACodeRefIsTheCitedSource() {
 		graphQlTester.document(SESSION).variable("id", sessionWith(3)).execute()
 				.path("interviewSession.questions[0].codeRefs[0].snippet").entity(String.class)
-				.satisfies(snippet -> assertThat(snippet).startsWith("    /**\n     * Refunds part or all of a paid order.")
-						.contains("public Order refund(UUID orderId, RefundRequest request) {"));
+				.satisfies(snippet -> assertThat(snippet).contains("@PostMapping(\"/{id}/refund\")")
+						.contains("public Order refund(@PathVariable UUID id,"));
 	}
 
-	private List<String> statementsFor(UUID session) {
-		sql.start();
+	/** The calls one session query makes: the counters after it, minus before it. */
+	private Map<String, Integer> callsFor(UUID session) {
+		Map<String, Integer> before = counts();
 		graphQlTester.document(SESSION).variable("id", session).execute()
 				.path("interviewSession.questions").entityList(Object.class).satisfies(questions -> assertThat(questions)
 						.isNotEmpty());
-		return sql.stop();
+		Map<String, Integer> calls = new LinkedHashMap<>();
+		counts().forEach((method, count) -> calls.put(method, count - before.get(method)));
+		return calls;
 	}
 
 	/**
-	 * A session written straight to the database: {@code count} asked questions, question 2 a follow-up on question
-	 * 1, every question but the last answered and graded, each citing OrderService#refund (lines 27-42).
+	 * A session of {@code count} asked questions, question 2 a follow-up on question 1, every question but the last
+	 * answered and graded, each citing OrderController lines 27-30.
 	 */
 	private UUID sessionWith(int count) {
-		UUID session = jdbc.queryForObject("""
-				INSERT INTO interview_session (project_id, status, difficulty, planned_question_count)
-				VALUES (?, 'IN_PROGRESS', 'JUNIOR', ?) RETURNING id
-				""", UUID.class, project, Math.min(count, 8));
-		UUID previous = null;
-		UUID topic = null;
-		UUID last = null;
+		SessionDto session = FakeInterviewApi.session(project);
+		QuestionDto previous = null;
+		QuestionDto last = null;
 		for (int order = 1; order <= count; order++) {
-			boolean followUp = order == 2;
-			if (!followUp) {
-				topic = jdbc.queryForObject("""
-						INSERT INTO interview_topic (session_id, order_index, category, title, status)
-						VALUES (?, ?, 'ARCHITECTURE', ?, 'ASKED') RETURNING id
-						""", UUID.class, session, order, "Topic " + order);
-			}
-			last = jdbc.queryForObject("""
-					INSERT INTO question (session_id, topic_id, parent_question_id, order_index, category, text, is_follow_up,
-					    code_refs, rubric, ideal_answer_outline, status, asked_at)
-					VALUES (?, ?, ?, ?, 'ARCHITECTURE', ?, ?, CAST(? AS jsonb),
-					    '{"mustMention": [], "goodToMention": [], "redFlags": []}', '["An outline point"]', ?, now())
-					RETURNING id
-					""", UUID.class, session, topic, followUp ? previous : null, order, "Question " + order, followUp,
-					"[{\"path\": \"" + SERVICE + "\", \"startLine\": 27, \"endLine\": 42}]",
-					order < count ? "ANSWERED" : "ASKED");
+			last = interviews.add(FakeInterviewApi.question(session.id(), order, order == 2 ? previous.id() : null));
 			if (order < count) {
-				jdbc.update("""
-						INSERT INTO answer (question_id, text, text_sha, score, verdict, feedback, covered_points,
-						    missed_points, incorrect_claims, follow_up_needed, follow_up_reason, evaluated_at)
-						VALUES (?, ?, ?, 7, 'ADEQUATE', 'Fine.', '[]', '[]', '[]', false, '', now())
-						""", last, "Answer " + order, "sha" + order);
+				interviews.add(FakeInterviewApi.graded(last.id(), "Answer " + order, 7));
 			}
 			previous = last;
 		}
-		jdbc.update("UPDATE interview_session SET current_question_id = ? WHERE id = ?", last, session);
-		return session;
+		interviews.add(FakeInterviewApi.asking(session, last.id()));
+		return session.id();
+	}
+
+	private Map<String, Integer> counts() {
+		Map<String, Integer> counts = new LinkedHashMap<>();
+		INTERVIEW_READS.forEach(method -> counts.put("interview." + method, interviews.calls(method)));
+		ANALYSIS_READS.forEach(method -> counts.put("analysis." + method, fixture.calls(method)));
+		return counts;
 	}
 
 }

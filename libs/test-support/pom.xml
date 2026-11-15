@@ -19,9 +19,12 @@
 			<groupId>com.aryankanani</groupId>
 			<artifactId>common</artifactId>
 		</dependency>
+		<!-- Optional: only for FakeLlmGateway, so a module without the llm library (the GraphQL app, task 4.1) does not
+		     get Spring AI on its test classpath through this one. -->
 		<dependency>
 			<groupId>com.aryankanani</groupId>
 			<artifactId>llm</artifactId>
+			<optional>true</optional>
 		</dependency>
 		<dependency>
 			<groupId>com.aryankanani</groupId>

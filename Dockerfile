@@ -2,6 +2,7 @@
 # Repo Interviewer images (task 3.1, docs/LLD.md §14.1), one per service since task 4.1:
 #   docker build -t repo-interviewer:local .                                            (the app, the default)
 #   docker build --build-arg SERVICE=analysis-service -t analysis-service:local .
+#   docker build --build-arg SERVICE=interview-service -t interview-service:local .
 
 # --- Build stage: package the app with the Maven wrapper, then split the jar into layers ---------------------------
 FROM eclipse-temurin:21-jdk-noble AS build
@@ -14,6 +15,7 @@ COPY .mvn/ .mvn/
 # them are here; only SERVICE and the libraries it needs are built.
 COPY libs/ libs/
 COPY analysis-service/ analysis-service/
+COPY interview-service/ interview-service/
 COPY app/ app/
 # Tests are not run or compiled here: ./mvnw verify and CI run them (Testcontainers needs a Docker daemon, which a
 # build step does not have). The cache mount keeps ~/.m2 between builds, so dependencies are downloaded only once.

@@ -9,5 +9,7 @@
 !libs/*/src/main/
 !analysis-service/pom.xml
 !analysis-service/src/main/
+!interview-service/pom.xml
+!interview-service/src/main/
 !app/pom.xml
 !app/src/main/

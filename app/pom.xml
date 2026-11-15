@@ -11,7 +11,7 @@
 	<name>app</name>
 	<!-- Task 4.1, step 1: everything that is not a library yet. Steps 2 and 3 move analysis and interview out into
 	     their own services; what stays becomes graphql-gateway. -->
-	<description>The Spring Boot application: GraphQL API and interview engine (analysis: analysis-service)</description>
+	<description>The Spring Boot application: GraphQL API (analysis-service and interview-service behind it)</description>
 
 	<properties>
 		<spring-boot.run.skip>false</spring-boot.run.skip>
@@ -22,10 +22,6 @@
 		<dependency>
 			<groupId>com.aryankanani</groupId>
 			<artifactId>common</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>com.aryankanani</groupId>
-			<artifactId>llm</artifactId>
 		</dependency>
 		<dependency>
 			<groupId>com.aryankanani</groupId>
@@ -73,8 +69,9 @@
 			<artifactId>spring-boot-starter-kafka</artifactId>
 		</dependency>
 
-		<!-- The HTTP client for analysis-service's AnalysisApi (@ImportHttpServices, task 4.1). Anthropic chat comes
-		     with the llm library; embeddings, JGit and JavaParser moved to analysis-service. -->
+		<!-- The HTTP clients for analysis-service's AnalysisApi and interview-service's InterviewApi
+		     (@ImportHttpServices, task 4.1). No model calls here: chat, embeddings, JGit and JavaParser are the
+		     services'. -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-restclient</artifactId>

@@ -26,7 +26,8 @@ class EnvironmentProfilesTest {
 
 	/** What a stage or prod deployment provides as environment variables. */
 	private static final String[] DEPLOYMENT_VARIABLES = { "DB_URL=jdbc:postgresql://db:5432/repo_interviewer",
-			"DB_USER=ri", "DB_PASSWORD=from-a-secret", "ANALYSIS_BASE_URL=http://analysis-service:8080" };
+			"DB_USER=ri", "DB_PASSWORD=from-a-secret", "ANALYSIS_BASE_URL=http://analysis-service:8080",
+			"INTERVIEW_BASE_URL=http://interview-service:8080" };
 
 	private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
 			.withInitializer(new ConfigDataApplicationContextInitializer())   // loads application*.yml
@@ -74,6 +75,8 @@ class EnvironmentProfilesTest {
 			Environment env = context.getEnvironment();
 			assertThat(env.getProperty("spring.datasource.url")).startsWith("jdbc:postgresql://localhost:");
 			assertThat(env.getProperty("spring.http.serviceclient.analysis.base-url")).isEqualTo("http://localhost:8082");
+			assertThat(env.getProperty("spring.http.serviceclient.interview.base-url"))
+					.isEqualTo("http://localhost:8084");
 			assertThat(env.getProperty("logging.level.com.aryankanani.repointerviewer")).isEqualTo("DEBUG");
 		});
 	}
@@ -87,27 +90,27 @@ class EnvironmentProfilesTest {
 			assertThat(env.getProperty("spring.datasource.password")).isEqualTo("from-a-secret");
 			assertThat(env.getProperty("spring.http.serviceclient.analysis.base-url"))
 					.isEqualTo("http://analysis-service:8080");
+			assertThat(env.getProperty("spring.http.serviceclient.interview.base-url"))
+					.isEqualTo("http://interview-service:8080");
 		});
-	}
-
-	@Test
-	void devAndStageCapDailyLlmCallsBelowProd() {   // 4/5 of the old caps; analysis-service has the rest (D-026)
-		run("dev", context -> assertThat(context.getBean(AppProperties.class).llm().maxCallsPerDay()).isEqualTo(48));
-		run("stage", context -> assertThat(context.getBean(AppProperties.class).llm().maxCallsPerDay()).isEqualTo(80));
-		run("prod", context -> assertThat(context.getBean(AppProperties.class).llm().maxCallsPerDay()).isEqualTo(240));
 	}
 
 	/**
 	 * {@code submitAnswer} grades the answer and writes the next question in one request: 25-43 s in the first
-	 * real run (task 1.15), past Tomcat's 30 s default, which answered HTTP 503 while the work went on.
+	 * real run (task 1.15), past Tomcat's 30 s default, which answered HTTP 503 while the work went on. Since task
+	 * 4.1 interview-service does that work, so its client waits as long as the request itself.
 	 */
 	@ParameterizedTest
 	@ValueSource(strings = { "dev", "test", "stage", "prod" })
 	void requestsMayRunLongerThanTomcatsDefaultAsyncTimeout(String environment) {
 		// Bound the way Boot binds spring.mvc.* (Environment.getProperty cannot read "120s" as a Duration).
-		run(environment, context -> assertThat(Binder.get(context.getEnvironment())
-				.bind("spring.mvc.async.request-timeout", Duration.class).orElse(null))
-				.isEqualTo(Duration.ofSeconds(120)));
+		run(environment, context -> {
+			Binder binder = Binder.get(context.getEnvironment());
+			assertThat(binder.bind("spring.mvc.async.request-timeout", Duration.class).orElse(null))
+					.isEqualTo(Duration.ofSeconds(120));
+			assertThat(binder.bind("spring.http.serviceclient.interview.read-timeout", Duration.class).orElse(null))
+					.isEqualTo(Duration.ofSeconds(120));
+		});
 	}
 
 	@Test

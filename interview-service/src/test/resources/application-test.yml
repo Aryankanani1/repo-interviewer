@@ -1,0 +1,19 @@
+# test: interview-service's automated tests (./mvnw verify, locally and in CI), activated by @IntegrationTest.
+# Lives on the test classpath, so none of this ships in the jar. The database comes from Testcontainers
+# (TestcontainersConfiguration: the container runs db/bootstrap.sql, the service logs in as interview_svc).
+# No test calls a real model or another service: FakeLlmGateway and FakeAnalysisApi.
+
+spring:
+  http:
+    serviceclient:
+      analysis:
+        base-url: http://analysis.invalid   # never called: the tests use FakeAnalysisApi (TestDoublesConfiguration)
+  ai:
+    anthropic:
+      api-key: test-key-not-used   # only satisfies auto-configuration
+
+app:
+  interview:
+    # Off so each test controls the order of the fake model replies. QuestionPrefetcherTest calls prepare() itself
+    # and turns it on for the one test of the background start.
+    prefetch-enabled: false

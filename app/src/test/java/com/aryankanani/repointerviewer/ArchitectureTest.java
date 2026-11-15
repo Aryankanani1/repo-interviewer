@@ -24,7 +24,7 @@ class ArchitectureTest {
 
 	static final String BASE = "com.aryankanani.repointerviewer";
 
-	private static final List<String> MODULES_WITH_ENTITIES = List.of("common", "llm", "codebase", "project", "interview");
+	private static final List<String> MODULES_WITH_ENTITIES = List.of("common");
 
 	/** One line per row of the LLD §2 dependency table. */
 	@ArchTest
@@ -33,34 +33,19 @@ class ArchitectureTest {
 			// Most modules are still empty in Phase 0. An empty module must not fail the rule.
 			.withOptionalLayers(true)
 			.layer("api").definedBy(BASE + ".api..")
-			.layer("interview").definedBy(BASE + ".interview..")
-			.layer("project").definedBy(BASE + ".project..")
-			.layer("codebase").definedBy(BASE + ".codebase..")
-			.layer("llm").definedBy(BASE + ".llm..")
 			.layer("contracts").definedBy(BASE + ".contracts..")
 			.layer("common").definedBy(BASE + ".common..")
-			// Task 4.1: api and interview reach project and codebase only through contracts.analysis.AnalysisApi, and
-			// api reaches interview only through contracts.interview.InterviewApi (step 3a).
+			// Task 4.1: the other modules are services of their own; api reaches them only through
+			// contracts.analysis.AnalysisApi and contracts.interview.InterviewApi, over HTTP.
 			.whereLayer("api").mayOnlyAccessLayers("contracts", "common")
 			.whereLayer("api").mayNotBeAccessedByAnyLayer()
-			.whereLayer("interview").mayOnlyAccessLayers("llm", "contracts", "common")
-			.whereLayer("project").mayOnlyAccessLayers("codebase", "llm", "contracts", "common")
-			.whereLayer("codebase").mayOnlyAccessLayers("contracts", "common")
-			.whereLayer("llm").mayOnlyAccessLayers("contracts", "common")
 			.whereLayer("contracts").mayNotAccessAnyLayer()
 			.whereLayer("common").mayNotAccessAnyLayer();
 
 	@ArchTest
-	static final ArchRule onlyLlmUsesSpringAiChat = noClasses()
-			.that().resideOutsideOfPackage(BASE + ".llm..")
-			.should().dependOnClassesThat().resideInAPackage("org.springframework.ai.chat..")
-			.because("all chat-model calls go through llm.LlmGateway, which records every call in llm_call");
-
-	@ArchTest
-	static final ArchRule onlyCodebaseEmbedUsesSpringAiEmbedding = noClasses()
-			.that().resideOutsideOfPackage(BASE + ".codebase.embed..")
-			.should().dependOnClassesThat().resideInAPackage("org.springframework.ai.embedding..")
-			.because("embeddings are created only by codebase.embed.EmbeddingService");
+	static final ArchRule noModelCallsHere = noClasses()
+			.should().dependOnClassesThat().resideInAPackage("org.springframework.ai..")
+			.because("chat and embedding models are the services' since task 4.1, each call in their llm_call");
 
 	@ArchTest
 	static final ArchRule onlyApiUsesSpringGraphQl = noClasses()

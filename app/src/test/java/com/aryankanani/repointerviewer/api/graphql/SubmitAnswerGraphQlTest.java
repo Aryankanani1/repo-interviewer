@@ -1,26 +1,29 @@
 package com.aryankanani.repointerviewer.api.graphql;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import com.aryankanani.repointerviewer.FakeAnalysisApi;
-import com.aryankanani.repointerviewer.FakeLlmGateway;
+import com.aryankanani.repointerviewer.FakeInterviewApi;
 import com.aryankanani.repointerviewer.IntegrationTest;
-import com.aryankanani.repointerviewer.llm.LlmPurpose;
-import com.aryankanani.repointerviewer.llm.output.CodeRefOutput;
-import com.aryankanani.repointerviewer.llm.output.EvaluationOutput;
-import com.aryankanani.repointerviewer.llm.output.QuestionOutput;
-import com.aryankanani.repointerviewer.llm.output.RubricOutput;
-import java.util.List;
+import com.aryankanani.repointerviewer.common.error.DomainException;
+import com.aryankanani.repointerviewer.common.error.ErrorCode;
+import com.aryankanani.repointerviewer.contracts.interview.QuestionDto;
+import com.aryankanani.repointerviewer.contracts.interview.ResultError;
+import com.aryankanani.repointerviewer.contracts.interview.SessionDto;
+import com.aryankanani.repointerviewer.contracts.interview.SubmitAnswerResponse;
 import java.util.Map;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.graphql.test.tester.GraphQlTester;
-import org.springframework.jdbc.core.JdbcTemplate;
 
-/** Task 1.11: {@code Mutation.submitAnswer} and the answer and follow-up links, through the GraphQL engine. */
+/**
+ * Task 1.11: {@code Mutation.submitAnswer} and the answer and follow-up links, through the GraphQL engine. Since task
+ * 4.1 grading is interview-service's ({@link FakeInterviewApi} here); this checks what the app sends and maps.
+ */
 @IntegrationTest
 class SubmitAnswerGraphQlTest {
-
-	private static final String CONTROLLER = "src/main/java/com/example/shop/order/OrderController.java";
 
 	private static final String SUBMIT = """
 			mutation ($input: SubmitAnswerInput!) {
@@ -37,46 +40,38 @@ class SubmitAnswerGraphQlTest {
 
 	private final FakeAnalysisApi fixture;
 
-	private final FakeLlmGateway llm;
+	private final FakeInterviewApi interviews;
 
-	private final JdbcTemplate jdbc;
+	private SessionDto session;
 
-	private String sessionId;
-
-	private String firstQuestionId;
+	private QuestionDto first;
 
 	SubmitAnswerGraphQlTest(@Autowired GraphQlTester graphQlTester, @Autowired FakeAnalysisApi fixture,
-			@Autowired FakeLlmGateway llm, @Autowired JdbcTemplate jdbc) {
+			@Autowired FakeInterviewApi interviews) {
 		this.graphQlTester = graphQlTester;
 		this.fixture = fixture;
-		this.llm = llm;
-		this.jdbc = jdbc;
+		this.interviews = interviews;
 	}
 
 	@BeforeEach
-	void startInterview() {
-		jdbc.update("DELETE FROM interview_session");   // cascades to topics, questions and answers
+	void sessionAskingItsFirstQuestion() {
 		fixture.reset();
-		llm.reset();
-		String project = fixture.readyProject().toString();
-		llm.enqueue(LlmPurpose.QUESTION, question("Why does refund take a RefundRequest body?"));
-		GraphQlTester.Response started = graphQlTester.document("""
-				mutation ($input: StartInterviewInput!) {
-				  startInterview(input: $input) { session { id } firstQuestion { id } }
-				}
-				""").variable("input", Map.of("projectId", project)).execute();
-		sessionId = started.path("startInterview.session.id").entity(String.class).get();
-		firstQuestionId = started.path("startInterview.firstQuestion.id").entity(String.class).get();
+		interviews.reset();
+		session = FakeInterviewApi.session(fixture.readyProject());
+		first = interviews.add(FakeInterviewApi.question(session.id(), 1, null));
+		session = interviews.add(FakeInterviewApi.asking(session, first.id()));
 	}
 
 	@Test
 	void theAnswerComesBackGradedWithTheIdealOutlineAndTheFollowUp() {
-		llm.enqueue(LlmPurpose.EVALUATION, new EvaluationOutput(5, List.of("validation"), List.of("error handling"),
-				List.of(), "Good start.", true, "Check bad input."));
-		llm.enqueue(LlmPurpose.FOLLOW_UP, question("What if the body is missing?"));
+		QuestionDto followUp = FakeInterviewApi.question(session.id(), 2, first.id());
+		interviews.onSubmitAnswer(new SubmitAnswerResponse(
+				FakeInterviewApi.graded(first.id(), "It is validated first.", 5), followUp,
+				FakeInterviewApi.asking(session, followUp.id()), null));
 
-		GraphQlTester.Response response = submit(firstQuestionId, "It is validated first.");
+		GraphQlTester.Response response = submit(first.id(), "It is validated first.");
 
+		assertThat(interviews.lastAnswer().text()).isEqualTo("It is validated first.");
 		response.path("submitAnswer.errors").entityList(Object.class).hasSize(0);
 		response.path("submitAnswer.answer.text").entity(String.class).isEqualTo("It is validated first.");
 		response.path("submitAnswer.answer.evaluation.score").entity(Integer.class).isEqualTo(5);
@@ -87,23 +82,48 @@ class SubmitAnswerGraphQlTest {
 				.containsExactly("The body is validated");
 		response.path("submitAnswer.nextQuestion.order").entity(Integer.class).isEqualTo(2);
 		response.path("submitAnswer.nextQuestion.isFollowUp").entity(Boolean.class).isEqualTo(true);
-		response.path("submitAnswer.nextQuestion.parent.id").entity(String.class).isEqualTo(firstQuestionId);
+		response.path("submitAnswer.nextQuestion.parent.id").entity(String.class).isEqualTo(first.id().toString());
 		response.path("submitAnswer.session.status").entity(String.class).isEqualTo("IN_PROGRESS");
+	}
+
+	/** With Kafka the grade and the next question come later (the subscription): both null in the payload. */
+	@Test
+	void anAnswerGradedLaterComesBackWithoutAnEvaluationOrANextQuestion() {
+		interviews.onSubmitAnswer(new SubmitAnswerResponse(
+				FakeInterviewApi.ungraded(first.id(), "It is validated first."), null, session, null));
+
+		GraphQlTester.Response response = submit(first.id(), "It is validated first.");
+
+		response.path("submitAnswer.errors").entityList(Object.class).hasSize(0);
+		response.path("submitAnswer.answer.text").entity(String.class).isEqualTo("It is validated first.");
+		response.path("submitAnswer.answer.evaluation").valueIsNull();
+		response.path("submitAnswer.nextQuestion").valueIsNull();
+	}
+
+	/** The answer is saved before grading can fail, so it comes back next to the error. */
+	@Test
+	void aGradingFailureIsAnErrorNextToTheSavedAnswer() {
+		interviews.onSubmitAnswer(new SubmitAnswerResponse(
+				FakeInterviewApi.ungraded(first.id(), "It is validated first."), null, session,
+				new ResultError("LLM_UNAVAILABLE", "The AI model is not available right now.", null)));
+
+		GraphQlTester.Response response = submit(first.id(), "It is validated first.");
+
+		response.path("submitAnswer.answer.text").entity(String.class).isEqualTo("It is validated first.");
+		response.path("submitAnswer.errors[0].code").entity(String.class).isEqualTo("LLM_UNAVAILABLE");
 	}
 
 	@Test
 	void theSessionShowsEachQuestionWithItsAnswer() {
-		llm.enqueue(LlmPurpose.EVALUATION, new EvaluationOutput(9, List.of(), List.of(), List.of(), "Great.", false, ""));
-		llm.enqueue(LlmPurpose.QUESTION, new QuestionOutput("What stops a refund larger than what was paid?",
-				List.of(new CodeRefOutput("src/main/java/com/example/shop/order/OrderService.java", 27, 42)),
-				new RubricOutput(List.of("refundable"), List.of(), List.of()), List.of("Compares with refundable")));
-		submit(firstQuestionId, "It is validated first.");
+		QuestionDto second = interviews.add(FakeInterviewApi.question(session.id(), 2, null));
+		interviews.add(FakeInterviewApi.graded(first.id(), "It is validated first.", 9));
+		interviews.add(FakeInterviewApi.asking(session, second.id()));
 
 		graphQlTester.document("""
 				query ($id: ID!) {
 				  interviewSession(id: $id) { questions { order answer { evaluation { score } } } }
 				}
-				""").variable("id", sessionId).execute()
+				""").variable("id", session.id()).execute()
 				.path("interviewSession.questions").entityList(Object.class).hasSize(2)
 				.path("interviewSession.questions[0].answer.evaluation.score").entity(Integer.class).isEqualTo(9)
 				.path("interviewSession.questions[1].answer").valueIsNull();
@@ -111,22 +131,18 @@ class SubmitAnswerGraphQlTest {
 
 	@Test
 	void anEmptyAnswerIsAnErrorOnTheTextField() {
-		GraphQlTester.Response response = submit(firstQuestionId, "  ");
+		interviews.failNextCall(new DomainException(ErrorCode.ANSWER_EMPTY, "Write an answer first.", "text"));
+
+		GraphQlTester.Response response = submit(first.id(), "  ");
 
 		response.path("submitAnswer.answer").valueIsNull();
 		response.path("submitAnswer.errors[0].code").entity(String.class).isEqualTo("ANSWER_EMPTY");
 		response.path("submitAnswer.errors[0].field").entityList(String.class).containsExactly("input", "text");
 	}
 
-	private GraphQlTester.Response submit(String questionId, String text) {
+	private GraphQlTester.Response submit(UUID questionId, String text) {
 		return graphQlTester.document(SUBMIT).variable("input", Map.of("questionId", questionId, "text", text))
 				.execute();
-	}
-
-	private static QuestionOutput question(String text) {
-		return new QuestionOutput(text, List.of(new CodeRefOutput(CONTROLLER, 27, 30)),
-				new RubricOutput(List.of("Validation happens first"), List.of(), List.of()),
-				List.of("The body is validated"));
 	}
 
 }

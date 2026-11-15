@@ -8,14 +8,20 @@ import com.aryankanani.repointerviewer.FakeAnalysisServer;
 import com.aryankanani.repointerviewer.FakeLlmGateway;
 import com.aryankanani.repointerviewer.FakeModelServer;
 import com.aryankanani.repointerviewer.KafkaIntegrationTest;
+import com.aryankanani.repointerviewer.TestcontainersConfiguration;
 import com.aryankanani.repointerviewer.WorkerProcess;
 import com.aryankanani.repointerviewer.common.messaging.Topics;
 import com.aryankanani.repointerviewer.contracts.interview.AnswerFlowEvent;
+import com.aryankanani.repointerviewer.contracts.interview.AnswerRequest;
+import com.aryankanani.repointerviewer.contracts.interview.InterviewApi;
+import com.aryankanani.repointerviewer.contracts.interview.StartInterviewRequest;
+import com.aryankanani.repointerviewer.contracts.interview.StartResponse;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.ConsumerGroupDescription;
@@ -25,7 +31,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
-import org.springframework.graphql.test.tester.GraphQlTester;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.kafka.config.KafkaListenerEndpointRegistry;
 import org.springframework.kafka.core.KafkaAdmin;
@@ -34,10 +39,10 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 /**
  * Task 2.7 acceptance test: a worker killed in the middle of the EVALUATION call, then restarted. The workers are
- * real app processes ({@link WorkerProcess}) with the real {@code SpringAiLlmGateway}, budget and {@code llm_call}
- * ledger, talking to {@link FakeModelServer} instead of Anthropic and to {@link FakeAnalysisServer} instead of
- * analysis-service (task 4.1); this test's own context starts the
- * interview and takes the answer, and its listeners are stopped meanwhile, so only the worker processes consume.
+ * real interview-service processes ({@link WorkerProcess}) with the real {@code SpringAiLlmGateway}, budget and
+ * {@code llm_call} ledger, talking to {@link FakeModelServer} instead of Anthropic and to {@link FakeAnalysisServer}
+ * instead of analysis-service (task 4.1); this test's own context starts the interview and takes the answer, and its
+ * listeners are stopped meanwhile, so only the worker processes consume.
  *
  * <p>About 40 s: two app starts, and the broker waits for the killed member's session timeout (6 s here, 45 s by
  * default) before it gives the partitions to the restarted one. Worker output: {@code target/worker-crash-*.log}.
@@ -45,7 +50,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 @KafkaIntegrationTest
 class WorkerCrashTest {
 
-	private final GraphQlTester graphQlTester;
+	private final InterviewApi interviews;
 
 	private final FakeAnalysisApi fixture;
 
@@ -63,10 +68,10 @@ class WorkerCrashTest {
 
 	private FakeAnalysisServer analysis;
 
-	WorkerCrashTest(@Autowired GraphQlTester graphQlTester, @Autowired FakeAnalysisApi fixture,
+	WorkerCrashTest(@Autowired InterviewApi interviews, @Autowired FakeAnalysisApi fixture,
 			@Autowired FakeLlmGateway llm, @Autowired KafkaAdmin kafkaAdmin, @Autowired JdbcTemplate jdbc,
 			@Autowired ApplicationContext context) {
-		this.graphQlTester = graphQlTester;
+		this.interviews = interviews;
 		this.fixture = fixture;
 		this.llm = llm;
 		this.kafkaAdmin = kafkaAdmin;
@@ -100,19 +105,16 @@ class WorkerCrashTest {
 	@Test
 	void aWorkerKilledDuringTheEvaluationCallIsRestartedAndTheAnswerIsGradedOnce() throws Exception {
 		models.holdFirstEvaluation();
-		String sessionId = startInterview();
-		String questionId = graphQlTester
-				.document("query ($id: ID!) { interviewSession(id: $id) { currentQuestion { id } } }")
-				.variable("id", sessionId).execute().path("interviewSession.currentQuestion.id").entity(String.class)
-				.get();
+		StartResponse started = interviews.start(new StartInterviewRequest(fixture.readyProject(), null, null, 3));
+		String sessionId = started.session().id().toString();
+		UUID question = started.firstQuestion().id();
+		String questionId = question.toString();
 		WorkerProcess first = startWorker("worker-1");
 		awaitEvaluationWorkerJoined();
 
 		// The worker's outbox relay sends AnswerSubmitted, and its evaluation consumer calls the model.
-		graphQlTester.document("""
-				mutation ($input: SubmitAnswerInput!) { submitAnswer(input: $input) { errors { code } } }
-				""").variable("input", Map.of("questionId", questionId, "text", "Both read the same refundedAmount."))
-				.execute().path("submitAnswer.errors").entityList(Object.class).hasSize(0);
+		assertThat(interviews.submitAnswer(question, new AnswerRequest("Both read the same refundedAmount.")).error())
+				.isNull();
 		assertThat(models.awaitEvaluationRequest(60)).as("the worker is calling the model").isTrue();
 
 		first.kill();   // SIGKILL mid-call: nothing graded, nothing written to the ledger, no offset committed
@@ -140,14 +142,6 @@ class WorkerCrashTest {
 				""", Integer.class, sessionId, AnswerEvaluationConsumer.NAME)).isEqualTo(1);
 	}
 
-	private String startInterview() {
-		String project = fixture.readyProject().toString();
-		return graphQlTester.document("""
-				mutation ($input: StartInterviewInput!) { startInterview(input: $input) { session { id } } }
-				""").variable("input", Map.of("projectId", project, "questionCount", 3)).execute()
-				.path("startInterview.session.id").entity(String.class).get();
-	}
-
 	private WorkerProcess startWorker(String name) throws Exception {
 		PostgreSQLContainer postgres = context.getBean(PostgreSQLContainer.class);
 		KafkaContainer kafka = context.getBean(KafkaContainer.class);
@@ -155,8 +149,8 @@ class WorkerCrashTest {
 				"--spring.profiles.active=dev,kafka",
 				"--server.port=0",
 				"--spring.datasource.url=" + postgres.getJdbcUrl(),
-				"--spring.datasource.username=" + postgres.getUsername(),
-				"--spring.datasource.password=" + postgres.getPassword(),
+				"--spring.datasource.username=" + TestcontainersConfiguration.SERVICE_USER,
+				"--spring.datasource.password=" + TestcontainersConfiguration.SERVICE_USER,
 				"--spring.kafka.bootstrap-servers=" + kafka.getBootstrapServers(),
 				"--spring.kafka.consumer.properties.session.timeout.ms=6000",
 				"--spring.kafka.consumer.properties.heartbeat.interval.ms=1000",

@@ -5,37 +5,26 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 
 /**
- * Replaces ports that would reach the outside world (analysis-service, Claude) in integration tests.
- * {@code @Primary} wins over the production bean of the same type. Part of {@link IntegrationTest}, so all
- * tests share these beans: reset them in {@code @BeforeEach}.
+ * Replaces the two services this app calls (task 4.1) in integration tests. {@code @Primary} wins over the HTTP
+ * client of the same type, which is created but never called (the clients' own tests are {@code AnalysisClientTest}
+ * and {@code InterviewClientTest}). Part of {@link IntegrationTest}, so all tests share these beans: reset them in
+ * {@code @BeforeEach}.
  */
 @TestConfiguration(proxyBeanMethods = false)
 public class TestDoublesConfiguration {
 
-	/**
-	 * Static: a BeanPostProcessor must exist before the beans it changes (here the DataSource), so Spring creates it
-	 * without creating this configuration first.
-	 */
-	@Bean
-	static SqlStatementCounter sqlStatementCounter() {
-		return new SqlStatementCounter();
-	}
-
-	/**
-	 * Wins over the HTTP client for analysis-service (task 4.1), which is created but never called: projects and the
-	 * fixture repository's code without another service (its own test is {@code AnalysisClientTest}).
-	 */
+	/** Projects and the fixture repository's code without analysis-service. */
 	@Bean
 	@Primary
 	FakeAnalysisApi fakeAnalysisApi() {
 		return new FakeAnalysisApi();
 	}
 
-	/** Wins over SpringAiLlmGateway, which is created but never called (its own tests build one by hand). */
+	/** Sessions, questions and answers without interview-service: each test adds the records it needs. */
 	@Bean
 	@Primary
-	FakeLlmGateway fakeLlmGateway() {
-		return new FakeLlmGateway();
+	FakeInterviewApi fakeInterviewApi() {
+		return new FakeInterviewApi();
 	}
 
 }

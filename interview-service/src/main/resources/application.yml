@@ -1,0 +1,150 @@
+# interview-service configuration (task 4.1, DECISIONS.md D-026): the default (base) settings that every environment
+# starts from, like the app's application.yml (environments: DECISIONS.md D-015). No localhost fallbacks here either.
+#
+# Its own database user and schema: DB_USER is interview_svc in every environment, created once by the database
+# admin with db/bootstrap.sql. Flyway keeps its history table in the schema "interview", and Hibernate validates and
+# writes the entities there. Projects and code come from analysis-service (AnalysisApi over HTTP).
+
+spring:
+  application:
+    name: interview-service
+  config:
+    import: optional:file:.env[.properties]
+  threads:
+    virtual:
+      enabled: true
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        default_schema: interview
+  flyway:
+    enabled: true
+    schemas: interview
+  # Kafka only with the "kafka" profile, as in the app (LLD §13): the answer flow runs on its own topics.
+  kafka:
+    admin:
+      fail-fast: true
+    producer:
+      properties:
+        max.block.ms: 5000
+        request.timeout.ms: 5000
+        delivery.timeout.ms: 10000
+    consumer:
+      auto-offset-reset: earliest
+      max-poll-records: 1
+      properties:
+        max.poll.interval.ms: 900000
+    listener:
+      ack-mode: record
+  # analysis-service's AnalysisApi (AnalysisClientConfiguration). No fallback URL: dev sets localhost:8082, stage and
+  # prod set ANALYSIS_BASE_URL. A chunk search embeds its query, hence 30 s to read.
+  http:
+    serviceclient:
+      analysis:
+        base-url: ${ANALYSIS_BASE_URL}
+        connect-timeout: 2s
+        read-timeout: 30s
+  ai:
+    model:
+      chat: anthropic        # plan, questions, grades, report; no embeddings here
+    anthropic:
+      api-key: ${ANTHROPIC_API_KEY:}
+      max-retries: 2
+      chat:
+        model: claude-sonnet-5   # default; the gateway sets model and max tokens per purpose (app.llm.*)
+        max-tokens: 2048
+
+server:
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        readiness:
+          include: readinessState,db
+
+logging:
+  pattern:
+    level: "%5p %X{projectId:-}%X{sessionId:-}"
+  level:
+    com.aryankanani.repointerviewer: INFO
+
+# AppProperties is still one record for all services (D-026): every section must be here, even the analysis ones,
+# which this service does not use. Split per service in task 4.1 step 4.
+app:
+  repo:                      # unused here (see above)
+    allowed-host: github.com
+    max-files: 1500
+    max-file-bytes: 300000
+    max-repo-bytes: 25000000
+    ls-remote-timeout: 15s
+    clone-timeout: 60s
+    work-dir: ${java.io.tmpdir}/interview-service
+  chunking:
+    max-chunk-lines: 120
+    small-method-lines: 4
+  embedding:
+    batch-size: 32
+    dimensions: 768
+  retrieval:
+    top-k: 8
+    max-context-tokens: 6000
+  repo-map:
+    max-tokens: 12000
+  analysis:
+    stale-after: 15m
+  outbox:
+    poll-interval: 500ms
+    batch-size: 100
+  roles:
+    api: true                # this service's REST API (InterviewApi)
+    analysis-worker: false   # not in this service
+    interview-worker: true   # the answer evaluation consumer and the orchestrator
+  consumer-retry:
+    max-retries: 3
+    initial-backoff: 1s
+  interview:
+    default-question-count: 5
+    min-question-count: 3
+    max-question-count: 8
+    max-follow-ups-per-topic: 1
+    follow-up-score-min: 3
+    follow-up-score-max: 7
+    answer-max-chars: 4000
+    prefetch-enabled: true    # write the next topic's question while the candidate answers (task 1.16)
+  llm:
+    models:
+      summary: claude-haiku-4-5
+      plan: claude-sonnet-5
+      question: claude-sonnet-5
+      follow-up: claude-sonnet-5
+      evaluation: claude-sonnet-5
+      report: claude-haiku-4-5
+    # At least 2x the largest output measured in task 1.15 (docs/RESULTS.md), rounded up to 1000. A reply cut off
+    # at its cap is unreadable JSON, and the second attempt hits the same cap. Only the tokens written are billed.
+    max-output-tokens:
+      summary: 3000      # 1430 measured
+      plan: 3000         # 1425
+      question: 7000     # 3276 in the 1.17 eval (1500 cut it off in 1.15)
+      follow-up: 2000    # 751
+      evaluation: 3000   # 1571 (1200 cut it off twice)
+      report: 3000       # 1075
+    max-calls-per-session: 30
+    # The daily cap is per service (D-026), counted in this service's own llm_call table: 4/5 of the old total here,
+    # 1/5 in analysis-service (dev 48 + 12, stage 80 + 20, prod 240 + 60). The GraphQL app makes no model calls.
+    max-calls-per-day: 240
+    timeout: 60s

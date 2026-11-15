@@ -23,6 +23,7 @@
 		<module>libs/contracts</module>
 		<module>libs/test-support</module>
 		<module>analysis-service</module>
+		<module>interview-service</module>
 		<module>app</module>
 	</modules>
 

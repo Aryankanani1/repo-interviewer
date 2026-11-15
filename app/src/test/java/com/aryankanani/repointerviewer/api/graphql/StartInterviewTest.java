@@ -3,12 +3,18 @@ package com.aryankanani.repointerviewer.api.graphql;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.aryankanani.repointerviewer.FakeAnalysisApi;
-import com.aryankanani.repointerviewer.FakeLlmGateway;
+import com.aryankanani.repointerviewer.FakeInterviewApi;
 import com.aryankanani.repointerviewer.IntegrationTest;
-import com.aryankanani.repointerviewer.llm.LlmPurpose;
-import com.aryankanani.repointerviewer.llm.output.CodeRefOutput;
-import com.aryankanani.repointerviewer.llm.output.QuestionOutput;
-import com.aryankanani.repointerviewer.llm.output.RubricOutput;
+import com.aryankanani.repointerviewer.common.error.DomainException;
+import com.aryankanani.repointerviewer.common.error.ErrorCode;
+import com.aryankanani.repointerviewer.contracts.interview.Difficulty;
+import com.aryankanani.repointerviewer.contracts.interview.QuestionCategory;
+import com.aryankanani.repointerviewer.contracts.interview.QuestionDto;
+import com.aryankanani.repointerviewer.contracts.interview.ResultError;
+import com.aryankanani.repointerviewer.contracts.interview.SessionDto;
+import com.aryankanani.repointerviewer.contracts.interview.SessionStatus;
+import com.aryankanani.repointerviewer.contracts.interview.StartInterviewRequest;
+import com.aryankanani.repointerviewer.contracts.interview.StartResponse;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -16,18 +22,19 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.graphql.test.tester.GraphQlTester;
-import org.springframework.jdbc.core.JdbcTemplate;
 
-/** Task 1.10: {@code Mutation.startInterview} and {@code Query.interviewSession} through the GraphQL engine. */
+/**
+ * Task 1.10: {@code Mutation.startInterview} through the GraphQL engine. Since task 4.1 the interview itself is
+ * interview-service's ({@link FakeInterviewApi} here; its rules are tested there), so this checks what the app does:
+ * the request it sends, the payload it maps, the errors it reports.
+ */
 @IntegrationTest
 class StartInterviewTest {
-
-	private static final String CONTROLLER = "src/main/java/com/example/shop/order/OrderController.java";
 
 	private static final String START = """
 			mutation ($input: StartInterviewInput!) {
 			  startInterview(input: $input) {
-			    session { id status difficulty plannedQuestionCount failureReason }
+			    session { id status difficulty focusAreas plannedQuestionCount failureReason }
 			    firstQuestion { id order category text isFollowUp codeRefs { path startLine endLine } }
 			    errors { code message field }
 			  }
@@ -38,47 +45,65 @@ class StartInterviewTest {
 
 	private final FakeAnalysisApi fixture;
 
-	private final FakeLlmGateway llm;
-
-	private final JdbcTemplate jdbc;
+	private final FakeInterviewApi interviews;
 
 	private UUID project;
 
 	StartInterviewTest(@Autowired GraphQlTester graphQlTester, @Autowired FakeAnalysisApi fixture,
-			@Autowired FakeLlmGateway llm, @Autowired JdbcTemplate jdbc) {
+			@Autowired FakeInterviewApi interviews) {
 		this.graphQlTester = graphQlTester;
 		this.fixture = fixture;
-		this.llm = llm;
-		this.jdbc = jdbc;
+		this.interviews = interviews;
 	}
 
 	@BeforeEach
 	void readyProject() {
-		jdbc.update("DELETE FROM interview_session");   // cascades to topics, questions and answers
 		fixture.reset();
-		llm.reset();
+		interviews.reset();
 		project = fixture.readyProject();
-		llm.enqueue(LlmPurpose.QUESTION, new QuestionOutput("Why does refund take a RefundRequest body?",
-				List.of(new CodeRefOutput(CONTROLLER, 27, 30)),
-				new RubricOutput(List.of("SECRET RUBRIC POINT"), List.of(), List.of()), List.of("SECRET OUTLINE")));
 	}
 
 	@Test
-	void startReturnsTheSessionAndTheFirstQuestion() {
-		GraphQlTester.Response response = start(Map.of("projectId", project, "difficulty", "MID"));
+	void startSendsTheInputAndReturnsTheSessionAndTheFirstQuestion() {
+		SessionDto session = new SessionDto(UUID.randomUUID(), project, SessionStatus.IN_PROGRESS, Difficulty.MID,
+				List.of(QuestionCategory.SECURITY), 3, null, null, FakeInterviewApi.session(project).startedAt(), null,
+				null);
+		startsWith(session);
 
+		GraphQlTester.Response response = start(Map.of("projectId", project, "difficulty", "MID",
+				"focusAreas", List.of("SECURITY"), "questionCount", 3));
+
+		assertThat(interviews.lastStart()).isEqualTo(new StartInterviewRequest(project, Difficulty.MID,
+				List.of(QuestionCategory.SECURITY), 3));
 		response.path("startInterview.errors").entityList(Object.class).hasSize(0);
 		response.path("startInterview.session.status").entity(String.class).isEqualTo("IN_PROGRESS");
 		response.path("startInterview.session.difficulty").entity(String.class).isEqualTo("MID");
+		response.path("startInterview.session.focusAreas").entityList(String.class).containsExactly("SECURITY");
 		response.path("startInterview.session.plannedQuestionCount").entity(Integer.class).isEqualTo(3);
 		response.path("startInterview.firstQuestion.order").entity(Integer.class).isEqualTo(1);
+		response.path("startInterview.firstQuestion.category").entity(String.class).isEqualTo("ARCHITECTURE");
 		response.path("startInterview.firstQuestion.isFollowUp").entity(Boolean.class).isEqualTo(false);
-		response.path("startInterview.firstQuestion.codeRefs[0].path").entity(String.class).isEqualTo(CONTROLLER);
+		response.path("startInterview.firstQuestion.codeRefs[0].path").entity(String.class)
+				.isEqualTo(FakeInterviewApi.CONTROLLER);
 		response.path("startInterview.firstQuestion.codeRefs[0].startLine").entity(Integer.class).isEqualTo(27);
+	}
+
+	/** Omitted input gets the schema's defaults (JUNIOR, 5 questions); no focus areas means balanced. */
+	@Test
+	void omittedInputIsSentWithTheSchemasDefaults() {
+		startsWith(FakeInterviewApi.session(project));
+
+		start(Map.of("projectId", project));
+
+		assertThat(interviews.lastStart().projectId()).isEqualTo(project);
+		assertThat(interviews.lastStart().difficulty()).isEqualTo(Difficulty.JUNIOR);
+		assertThat(interviews.lastStart().questionCount()).isEqualTo(5);
+		assertThat(interviews.lastStart().focusAreas()).isNullOrEmpty();
 	}
 
 	@Test
 	void theSessionCanBeReadBackWithItsProjectAndQuestions() {
+		startsWith(FakeInterviewApi.session(project));
 		String sessionId = start(Map.of("projectId", project)).path("startInterview.session.id").entity(String.class)
 				.get();
 
@@ -95,8 +120,7 @@ class StartInterviewTest {
 				.path("interviewSession.status").entity(String.class).isEqualTo("IN_PROGRESS")
 				.path("interviewSession.project.status").entity(String.class).isEqualTo("READY")
 				.path("interviewSession.questions").entityList(Object.class).hasSize(1)
-				.path("interviewSession.questions[0].text").entity(String.class)
-				.isEqualTo("Why does refund take a RefundRequest body?")
+				.path("interviewSession.questions[0].text").entity(String.class).isEqualTo("Question 1")
 				.path("interviewSession.currentQuestion.order").entity(Integer.class).isEqualTo(1);
 
 		graphQlTester.document("query ($id: ID!) { project(id: $id) { sessions { id status } } }")
@@ -104,20 +128,24 @@ class StartInterviewTest {
 				.path("project.sessions[0].id").entity(String.class).isEqualTo(sessionId);
 	}
 
-	/** The rubric would give the answer away: the schema has no field for it, and the response never carries it. */
+	/**
+	 * The rubric would give the answer away: the schema has no field for it (and interview-service never sends it,
+	 * see its {@code InterviewApiControllerTest}).
+	 */
 	@Test
 	void theRubricIsNeverExposed() {
-		String body = start(Map.of("projectId", project)).path("startInterview").entity(Object.class).get().toString();
-		assertThat(body).doesNotContain("SECRET RUBRIC POINT", "SECRET OUTLINE");
-
 		graphQlTester.document("""
 				query ($id: ID!) { interviewSession(id: $id) { currentQuestion { rubric } } }
 				""").variable("id", UUID.randomUUID()).execute()
 				.errors().satisfy(errors -> assertThat(errors).anyMatch(error -> error.getMessage().contains("rubric")));
 	}
 
+	/** A failure before any session exists: interview-service's problem detail, an error on the input field. */
 	@Test
 	void anInvalidQuestionCountIsAnErrorOnItsField() {
+		interviews.failNextCall(new DomainException(ErrorCode.INVALID_QUESTION_COUNT,
+				"Choose between 3 and 8 questions.", "questionCount"));
+
 		GraphQlTester.Response response = start(Map.of("projectId", project, "questionCount", 9));
 
 		response.path("startInterview.session").valueIsNull();
@@ -125,13 +153,15 @@ class StartInterviewTest {
 		response.path("startInterview.errors[0].field").entityList(String.class).containsExactly("input", "questionCount");
 	}
 
+	/** A failure after the session was saved comes inside the result: the client still sees the FAILED session. */
 	@Test
 	void aFailedStartStillReturnsTheFailedSession() {
-		llm.reset();   // drop the valid question: the canned one cites OrderService, not the first topic's code
-		for (int i = 0; i < 6; i++) {
-			llm.enqueue(LlmPurpose.QUESTION, new QuestionOutput("Why?",
-					List.of(new CodeRefOutput("src/Nowhere.java", 1, 2)), null, List.of()));
-		}
+		SessionDto started = FakeInterviewApi.session(project);
+		SessionDto failed = new SessionDto(started.id(), project, SessionStatus.FAILED, started.difficulty(),
+				started.focusAreas(), started.plannedQuestionCount(), "Could not write a question grounded in this "
+						+ "repository's code. Try again.", null, started.startedAt(), null, null);
+		interviews.onStart(new StartResponse(failed, null,
+				new ResultError("LLM_UNAVAILABLE", failed.failureReason(), null)));
 
 		GraphQlTester.Response response = start(Map.of("projectId", project));
 
@@ -140,6 +170,13 @@ class StartInterviewTest {
 				reason -> assertThat(reason).startsWith("Could not write a question grounded"));
 		response.path("startInterview.firstQuestion").valueIsNull();
 		response.path("startInterview.errors[0].code").entity(String.class).isEqualTo("LLM_UNAVAILABLE");
+		response.path("startInterview.errors[0].field").valueIsNull();
+	}
+
+	/** Queues a start that returns {@code session} asking its first question. */
+	private void startsWith(SessionDto session) {
+		QuestionDto first = FakeInterviewApi.question(session.id(), 1, null);
+		interviews.onStart(new StartResponse(FakeInterviewApi.asking(session, first.id()), first, null));
 	}
 
 	private GraphQlTester.Response start(Map<String, Object> input) {

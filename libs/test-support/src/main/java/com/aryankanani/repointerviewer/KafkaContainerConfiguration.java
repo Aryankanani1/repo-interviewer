@@ -17,10 +17,16 @@ public class KafkaContainerConfiguration {
 	/** Same image as docker-compose.yml, and the same version as the kafka-clients library Boot manages. */
 	static final DockerImageName KAFKA_IMAGE = DockerImageName.parse("apache/kafka:4.2.2");
 
+	/**
+	 * Up to three starts (task 4.1): the container waits for its start script, which Testcontainers copies in after
+	 * the container started, and runs it as soon as the file exists. On a busy Docker it can run it before the copy
+	 * finished, and the broker exits with code 126 (seen twice with the kind node running). A new container then
+	 * starts cleanly; a broker that really cannot start still fails, after the third try.
+	 */
 	@Bean
 	@ServiceConnection
 	KafkaContainer kafkaContainer() {
-		return new KafkaContainer(KAFKA_IMAGE);
+		return new KafkaContainer(KAFKA_IMAGE).withStartupAttempts(3);
 	}
 
 }

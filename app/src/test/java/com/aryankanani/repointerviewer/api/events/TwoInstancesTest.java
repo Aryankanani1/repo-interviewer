@@ -1,21 +1,26 @@
-package com.aryankanani.repointerviewer.interview;
+package com.aryankanani.repointerviewer.api.events;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
 import com.aryankanani.repointerviewer.FakeAnalysisApi;
-import com.aryankanani.repointerviewer.FakeLlmGateway;
+import com.aryankanani.repointerviewer.FakeInterviewApi;
 import com.aryankanani.repointerviewer.KafkaIntegrationTest;
 import com.aryankanani.repointerviewer.KafkaListeners;
 import com.aryankanani.repointerviewer.RepoInterviewerApplication;
 import com.aryankanani.repointerviewer.TestDoublesConfiguration;
-import com.aryankanani.repointerviewer.api.events.InterviewEventsFanOut;
+import com.aryankanani.repointerviewer.common.messaging.AggregateType;
 import com.aryankanani.repointerviewer.common.messaging.OutboxPump;
-import com.aryankanani.repointerviewer.llm.LlmPurpose;
+import com.aryankanani.repointerviewer.common.messaging.OutboxWriter;
+import com.aryankanani.repointerviewer.common.messaging.Topics;
+import com.aryankanani.repointerviewer.contracts.interview.AnswerDto;
+import com.aryankanani.repointerviewer.contracts.interview.AnswerFlowEvent;
+import com.aryankanani.repointerviewer.contracts.interview.QuestionDto;
+import com.aryankanani.repointerviewer.contracts.interview.SessionDto;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.List;
-import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
@@ -33,16 +38,19 @@ import org.springframework.core.type.classreading.MetadataReaderFactory;
 import org.springframework.graphql.ExecutionGraphQlService;
 import org.springframework.graphql.test.tester.ExecutionGraphQlServiceTester;
 import org.springframework.graphql.test.tester.GraphQlTester;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.kafka.config.KafkaListenerEndpointRegistry;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.kafka.KafkaContainer;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import reactor.core.Disposable;
 
 /**
- * Task 2.6 acceptance test: two app instances on one broker and one database. Instance A is this test's context;
- * instance B is a second, non-web Spring context started here on A's containers, with the same test doubles. Both run
- * every worker (their groups share the partitions) and their own fan-out group.
+ * Task 2.6 acceptance test, GraphQL side (task 4.1): two app instances on one broker. Each has a fan-out group of its
+ * own, so a client connected to either one gets every event of its session, whichever interview-service instance did
+ * the work. Instance A is this test's context; instance B is a second, non-web Spring context started here on A's
+ * containers, with the same test doubles (its own {@code FakeInterviewApi}, given the same records). That the
+ * interview workers share their groups is interview-service's {@code TwoInstancesTest}.
  */
 @KafkaIntegrationTest
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)   // one instance B for the class: a context takes seconds to start
@@ -58,9 +66,11 @@ class TwoInstancesTest {
 
 	private final FakeAnalysisApi fixture;
 
-	private final FakeLlmGateway llm;
+	private final FakeInterviewApi interviews;
 
-	private final JdbcTemplate jdbc;
+	private final OutboxWriter outbox;
+
+	private final TransactionTemplate transaction;
 
 	private final ApplicationContext context;
 
@@ -69,11 +79,13 @@ class TwoInstancesTest {
 	private final List<Disposable> subscriptions = new CopyOnWriteArrayList<>();
 
 	TwoInstancesTest(@Autowired GraphQlTester graphQlTester, @Autowired FakeAnalysisApi fixture,
-			@Autowired FakeLlmGateway llm, @Autowired JdbcTemplate jdbc, @Autowired ApplicationContext context) {
+			@Autowired FakeInterviewApi interviews, @Autowired OutboxWriter outbox,
+			@Autowired PlatformTransactionManager transactionManager, @Autowired ApplicationContext context) {
 		this.graphQlTester = graphQlTester;
 		this.fixture = fixture;
-		this.llm = llm;
-		this.jdbc = jdbc;
+		this.interviews = interviews;
+		this.outbox = outbox;
+		this.transaction = new TransactionTemplate(transactionManager);
 		this.context = context;
 	}
 
@@ -107,75 +119,64 @@ class TwoInstancesTest {
 	}
 
 	@Test
-	void eachInstanceHasItsOwnFanOutGroupButSharesTheWorkerGroups() {
-		assertThat(groupId(instanceB, InterviewEventsFanOut.LISTENER_ID))
-				.startsWith("interview-events-")
-				.isNotEqualTo(groupId(context, InterviewEventsFanOut.LISTENER_ID));
-		assertThat(groupIds(instanceB)).contains(AnswerEvaluationConsumer.NAME, InterviewOrchestrator.NAME);
-		assertThat(groupIds(context)).contains(AnswerEvaluationConsumer.NAME, InterviewOrchestrator.NAME);
+	void eachInstanceHasItsOwnFanOutGroup() {
+		assertThat(groupId(instanceB)).startsWith("interview-events-").isNotEqualTo(groupId(context));
 	}
 
-	/**
-	 * Acceptance criterion: a client connected to one instance gets the events of work another instance's worker did.
-	 * Exactly one instance grades the answer (the worker group shares it), and the clients on both instances get the
-	 * grade and the next question, so the one on the instance that did not do the work does too.
-	 */
+	/** Acceptance criterion: the clients on both instances get the grade and the next question. */
 	@Test
-	void aClientOnEitherInstanceGetsTheEventsOfWorkDoneByEither() {
+	void aClientOnEitherInstanceGetsEveryEventOfItsSession() {
 		KafkaListeners.awaitAssigned(context, InterviewEventsFanOut.LISTENER_ID, 6);
 		KafkaListeners.awaitAssigned(instanceB, InterviewEventsFanOut.LISTENER_ID, 6);
-		jdbc.update("DELETE FROM interview_session");   // cascades to topics, questions and answers
 		fixture.reset();
-		llm.reset();
-		FakeLlmGateway llmB = instanceB.getBean(FakeLlmGateway.class);
-		llmB.reset();
-		String sessionId = startInterview();
-		List<GraphQlTester.Response> onA = subscribe(graphQlTester, sessionId);
+		FakeInterviewApi interviewsB = instanceB.getBean(FakeInterviewApi.class);
+		SessionDto started = FakeInterviewApi.session(fixture.readyProject());
+		QuestionDto first = FakeInterviewApi.question(started.id(), 1, null);
+		QuestionDto second = FakeInterviewApi.question(started.id(), 2, null);
+		AnswerDto answer = FakeInterviewApi.graded(first.id(), "Both read the same state.", 9);
+		SessionDto session = FakeInterviewApi.asking(started, second.id());
+		for (FakeInterviewApi fake : List.of(interviews, interviewsB)) {   // what interview-service would answer both
+			fake.reset();
+			fake.add(first);
+			fake.add(second);
+			fake.add(answer);
+			fake.add(session);
+		}
+		List<GraphQlTester.Response> onA = subscribe(graphQlTester, session.id());
 		List<GraphQlTester.Response> onB = subscribe(
-				ExecutionGraphQlServiceTester.create(instanceB.getBean(ExecutionGraphQlService.class)), sessionId);
+				ExecutionGraphQlServiceTester.create(instanceB.getBean(ExecutionGraphQlService.class)), session.id());
 
-		String firstQuestion = graphQlTester
-				.document("query ($id: ID!) { interviewSession(id: $id) { currentQuestion { id } } }")
-				.variable("id", sessionId).execute().path("interviewSession.currentQuestion.id").entity(String.class)
-				.get();
-		graphQlTester.document("""
-				mutation ($input: SubmitAnswerInput!) { submitAnswer(input: $input) { errors { code } } }
-				""").variable("input", Map.of("questionId", firstQuestion, "text", "Both read the same state."))
-				.execute().path("submitAnswer.errors").entityList(Object.class).hasSize(0);
+		send(session.id(), Topics.ANSWER_EVALUATED, AnswerFlowEvent.ANSWER_EVALUATED,
+				new AnswerFlowEvent(answer.id(), first.id(), null));
+		send(session.id(), Topics.QUESTION_READY, AnswerFlowEvent.QUESTION_READY,
+				new AnswerFlowEvent(answer.id(), first.id(), second.id()));
 		await().atMost(Duration.ofSeconds(60)).pollInterval(Duration.ofMillis(200)).until(() -> {
 			OutboxPump.publishPending(context);
 			return onA.size() >= 2 && onB.size() >= 2;
 		});
 
-		assertThat(llm.calls(LlmPurpose.EVALUATION) + llmB.calls(LlmPurpose.EVALUATION)).isEqualTo(1);
 		assertThat(types(onA)).containsExactly("ANSWER_EVALUATED", "QUESTION_READY");
 		assertThat(types(onB)).containsExactly("ANSWER_EVALUATED", "QUESTION_READY");
 		assertThat(onB.get(1).path("interviewEvents.nextQuestion.id").entity(String.class).get())
-				.isEqualTo(onA.get(1).path("interviewEvents.nextQuestion.id").entity(String.class).get());
+				.isEqualTo(second.id().toString());
 	}
 
-	private String startInterview() {
-		String project = fixture.readyProject().toString();
-		return graphQlTester.document("""
-				mutation ($input: StartInterviewInput!) { startInterview(input: $input) { session { id } } }
-				""").variable("input", Map.of("projectId", project, "questionCount", 3)).execute()
-				.path("startInterview.session.id").entity(String.class).get();
-	}
-
-	private List<GraphQlTester.Response> subscribe(GraphQlTester tester, String sessionId) {
+	private List<GraphQlTester.Response> subscribe(GraphQlTester tester, UUID sessionId) {
 		List<GraphQlTester.Response> received = new CopyOnWriteArrayList<>();
 		subscriptions.add(tester.document(SUBSCRIBE).variable("id", sessionId).executeSubscription().toFlux()
 				.subscribe(received::add));
 		return received;
 	}
 
-	private static String groupId(ApplicationContext instance, String listenerId) {
-		return instance.getBean(KafkaListenerEndpointRegistry.class).getListenerContainer(listenerId).getGroupId();
+	/** An event as interview-service writes it: an outbox row, sent by the relay. */
+	private void send(UUID sessionId, String topic, String type, AnswerFlowEvent payload) {
+		transaction.executeWithoutResult(status -> outbox.write(topic, AggregateType.SESSION, sessionId, type,
+				payload));
 	}
 
-	private static List<String> groupIds(ApplicationContext instance) {
-		return instance.getBean(KafkaListenerEndpointRegistry.class).getListenerContainers().stream()
-				.map(container -> container.getGroupId()).toList();
+	private static String groupId(ApplicationContext instance) {
+		return instance.getBean(KafkaListenerEndpointRegistry.class)
+				.getListenerContainer(InterviewEventsFanOut.LISTENER_ID).getGroupId();
 	}
 
 	private static List<String> types(List<GraphQlTester.Response> events) {

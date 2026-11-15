@@ -9,10 +9,10 @@
 # environment variables on top of both. This file has no localhost fallbacks for the database or Ollama,
 # so an app started without an environment fails at startup instead of quietly using the wrong one.
 #
-# Spring AI 2.0.2 property names were checked against the jars' configuration metadata (tasks 0.1 and 1.8;
-# the chat.options.* and embedding.options.* forms are deprecated in 2.0.2).
-# Task 4.1: projects, code and embeddings are analysis-service's (its own application.yml); this app calls it. The
-# app.repo ... app.analysis sections below are not used here any more, but AppProperties still requires them (D-026).
+# Task 4.1: projects, code and embeddings are analysis-service's, interviews and every model call are
+# interview-service's (each with its own application.yml); this app is the GraphQL API and calls both. Most app.*
+# sections below are not used here any more, but AppProperties still requires them until step 4 (D-026), and the
+# database stays connected until then too, unused.
 # Secrets come from environment variables or a local .env file (gitignored). Never commit keys.
 
 spring:
@@ -69,29 +69,26 @@ spring:
       sse:
         timeout: 1h
         keep-alive: 15s
-  # analysis-service's AnalysisApi (task 4.1, AnalysisClientConfiguration). No fallback URL, like the database: dev
-  # sets localhost:8082, stage and prod set ANALYSIS_BASE_URL. Submitting checks the repository on GitHub (up to
-  # app.repo.ls-remote-timeout, 15 s) and a chunk search embeds its query, hence 30 s to read.
+  # The two services behind this API (task 4.1, AnalysisClientConfiguration and InterviewClientConfiguration). No
+  # fallback URLs, like the database: dev sets localhost:8082 and :8084, stage and prod set ANALYSIS_BASE_URL and
+  # INTERVIEW_BASE_URL. Submitting a project checks the repository on GitHub (up to 15 s), hence 30 s to read.
+  # Starting an interview or grading an answer takes two or more model calls (25-43 s in task 1.15), so up to the
+  # GraphQL request's own 120 s below.
   http:
     serviceclient:
       analysis:
         base-url: ${ANALYSIS_BASE_URL}
         connect-timeout: 2s
         read-timeout: 30s
+      interview:
+        base-url: ${INTERVIEW_BASE_URL}
+        connect-timeout: 2s
+        read-timeout: 120s
   mvc:
     async:
       # GraphQL requests run async. submitAnswer grades the answer and writes the next question in one
       # request (25-43 s in task 1.15); Tomcat's 30 s default answered 503 while the work went on.
       request-timeout: 120s
-  ai:
-    model:
-      chat: anthropic        # embeddings are analysis-service's (task 4.1)
-    anthropic:
-      api-key: ${ANTHROPIC_API_KEY:}
-      max-retries: 2           # the Anthropic client retries network errors, 429 and 5xx itself
-      chat:
-        model: claude-sonnet-5   # default; the gateway sets model and max tokens per purpose (app.llm.*)
-        max-tokens: 2048
 
 server:
   shutdown: graceful
@@ -177,5 +174,5 @@ app:
       evaluation: 3000   # 1571 (1200 cut it off twice)
       report: 3000       # 1075
     max-calls-per-session: 30
-    max-calls-per-day: 240   # per service since task 4.1: 4/5 here, 1/5 in analysis-service (D-026)
+    max-calls-per-day: 240   # unused here since task 4.1 step 3b: interview-service's and analysis-service's own
     timeout: 60s

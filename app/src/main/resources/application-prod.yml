@@ -1,5 +1,5 @@
 # prod: live. Connection settings come from environment variables (Kubernetes ConfigMap and Secret in
-# Phase 3): SPRING_PROFILES_ACTIVE=prod, DB_URL, DB_USER, DB_PASSWORD, OLLAMA_BASE_URL, ANTHROPIC_API_KEY.
+# Phase 3): SPRING_PROFILES_ACTIVE=prod, DB_URL, DB_USER, DB_PASSWORD, ANALYSIS_BASE_URL, INTERVIEW_BASE_URL.
 # Do not deploy publicly before Phase 4 adds authentication (DECISIONS.md D-010).
 
 spring:

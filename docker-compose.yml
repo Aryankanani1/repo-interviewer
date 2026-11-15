@@ -20,9 +20,10 @@ services:
       - "${DB_PORT:-5433}:5432"   # 5433 on the host: 5432 is often taken by a locally installed Postgres
     volumes:
       - pgdata:/var/lib/postgresql/data
-      # analysis-service's user and schema (task 4.1). Postgres runs this only when the volume is new; for an
-      # existing one, run it once: see analysis-service/src/main/resources/db/bootstrap.sql or the README.
+      # Each service's user and schema (task 4.1). Postgres runs these only when the volume is new; for an
+      # existing one, run each once: see <service>/src/main/resources/db/bootstrap.sql or the README.
       - ./analysis-service/src/main/resources/db/bootstrap.sql:/docker-entrypoint-initdb.d/10-analysis.sql:ro
+      - ./interview-service/src/main/resources/db/bootstrap.sql:/docker-entrypoint-initdb.d/20-interview.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-ri} -d repo_interviewer"]
       interval: 5s

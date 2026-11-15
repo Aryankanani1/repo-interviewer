@@ -1,0 +1,5 @@
+# stage: production-like, before release (DECISIONS.md D-015). DB_URL, DB_USER (interview_svc), DB_PASSWORD,
+# ANALYSIS_BASE_URL and ANTHROPIC_API_KEY come from the environment.
+app:
+  llm:
+    max-calls-per-day: 80   # stage spends real money too: 80 here + 20 in analysis-service (D-026)

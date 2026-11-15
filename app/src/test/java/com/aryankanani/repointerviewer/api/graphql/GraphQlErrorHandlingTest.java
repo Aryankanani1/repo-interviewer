@@ -3,9 +3,9 @@ package com.aryankanani.repointerviewer.api.graphql;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.aryankanani.repointerviewer.FakeAnalysisApi;
-import com.aryankanani.repointerviewer.FakeLlmGateway;
+import com.aryankanani.repointerviewer.FakeInterviewApi;
 import com.aryankanani.repointerviewer.IntegrationTest;
-import com.aryankanani.repointerviewer.llm.LlmPurpose;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -17,7 +17,10 @@ import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.graphql.ResponseError;
 import org.springframework.graphql.test.tester.GraphQlTester;
-import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.client.HttpServerErrorException;
+import org.springframework.web.client.ResourceAccessException;
 
 /**
  * Task 1.14 acceptance tests: every kind of failure reaches the client in a safe, predictable shape, through the real
@@ -27,43 +30,43 @@ import org.springframework.jdbc.core.JdbcTemplate;
 @ExtendWith(OutputCaptureExtension.class)
 class GraphQlErrorHandlingTest {
 
-	/** Bits of server internals that must never reach a client. */
+	/** Bits of server internals, or of the services behind this app, that must never reach a client. */
 	private static final List<String> NEVER_IN_A_RESPONSE = List.of("Exception", "at com.", "at org.", "select ",
-			"SELECT ", "SECRET PROMPT TEXT", "NOT_A_CATEGORY");
+			"SELECT ", "SECRET PROMPT TEXT", "NOT_A_CATEGORY", "interview-service", "Connection refused");
 
 	private final GraphQlTester graphQlTester;
 
 	private final FakeAnalysisApi fixture;
 
-	private final FakeLlmGateway llm;
-
-	private final JdbcTemplate jdbc;
+	private final FakeInterviewApi interviews;
 
 	GraphQlErrorHandlingTest(@Autowired GraphQlTester graphQlTester, @Autowired FakeAnalysisApi fixture,
-			@Autowired FakeLlmGateway llm, @Autowired JdbcTemplate jdbc) {
+			@Autowired FakeInterviewApi interviews) {
 		this.graphQlTester = graphQlTester;
 		this.fixture = fixture;
-		this.llm = llm;
-		this.jdbc = jdbc;
+		this.interviews = interviews;
 	}
 
 	@BeforeEach
 	void resetState() {
-		jdbc.update("DELETE FROM interview_session");   // cascades to topics, questions and answers
 		fixture.reset();
-		llm.reset();
+		interviews.reset();
 	}
 
-	/** A real bug path, no mocks: a stored JSON value Hibernate cannot read. */
+	/**
+	 * A bug on the other side (task 4.1): interview-service answers 500 with its internals in the body, not a problem
+	 * detail. Spring's exception carries that body in its message; none of it may reach the client.
+	 */
 	@Test
 	void anUnexpectedFailureIsInternalWithACorrelationIdAndNothingElse(CapturedOutput log) {
-		UUID session = jdbc.queryForObject("""
-				INSERT INTO interview_session (project_id, status, difficulty, planned_question_count, focus_areas)
-				VALUES (?, 'IN_PROGRESS', 'JUNIOR', 3, '["NOT_A_CATEGORY"]') RETURNING id
-				""", UUID.class, fixture.newProject());
+		interviews.failNextCall(HttpServerErrorException.create(HttpStatus.INTERNAL_SERVER_ERROR,
+				"Internal Server Error", HttpHeaders.EMPTY, """
+						{"error": "IllegalArgumentException: No enum constant NOT_A_CATEGORY",
+						 "trace": "at com.aryankanani.repointerviewer.interview.InterviewSession", "sql": "SELECT *"}
+						""".getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8));
 
 		graphQlTester.document("query ($id: ID!) { interviewSession(id: $id) { focusAreas } }")
-				.variable("id", session).execute()
+				.variable("id", UUID.randomUUID()).execute()
 				.errors().satisfy(errors -> {
 					ResponseError error = single(errors);
 					assertThat(error.getExtensions()).containsEntry("code", "INTERNAL").containsKey("correlationId");
@@ -75,11 +78,12 @@ class GraphQlErrorHandlingTest {
 				});
 	}
 
-	/** A failure while calling the model: its message never reaches the client. */
+	/** interview-service unreachable: a generic error, with nothing about where or why (task 4.2 makes it clearer). */
 	@Test
-	void textFromAFailedModelCallNeverReachesTheClient() {
+	void anUnreachableServiceIsInternalAndSaysNothingAboutIt() {
 		UUID project = fixture.readyProject();
-		llm.enqueueFailure(LlmPurpose.PLAN, new IllegalStateException("upstream said: SECRET PROMPT TEXT"));
+		interviews.failNextCall(new ResourceAccessException("I/O error on POST request for "
+				+ "\"http://interview-service:8080/internal/sessions\": Connection refused; SECRET PROMPT TEXT"));
 
 		graphQlTester.document("""
 				mutation ($input: StartInterviewInput!) { startInterview(input: $input) { session { id } errors { code } } }

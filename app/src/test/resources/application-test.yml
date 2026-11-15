@@ -1,22 +1,15 @@
 # test: the automated tests (./mvnw verify, locally and in CI), activated by @IntegrationTest.
 # Lives on the test classpath, so none of this ships in the application jar.
 # The database comes from Testcontainers (@ServiceConnection in TestcontainersConfiguration), which
-# replaces spring.datasource.*. No test calls a real model or another service: FakeLlmGateway and FakeAnalysisApi.
+# replaces spring.datasource.*. No test calls another service: FakeAnalysisApi and FakeInterviewApi (task 4.1).
 
 spring:
   http:
     serviceclient:
       analysis:
-        base-url: http://analysis.invalid   # never called: the tests use FakeAnalysisApi (TestDoublesConfiguration)
+        base-url: http://analysis.invalid    # never called: the tests use FakeAnalysisApi (TestDoublesConfiguration)
+      interview:
+        base-url: http://interview.invalid   # never called: the tests use FakeInterviewApi
   graphql:
     graphiql:
       enabled: false
-  ai:
-    anthropic:
-      api-key: test-key-not-used   # only satisfies auto-configuration
-
-app:
-  interview:
-    # Off so each test controls the order of the fake model replies. QuestionPrefetcherTest calls prepare() itself
-    # and turns it on for the one test of the background start.
-    prefetch-enabled: false

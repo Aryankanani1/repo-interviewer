@@ -1,12 +1,8 @@
 # stage: production-like, the last check before prod. Same settings as prod except where noted.
 # Connection settings come from environment variables (Kubernetes ConfigMap and Secret in Phase 3):
-#   SPRING_PROFILES_ACTIVE=stage, DB_URL, DB_USER, DB_PASSWORD, OLLAMA_BASE_URL, ANTHROPIC_API_KEY
+#   SPRING_PROFILES_ACTIVE=stage, DB_URL, DB_USER, DB_PASSWORD, ANALYSIS_BASE_URL, INTERVIEW_BASE_URL (task 4.1)
 
 spring:
   graphql:
     graphiql:
       enabled: true   # for manual checks before a release; off in prod
-
-app:
-  llm:
-    max-calls-per-day: 80   # stage spends real money too: 80 here + 20 in analysis-service (D-026)
