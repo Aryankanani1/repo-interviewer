@@ -32,6 +32,10 @@
 			<groupId>com.aryankanani</groupId>
 			<artifactId>contracts</artifactId>
 		</dependency>
+		<dependency>
+			<groupId>com.aryankanani</groupId>
+			<artifactId>outbox</artifactId>
+		</dependency>
 
 		<!-- Spring Boot -->
 		<dependency>

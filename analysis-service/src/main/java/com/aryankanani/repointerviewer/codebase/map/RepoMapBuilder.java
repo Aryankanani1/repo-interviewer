@@ -17,7 +17,6 @@ import static com.aryankanani.repointerviewer.codebase.scan.FileRole.TEST;
 import com.aryankanani.repointerviewer.codebase.map.JavaOutline.TypeOutline;
 import com.aryankanani.repointerviewer.codebase.scan.FileRole;
 import com.aryankanani.repointerviewer.common.TokenEstimator;
-import com.aryankanani.repointerviewer.common.config.AppProperties;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumMap;
@@ -71,8 +70,8 @@ public class RepoMapBuilder {
 	private final int maxTokens;
 
 	@Autowired
-	RepoMapBuilder(AppProperties properties) {
-		this(properties.repoMap().maxTokens());
+	RepoMapBuilder(RepoMapProperties settings) {
+		this(settings.maxTokens());
 	}
 
 	RepoMapBuilder(int maxTokens) {

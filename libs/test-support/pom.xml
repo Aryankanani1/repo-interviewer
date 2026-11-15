@@ -30,6 +30,12 @@
 			<groupId>com.aryankanani</groupId>
 			<artifactId>contracts</artifactId>
 		</dependency>
+		<!-- Optional: only for OutboxPump, so the GraphQL gateway (no database) does not get JPA through this module -->
+		<dependency>
+			<groupId>com.aryankanani</groupId>
+			<artifactId>outbox</artifactId>
+			<optional>true</optional>
+		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-test</artifactId>

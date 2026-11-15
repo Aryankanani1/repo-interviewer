@@ -1,8 +1,8 @@
 package com.aryankanani.repointerviewer.project;
 
 import com.aryankanani.repointerviewer.common.messaging.AggregateType;
-import com.aryankanani.repointerviewer.common.messaging.OutboxWriter;
 import com.aryankanani.repointerviewer.common.messaging.Topics;
+import com.aryankanani.repointerviewer.outbox.OutboxWriter;
 import java.util.UUID;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;

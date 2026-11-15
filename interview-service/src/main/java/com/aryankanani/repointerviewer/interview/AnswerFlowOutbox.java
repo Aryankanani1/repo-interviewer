@@ -1,11 +1,11 @@
 package com.aryankanani.repointerviewer.interview;
 
 import com.aryankanani.repointerviewer.common.messaging.AggregateType;
-import com.aryankanani.repointerviewer.common.messaging.OutboxWriter;
-import com.aryankanani.repointerviewer.common.messaging.ProcessedEvents;
 import com.aryankanani.repointerviewer.common.messaging.Topics;
 import com.aryankanani.repointerviewer.contracts.interview.AnswerFlowEvent;
 import com.aryankanani.repointerviewer.contracts.interview.SessionStatus;
+import com.aryankanani.repointerviewer.outbox.OutboxWriter;
+import com.aryankanani.repointerviewer.outbox.ProcessedEvents;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.context.annotation.Profile;

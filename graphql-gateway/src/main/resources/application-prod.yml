@@ -1,0 +1,11 @@
+# prod: live. Connection settings come from environment variables (Kubernetes ConfigMap and Secret in
+# Phase 3): SPRING_PROFILES_ACTIVE=prod, ANALYSIS_BASE_URL, INTERVIEW_BASE_URL (no database since task 4.1).
+# Do not deploy publicly before Phase 4 adds authentication (DECISIONS.md D-010).
+
+spring:
+  graphql:
+    graphiql:
+      enabled: false
+    schema:
+      inspection:
+        enabled: false   # the startup report about unmapped fields is a development aid

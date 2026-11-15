@@ -3,7 +3,6 @@ package com.aryankanani.repointerviewer.codebase.embed;
 import com.aryankanani.repointerviewer.codebase.store.ChunkEmbedding;
 import com.aryankanani.repointerviewer.codebase.store.ChunkStore;
 import com.aryankanani.repointerviewer.codebase.store.PendingChunk;
-import com.aryankanani.repointerviewer.common.config.AppProperties;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -35,8 +34,8 @@ public class EmbeddingService {
 	private final int dimensions;
 
 	@Autowired
-	EmbeddingService(ChunkStore chunkStore, EmbeddingModel embeddingModel, AppProperties properties) {
-		this(chunkStore, embeddingModel, properties.embedding().batchSize(), properties.embedding().dimensions());
+	EmbeddingService(ChunkStore chunkStore, EmbeddingModel embeddingModel, EmbeddingProperties settings) {
+		this(chunkStore, embeddingModel, settings.batchSize(), settings.dimensions());
 	}
 
 	EmbeddingService(ChunkStore chunkStore, EmbeddingModel embeddingModel, int batchSize, int dimensions) {

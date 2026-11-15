@@ -45,46 +45,51 @@ Base package: `com.aryankanani.repointerviewer` (shortened to `ri` below).
 
 ## 2. Module structure
 
-A modular monolith: one deployable, packages as modules, dependencies one-way, enforced by ArchUnit.
+Three services in one Maven build since task 4.1 (DECISIONS.md D-026; a modular monolith until then): packages as modules, dependencies one-way, enforced by Maven Enforcer and each module's ArchUnit test.
 
 ### Maven modules (task 4.1, DECISIONS.md D-026)
 
-The root `pom.xml` is the parent of every module: versions, BOMs, the `eval` test switch. `./mvnw verify` at the root builds and tests all modules in dependency order. `spring-boot:run` is skipped in the libraries (the parent sets `spring-boot.run.skip`, each app turns it off) and runs in the root folder so `.env` is found; since step 3b there are three apps, so start each one with `-pl`: `./mvnw -pl analysis-service -am spring-boot:run` (port 8082), `./mvnw -pl interview-service -am spring-boot:run` (8084) and `./mvnw -pl app -am spring-boot:run` (8080). Step 1 moved files only: no package, class or behavior changed.
+The root `pom.xml` is the parent of every module: versions, BOMs, the `eval` test switch. `./mvnw verify` at the root builds and tests all modules in dependency order. `spring-boot:run` is skipped in the libraries (the parent sets `spring-boot.run.skip`, each app turns it off) and runs in the root folder so `.env` is found; since step 3b there are three apps, so start each one with `-pl`: `./mvnw -pl analysis-service -am spring-boot:run` (port 8082), `./mvnw -pl interview-service -am spring-boot:run` (8084) and `./mvnw -pl graphql-gateway -am spring-boot:run` (8080). Step 1 moved files only: no package, class or behavior changed.
 
 | Module | Holds | May depend on |
 |---|---|---|
-| `libs/common` | `ri.common..` | Spring Boot starters only |
-| `libs/llm` | `ri.llm..` and `prompts/*.st` | `common`, `contracts` (`QuestionCategory`, step 3a) |
+| `libs/common` | `ri.common..`: errors, `common.web`, the Kafka plumbing without a database, `ConsumerRetryProperties`, `RolesProperties` | Spring Boot starters only, no JPA (step 4a) |
+| `libs/llm` | `ri.llm..` and `prompts/*.st`, `LlmProperties` | `common`, `contracts` (`QuestionCategory`, step 3a), JPA (the `llm_call` ledger) |
+| `libs/outbox` (step 4a) | `ri.outbox..`: `OutboxEvent`, `OutboxWriter`, `OutboxRelay`, `ProcessedEvents`, `EventAlreadyProcessed`, `OutboxProperties` (were in `common.messaging`) | `common`, JPA |
 | `libs/contracts` (step 2a) | `ri.contracts..`: `AnalysisApi`, `InterviewApi` (step 3a) and the records they send, `AnswerFlowEvent` (a Kafka payload) | `spring-web` only (the `@HttpExchange` annotations) |
-| `libs/test-support` (step 2b, test scope only) | `FakeLlmGateway`, `FakeAnalysisApi` + `FixtureAnalysis` (snapshot `fixtures/sample-repo-analysis.json`), `FakeInterviewApi` (step 3b), the Kafka test helpers | `common`, `contracts`, `llm` (optional: only for `FakeLlmGateway`), Spring Boot test |
-| `analysis-service` (step 2b) | `project`, `codebase`, `AnalysisServiceApplication`, its own `application*.yml`, `db/migration` (schema `analysis`) and `db/bootstrap.sql` | `common`, `llm`, `contracts` |
-| `interview-service` (step 3b) | `interview`, `InterviewServiceApplication`, `AnalysisClientConfiguration` (its own `AnalysisApi` client), its own `application*.yml`, `db/migration` (schema `interview`) and `db/bootstrap.sql` | `common`, `llm`, `contracts` |
-| `app` (until step 4) | `api`, `RepoInterviewerApplication`, `AnalysisClientConfiguration`, `InterviewClientConfiguration`, `application*.yml`, migrations (schema `public`, unused since step 3b), the GraphQL schema | `common`, `contracts` |
+| `libs/test-support` (step 2b, test scope only) | `FakeLlmGateway`, `FakeAnalysisApi` + `FixtureAnalysis` (snapshot `fixtures/sample-repo-analysis.json`), `FakeInterviewApi` (step 3b), `OutboxPump`, the Kafka test helpers | `common`, `contracts`, `llm` and `outbox` (both optional: only for `FakeLlmGateway` and `OutboxPump`), Spring Boot test |
+| `analysis-service` (step 2b) | `project`, `codebase`, `AnalysisServiceApplication`, `AppPropertiesConfiguration`, its own `application*.yml`, `db/migration` (schema `analysis`) and `db/bootstrap.sql` | `common`, `llm`, `contracts`, `outbox` |
+| `interview-service` (step 3b) | `interview`, `InterviewServiceApplication`, `AppPropertiesConfiguration`, `AnalysisClientConfiguration` (its own `AnalysisApi` client), its own `application*.yml`, `db/migration` (schema `interview`) and `db/bootstrap.sql` | `common`, `llm`, `contracts`, `outbox` |
+| `graphql-gateway` (step 4a; the module `app` until then) | `api`, `GraphqlGatewayApplication`, `AppPropertiesConfiguration`, `AnalysisClientConfiguration`, `InterviewClientConfiguration`, `application*.yml`, the GraphQL schema. No database, no migrations, no roles | `common`, `contracts`, `spring-data-commons` (GraphQL cursor paging types) |
 
-Maven enforces part of the table below: a module compiles only against what its pom lists, so no app can use a class of another, and the libraries cannot use any app. The rest is each app's `ArchitectureTest` (its own module rules, with the libraries' classes read from their jars; `libs/test-support` left out). A library's unit tests live in its module.
+Enforcement (the AC of task 4.1): a module compiles only against what its pom lists, and the root pom's Maven Enforcer rule `services-stay-apart` (`bannedDependencies`) stops the build at `validate` if any module depends on `analysis-service`, `interview-service` or `graphql-gateway`, so no service can use another's code and no library can use any service. Inside each module, its `ArchitectureTest` checks the rules below: the libraries' own (`common` uses no other module and no database, `contracts` only Java and the `@HttpExchange` annotations, `llm` only `common` and `contracts`, `outbox` only `common`), and each app's layers plus a rule that the other services' packages stay out of its code (the libraries' classes read from their jars; `libs/test-support` left out). A library's unit tests live in its module.
 
-`app` reaches `analysis-service` only over HTTP: `AnalysisClientConfiguration` turns `AnalysisApi` into a client with `@ImportHttpServices` (base URL and timeouts in `spring.http.serviceclient.analysis.*`), and `common.web.DomainErrorHandler` turns analysis-service's problem details back into the same `DomainException` (503 LLM_UNAVAILABLE into `RemoteModelUnavailableException`, so workers retry it). The app's tests use `FakeAnalysisApi` instead; `FakeAnalysisApiContractTest` (analysis-service) checks that it answers like the real service, and `FixtureSnapshotTest` that its snapshot is up to date.
+The gateway (`app` until step 4a) reaches `analysis-service` only over HTTP: `AnalysisClientConfiguration` turns `AnalysisApi` into a client with `@ImportHttpServices` (base URL and timeouts in `spring.http.serviceclient.analysis.*`), and `common.web.DomainErrorHandler` turns analysis-service's problem details back into the same `DomainException` (503 LLM_UNAVAILABLE into `RemoteModelUnavailableException`, so workers retry it). The app's tests use `FakeAnalysisApi` instead; `FakeAnalysisApiContractTest` (analysis-service) checks that it answers like the real service, and `FixtureSnapshotTest` that its snapshot is up to date.
 
-Step 3a (still one JVM) draws the same boundary around `interview`: `api` uses only `contracts.interview.InterviewApi` and its records (`SessionDto`, `QuestionDto`, `AnswerDto`, the start, answer and end responses), never the interview entities; `interview.InterviewApiController` implements it. A failure before anything is saved is a problem detail; one after (a session that started and then FAILED, an answer saved but not graded) comes back inside the response as a `ResultError` next to what was saved. The `interviewEvents` fan-out moved to `api.events`, since feeding subscriptions is the gateway's job; it reads `contracts.interview.AnswerFlowEvent` from Kafka and the rest through `InterviewApi`. Step 3b moved `interview` into `interview-service`, which reaches analysis-service with its own `AnalysisApi` client; the app reaches it with `InterviewClientConfiguration` (`spring.http.serviceclient.interview.*`, read timeout 120 s like the GraphQL request: a start or a graded answer takes two or more model calls). The app now holds only `api`: no model calls, no `llm` library, and its database connection is kept but unused until step 4. Its tests use `FakeInterviewApi`, which each test fills with records (no snapshot: the app only maps them, D-026); the N+1 guarantee is split in two, a fixed number of calls per GraphQL query (`NPlusOneTest`, app) and a fixed number of SQL statements per call (`BatchReadsTest`, interview-service). `app` becomes `graphql-gateway` in step 4.
+Step 3a (still one JVM) draws the same boundary around `interview`: `api` uses only `contracts.interview.InterviewApi` and its records (`SessionDto`, `QuestionDto`, `AnswerDto`, the start, answer and end responses), never the interview entities; `interview.InterviewApiController` implements it. A failure before anything is saved is a problem detail; one after (a session that started and then FAILED, an answer saved but not graded) comes back inside the response as a `ResultError` next to what was saved. The `interviewEvents` fan-out moved to `api.events`, since feeding subscriptions is the gateway's job; it reads `contracts.interview.AnswerFlowEvent` from Kafka and the rest through `InterviewApi`. Step 3b moved `interview` into `interview-service`, which reaches analysis-service with its own `AnalysisApi` client; the app reaches it with `InterviewClientConfiguration` (`spring.http.serviceclient.interview.*`, read timeout 120 s like the GraphQL request: a start or a graded answer takes two or more model calls). The app now holds only `api`: no model calls, no `llm` library; step 4a removed its unused database too (the outbox moved to `libs/outbox`, `common` lost JPA, its migrations were deleted: their tables stay in old databases, untouched, D-026), renamed it `graphql-gateway`, and took away its roles (the fan-out always runs). Its tests use `FakeInterviewApi`, which each test fills with records (no snapshot: the app only maps them, D-026); the N+1 guarantee is split in two, a fixed number of calls per GraphQL query (`NPlusOneTest`, app) and a fixed number of SQL statements per call (`BatchReadsTest`, interview-service).
 
 ```
 ri
-├── RepoInterviewerApplication.java, AnalysisClientConfiguration,  # app: AnalysisApi and InterviewApi over HTTP
-│   InterviewClientConfiguration                                    #   (task 4.1)
+├── GraphqlGatewayApplication.java, AnalysisClientConfiguration,   # graphql-gateway: AnalysisApi and InterviewApi
+│   InterviewClientConfiguration                                    #   over HTTP (task 4.1)
+├── AppPropertiesConfiguration                                      # each app's own: the app.* records it binds
 ├── AnalysisServiceApplication.java                                 # analysis-service (task 4.1)
 ├── InterviewServiceApplication.java, AnalysisClientConfiguration  # interview-service (task 4.1 step 3b)
 ├── common/                 # shared kernel: ids, clock, errors, token estimator, JSON helpers
 │   ├── error/              # DomainException, ErrorCode (mirrors GraphQL enum), ModelUnavailableException,
 │   │                       #   RemoteModelUnavailableException (another service's 503, task 4.1)
-│   ├── config/             # AppProperties (@ConfigurationProperties "app")
+│   ├── config/             # ConsumerRetryProperties, RolesProperties, NoEnvironmentGuard (AppProperties until
+│   │                       #   task 4.1 step 4a; the other app.* records live with their modules, §10)
 │   ├── web/                # task 4.1: DomainProblems (DomainException <-> problem detail), DomainErrorHandler
 │   │                       #   (a RestClient's errors back into the same exceptions)
-│   └── messaging/          # Phase 2: Topics, KafkaTopicConfig (kafka profile), OutboxWriter, OutboxRelay
-│                           #   (kafka profile), EventEnvelope, AggregateType; OutboxEvent entity stays inside;
-│                           #   ProcessedEvents, EventAlreadyProcessed (idempotent consumers, task 2.3);
-│                           #   KafkaErrorHandlingConfig, RetryableEventException, InvalidEventException (task 2.4);
-│                           #   EventReader (reads and checks an envelope; was project.StageEvents, task 2.5);
-│                           #   InstanceId (random per start, for broadcast consumer groups, task 2.6)
+│   └── messaging/          # Phase 2, no database: Topics, KafkaTopicConfig (kafka profile), EventEnvelope,
+│                           #   AggregateType; KafkaErrorHandlingConfig, RetryableEventException,
+│                           #   InvalidEventException (task 2.4); EventReader (reads and checks an envelope; was
+│                           #   project.StageEvents, task 2.5); InstanceId (random per start, for broadcast consumer
+│                           #   groups, task 2.6)
+├── outbox/                 # libs/outbox (task 4.1 step 4a; was in common.messaging): OutboxWriter, OutboxRelay
+│                           #   (kafka profile), OutboxEvent entity (stays inside), ProcessedEvents and
+│                           #   EventAlreadyProcessed (idempotent consumers, task 2.3), OutboxProperties
 ├── llm/                    # the ONLY way to call a chat model
 │   ├── LlmGateway.java             # interface; LlmRequest, LlmPurpose (purpose → template)
 │   ├── SpringAiLlmGateway.java     # Spring AI ChatClient implementation
@@ -151,10 +156,11 @@ ri
 
 ```
 api        → contracts, common
-interview  → llm, contracts, common
-project    → codebase, llm, contracts, common
+interview  → llm, outbox, contracts, common
+project    → codebase, llm, outbox, contracts, common
 codebase   → contracts, common
 llm        → contracts, common
+outbox     → common
 contracts  → (nothing)
 common     → (nothing)
 ```
@@ -239,7 +245,7 @@ DDL lives in `src/main/resources/db/migration/V1__init.sql`, plus `V2__code_file
 |---|---|---|---|
 | analysis-service | `analysis`, `analysis_svc` | `analysis-service/.../db/migration/V1__init.sql` (the analysis tables of the old V1-V4 in one file) | `project`, `code_file`, `code_chunk`, `llm_call`, `outbox_event`, `processed_event` |
 | interview-service (step 3b) | `interview`, `interview_svc` | `interview-service/.../db/migration/V1__init.sql` (the interview tables of the old V1, V3 and V5 in one file, `project_id` without a foreign key) | `interview_session`, `interview_topic`, `question`, `answer`, `llm_call`, `outbox_event`, `processed_event` |
-| app | `public`, `ri` (dev) | `app/.../db/migration/V1-V5` | none used since step 3b; the old tables are left as they are and not copied (D-026); the connection goes in step 4 |
+| graphql-gateway (step 4a) | none | none | no database: the module `app` used `public` (V1-V5) until step 3b, those files are deleted and the old tables are left in existing databases as they are (D-026) |
 
 - `analysis-service/.../db/bootstrap.sql`, run once by the database admin (Compose on a new volume, Testcontainers in the tests): creates `analysis_svc`, the schema `analysis` it owns, its `search_path` (`analysis, public`) and pgvector in `public`. The service's own user cannot create users, schemas or extensions. Postgres refuses it everything outside its schema (`SchemaIsolationTest`). `interview-service/.../db/bootstrap.sql` does the same for `interview_svc` and `interview` (`search_path` `interview` only: no pgvector), with its own `SchemaIsolationTest`.
 - `V5__drop_project_foreign_keys.sql` (app): `interview_session.project_id` and `llm_call.project_id` keep the id but lose the foreign key, since projects are in another service. The interview code checks the project through `AnalysisApi.context` before it saves a session.
@@ -675,23 +681,25 @@ categoryScores:  per category in enum order, plain (unweighted) average of grade
 
 ## 10. Configuration (`application.yml`, prefix `app`)
 
-```java
-@Validated
-@ConfigurationProperties(prefix = "app", ignoreUnknownFields = false)
-public record AppProperties(Repo repo, Chunking chunking, Embedding embedding, Retrieval retrieval,
-                            RepoMap repoMap, Analysis analysis, Interview interview, Llm llm,
-                            Outbox outbox,                // poll-interval, batch-size (task 2.2)
-                            ConsumerRetry consumerRetry,  // max-retries, initial-backoff (task 2.4)
-                            Roles roles)                  // api, analysis-worker, interview-worker (task 3.3)
-{ ... }
-```
-Lives in `common.config`, registered by `@ConfigurationPropertiesScan` on the application class. All keys and defaults are in `src/main/resources/application.yml`.
+Since task 4.1 step 4a every `app.*` section is a record of its own, owned by the module that reads it, and each app binds only the ones it uses (its `AppPropertiesConfiguration`, `@EnableConfigurationProperties`; no `@ConfigurationPropertiesScan`). Until then one `AppProperties` record in `common.config` held every section, so each service's yml carried every section.
 
-- **Environments (D-015):** `application.yml` is the default every environment starts from; `application-dev.yml`, `src/test/resources/application-test.yml`, `application-stage.yml` and `application-prod.yml` override it, and environment variables override both. The default has no database or Ollama fallback. `NoEnvironmentGuard` (`@Profile("default")`, a `BeanFactoryPostProcessor`) stops startup with a clear message when no environment is chosen. `./mvnw spring-boot:run` uses dev (Maven property `spring-boot.run.profiles`); the jar has no default.
+| Section | Record | Module | Bound by |
+|---|---|---|---|
+| `app.repo` | `RepoProperties` | analysis-service (`codebase`) | analysis-service |
+| `app.chunking`, `app.embedding`, `app.repo-map` | `ChunkingProperties`, `EmbeddingProperties`, `RepoMapProperties` | analysis-service (`codebase.*`) | analysis-service |
+| `app.analysis` | `AnalysisProperties` | analysis-service (`project`) | analysis-service |
+| `app.retrieval` | `RetrievalProperties`: `top-k` (`codebase.retrieve`), `max-context-tokens` (`interview`) | each service its own | both |
+| `app.interview` | `InterviewProperties` | interview-service (`interview`) | interview-service |
+| `app.llm` | `LlmProperties` (with `Models`, `MaxOutputTokens`) | `libs/llm` | both services |
+| `app.outbox` | `OutboxProperties` | `libs/outbox` | both services |
+| `app.consumer-retry` | `ConsumerRetryProperties` | `libs/common` | all three apps |
+| `app.roles` | `RolesProperties` (api, analysis-worker, interview-worker; a service sets only its own) | `libs/common` | both services (the gateway has no roles) |
+
+- **Environments (D-015):** `application.yml` is the default every environment starts from; `application-dev.yml`, `src/test/resources/application-test.yml`, `application-stage.yml` and `application-prod.yml` override it, and environment variables override both. The defaults have no database, Ollama or service fallback. `NoEnvironmentGuard` (`@Profile("default")`, a `BeanFactoryPostProcessor`) stops startup with a clear message when no environment is chosen. `./mvnw spring-boot:run` uses dev (Maven property `spring-boot.run.profiles`); the jar has no default.
 
 - **Startup validation:** field constraints (`@Positive`, `@NotBlank`, `@DurationMin`, question counts `@Min(1) @Max(8)` to match the `ck_session_count` DB check) plus cross-field `@AssertTrue` checks: `min ≤ default ≤ max` question count, `follow-up-score-min ≤ max`, `max-calls-per-session ≤ max-calls-per-day`. Every nested section is `@Valid`, or its constraints are skipped.
-- **Strict keys:** `ignoreUnknownFields = false`, so a misspelled `app.*` key fails startup. A new YAML key must be added to the record in the same change.
-- **Per-purpose LLM settings** (`llm.models`, `llm.max-output-tokens`) are records with one field per purpose, not `Map<LlmPurpose, ...>`, because `common` may not import `llm`. `LlmGateway` maps `LlmPurpose` to the field.
+- **Strict keys:** `ignoreUnknownFields = false` on every record, so a misspelled key inside a section fails startup. A whole section no record binds is not read at all (the price of the split): each yml keeps only its app's sections, and `AppPropertiesTest` checks the other service's are absent. A new YAML key must be added to its record in the same change.
+- **Per-purpose LLM settings** (`llm.models`, `llm.max-output-tokens`) are records with one field per purpose, not `Map<LlmPurpose, ...>`, so a missing purpose fails at startup (they were in `common` until task 4.1, which may not import `llm`). `SpringAiLlmGateway` maps `LlmPurpose` to the field.
 
 ## 11. Concurrency and transactions summary
 
@@ -716,7 +724,7 @@ Lives in `common.config`, registered by `@ConfigurationPropertiesScan` on the ap
 | Architecture | Module dependency rules | ArchUnit |
 | Evals (opt-in) | Real model calls on golden repos; tagged `@Tag("eval")`, excluded from `./mvnw verify` by Surefire `excludedGroups`, run alone with `./mvnw verify -Pevals` (profile in `pom.xml`, task 1.8) | JUnit + `docs/RESULTS.md` |
 
-Fixture repo: `app/src/test/resources/fixtures/sample-repo/`, a tiny Spring Boot order service (created in task 1.3): `OrderController`, `OrderService` (with `refund`), `Order` entity, `OrderRepository`, `RefundRequest` record, `ShopApplication`, `application.yml`, a Flyway migration, `pom.xml`, `README.md` and one test class. The fake secret is the hard-coded `spring.datasource.password`; `shop.payment.api-key: ${PAYMENT_API_KEY}` is the placeholder that must not be redacted. No realistic token formats (`ghp_`, `AKIA`, `sk-ant-`), because GitHub push protection may block them. Files that must be skipped (`target/`, `.env`, symlinks, binaries) are created by tests in the temp copy: `.gitignore` excludes `target/` and `.env*`, and Maven does not copy some dotfiles to `target/test-classes`.
+Fixture repo: `analysis-service/src/test/resources/fixtures/sample-repo/` (task 4.1; snapshot of its analysis for the other services: `libs/test-support`'s `fixtures/sample-repo-analysis.json`), a tiny Spring Boot order service (created in task 1.3): `OrderController`, `OrderService` (with `refund`), `Order` entity, `OrderRepository`, `RefundRequest` record, `ShopApplication`, `application.yml`, a Flyway migration, `pom.xml`, `README.md` and one test class. The fake secret is the hard-coded `spring.datasource.password`; `shop.payment.api-key: ${PAYMENT_API_KEY}` is the placeholder that must not be redacted. No realistic token formats (`ghp_`, `AKIA`, `sk-ant-`), because GitHub push protection may block them. Files that must be skipped (`target/`, `.env`, symlinks, binaries) are created by tests in the temp copy: `.gitignore` excludes `target/` and `.env*`, and Maven does not copy some dotfiles to `target/test-classes`.
 
 ### Eval harness metrics (task 1.17, expanded in 5.1)
 `QuestionQualityEvalTest` (`@EvalTest`: the real app with none of the test doubles, `@Tag("eval")`) analyzes a golden repo at a pinned commit (it stops before any paid call if HEAD moved), runs one JUNIOR interview with 5 topics through `InterviewService`, answering each question with the first half of its own ideal outline (a middling answer, where grading varies most), then grades each main question four more times with `AnswerEvaluator` and no session id (daily cap only, so the interview ran with its normal budget). The metrics are plain functions in `EvalMetrics`, unit tested in the normal build:
@@ -857,7 +865,7 @@ With the `kafka` profile, `KafkaAnswerPipeline` replaces `InProcessAnswerPipelin
 `Dockerfile` at the root, multi-stage (DECISIONS.md D-022):
 
 - **Build stage** `eclipse-temurin:21-jdk-noble`: copies only `mvnw`, `.mvn/`, `pom.xml` and `src/main/` (`.dockerignore` is an allowlist of exactly those, so `.env`, `target/`, `.git` and `docs/` never reach the build context: 22 kB). `./mvnw -B -q package -Dmaven.test.skip=true` with a BuildKit cache mount on `/root/.m2` (dependencies downloaded once; tests are not compiled or run here, `./mvnw verify` and CI run them, and Testcontainers needs a Docker daemon a build step does not have). Then `java -Djarmode=tools -jar application.jar extract --layers --destination extracted` (Boot's `spring-boot-jarmode-tools`, in the repackaged jar by default) splits the jar by `BOOT-INF/layers.idx`.
-- **One image per service** (task 4.1): `--build-arg SERVICE=analysis-service` or `SERVICE=interview-service` (default `app`); the build stage packages that module and the libraries it needs (`-pl ${SERVICE} -am`), and copies its jar to `application.jar`, so the runtime stage is the same for all three.
+- **One image per service** (task 4.1): `--build-arg SERVICE=analysis-service` or `SERVICE=interview-service` (default `graphql-gateway`); the build stage packages that module and the libraries it needs (`-pl ${SERVICE} -am`), and copies its jar to `application.jar`, so the runtime stage is the same for all three.
 - **Runtime stage** `eclipse-temurin:21-jre-noble` (multi-arch: arm64 and amd64, checked): the four layers copied least-changing first, each its own image layer: `dependencies` (166 MB, `lib/*.jar`), `spring-boot-loader` and `snapshot-dependencies` (empty here), `application` (430 kB, `application.jar` whose manifest puts `lib/*.jar` on the classpath). A code change rebuilds and ships only the last one. Image about 250 MB.
 - **Not root:** user `app`, UID/GID **10001**, no home, shell `/usr/sbin/nologin`; `USER 10001:10001` is numeric because Kubernetes can only check `runAsNonRoot` against a number (3.3). The files are root-owned and read-only to it: checked in the image, it cannot change its jars, write `/app`, change `/etc/passwd` or install packages; only `/tmp` is writable (JGit clones under `app.repo.work-dir`, Tomcat's temp files). No `.env` and no sources in the image.
 - **JVM in a container:** Java 21 reads the cgroup memory limit (`UseContainerSupport`, on by default). `ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75.0 -XX:+ExitOnOutOfMemoryError"`: the heap may use 75% of the limit (the rest is metaspace, thread stacks, Netty and Kafka buffers), and an `OutOfMemoryError` ends the process so Docker or Kubernetes restarts it instead of a half-working JVM. An env var so a deployment can change it without a new image. Checked: `--memory=1g` gives `MaxHeapSize` 768 MiB.
@@ -881,7 +889,7 @@ Commands: `k8s/README.md`. Layout: `k8s/kind-config.yaml`, `k8s/namespace/` (nam
 
 ### 14.3 App deployments (task 3.3)
 
-**Roles** (DECISIONS.md D-024). `app.roles.api`, `.analysis-worker` and `.interview-worker` (`AppProperties.Roles`) are all true in `application.yml`, so one JVM does everything (dev, tests, Compose). The role profiles `application-api.yml`, `application-analysis-worker.yml` and `application-interview-worker.yml` each keep only their own. Every `@KafkaListener` has `autoStartup = "${app.roles.<role>}"`: the bean exists in every role, but its container only starts in its own. Analysis-worker: `IngestConsumer`, `EmbedConsumer`, `SummaryConsumer`. Interview-worker: `AnswerEvaluationConsumer`, `InterviewOrchestrator`. Api: `InterviewEventsFanOut` (no subscribers on a worker, so no fan-out group there). Every role keeps the outbox relay (`SKIP LOCKED` already lets several run, D-017), `StaleAnalysisRecovery` and the HTTP server (for the probes); only api gets a Service. Tests: `KafkaListenerRolesTest` finds every `@KafkaListener` in the main classes (ArchUnit import) and checks its role; `EnvironmentProfilesTest` checks that each role profile binds only its own flag.
+**Roles** (DECISIONS.md D-024). `app.roles.api`, `.analysis-worker` and `.interview-worker` (`AppProperties.Roles`, `RolesProperties` since task 4.1) are all true in `application.yml`, so one JVM does everything (dev, tests, Compose). The role profiles `application-api.yml`, `application-analysis-worker.yml` and `application-interview-worker.yml` each keep only their own. Every `@KafkaListener` has `autoStartup = "${app.roles.<role>}"`: the bean exists in every role, but its container only starts in its own. Analysis-worker: `IngestConsumer`, `EmbedConsumer`, `SummaryConsumer`. Interview-worker: `AnswerEvaluationConsumer`, `InterviewOrchestrator`. Api: `InterviewEventsFanOut` (no subscribers on a worker, so no fan-out group there). Every role keeps the outbox relay (`SKIP LOCKED` already lets several run, D-017), `StaleAnalysisRecovery` and the HTTP server (for the probes); only api gets a Service. Tests: `KafkaListenerRolesTest` finds every `@KafkaListener` in the main classes (ArchUnit import) and checks its role; `EnvironmentProfilesTest` checks that each role profile binds only its own flag. **Since task 4.1 step 4a** this describes the single app of Phase 3: each service sets only its own roles (analysis-service `api` + `analysis-worker`, interview-service `api` + `interview-worker`), the role profiles went with the module `app`, and the gateway has no roles (its fan-out always runs). One Deployment per service comes with step 4c.
 
 **Readiness includes the database** (`management.endpoint.health.group.readiness.include: readinessState,db`): without Postgres a pod leaves its Service but is not restarted. Liveness stays `livenessState` only.
 

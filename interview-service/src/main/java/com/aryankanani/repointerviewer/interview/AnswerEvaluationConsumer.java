@@ -2,14 +2,14 @@ package com.aryankanani.repointerviewer.interview;
 
 import com.aryankanani.repointerviewer.common.error.DomainException;
 import com.aryankanani.repointerviewer.common.error.ModelUnavailableException;
-import com.aryankanani.repointerviewer.common.messaging.EventAlreadyProcessed;
 import com.aryankanani.repointerviewer.common.messaging.EventEnvelope;
 import com.aryankanani.repointerviewer.common.messaging.EventReader;
 import com.aryankanani.repointerviewer.common.messaging.InvalidEventException;
-import com.aryankanani.repointerviewer.common.messaging.ProcessedEvents;
 import com.aryankanani.repointerviewer.common.messaging.RetryableEventException;
 import com.aryankanani.repointerviewer.common.messaging.Topics;
 import com.aryankanani.repointerviewer.contracts.interview.AnswerFlowEvent;
+import com.aryankanani.repointerviewer.outbox.EventAlreadyProcessed;
+import com.aryankanani.repointerviewer.outbox.ProcessedEvents;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

@@ -2,8 +2,8 @@ package com.aryankanani.repointerviewer.project;
 
 import com.aryankanani.repointerviewer.common.messaging.EventEnvelope;
 import com.aryankanani.repointerviewer.common.messaging.EventReader;
-import com.aryankanani.repointerviewer.common.messaging.ProcessedEvents;
 import com.aryankanani.repointerviewer.common.messaging.Topics;
+import com.aryankanani.repointerviewer.outbox.ProcessedEvents;
 import java.util.UUID;
 import org.slf4j.MDC;
 import org.springframework.context.annotation.Profile;

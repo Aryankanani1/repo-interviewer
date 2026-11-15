@@ -1,0 +1,96 @@
+# graphql-gateway configuration: the default (base) settings that every environment starts from.
+#
+# Environments, in promotion order (DECISIONS.md D-015):
+#   dev    application-dev.yml                    your machine; the default for ./mvnw spring-boot:run
+#   test   src/test/resources/application-test.yml automated tests (./mvnw verify, CI)
+#   stage  application-stage.yml                  production-like, before release
+#   prod   application-prod.yml                   live
+# Spring reads this file first, then the active environment's file on top (its values win), then
+# environment variables on top of both. This file has no localhost fallbacks for the services or Kafka,
+# so an app started without an environment fails at startup instead of quietly using the wrong one.
+#
+# Task 4.1: projects, code and embeddings are analysis-service's, interviews and every model call are
+# interview-service's (each with its own application.yml); this gateway is the GraphQL API and calls both. It has no
+# database (step 4a) and its only app.* section is the Kafka consumers' retries (AppPropertiesConfiguration).
+# Secrets come from environment variables or a local .env file (gitignored). Never commit keys.
+
+spring:
+  application:
+    name: graphql-gateway
+  config:
+    import: optional:file:.env[.properties]
+  threads:
+    virtual:
+      enabled: true
+  # Kafka is used only with the "kafka" profile (task 2.1, common/messaging/KafkaTopicConfig). No broker address
+  # here, like the services: dev sets localhost, stage and prod set SPRING_KAFKA_BOOTSTRAP_SERVERS.
+  kafka:
+    admin:
+      fail-fast: true   # with the kafka profile, an unreachable broker stops the startup instead of failing later
+    # No producer or consumer settings here (task 4.1): the outbox relay and the slow workers they were tuned for are
+    # the services'. The gateway's one listener, the subscriptions' fan-out, sets its own (auto.offset.reset=latest).
+    listener:
+      ack-mode: record   # commit each record's offset once its listener returned, not once per batch
+  graphql:
+    graphiql:
+      enabled: false   # on in dev and stage only
+    schema:
+      inspection:
+        enabled: true
+    # Subscriptions over Server-Sent Events on /graphql (Accept: text/event-stream; task 2.5, DECISIONS.md D-020).
+    # An interview stream stays open for many answers, so not the 120 s request timeout below: an hour, with a
+    # keep-alive comment every 15 s so proxies do not close a quiet stream.
+    http:
+      sse:
+        timeout: 1h
+        keep-alive: 15s
+  # The two services behind this API (task 4.1, AnalysisClientConfiguration and InterviewClientConfiguration). No
+  # fallback URLs, like the database: dev sets localhost:8082 and :8084, stage and prod set ANALYSIS_BASE_URL and
+  # INTERVIEW_BASE_URL. Submitting a project checks the repository on GitHub (up to 15 s), hence 30 s to read.
+  # Starting an interview or grading an answer takes two or more model calls (25-43 s in task 1.15), so up to the
+  # GraphQL request's own 120 s below.
+  http:
+    serviceclient:
+      analysis:
+        base-url: ${ANALYSIS_BASE_URL}
+        connect-timeout: 2s
+        read-timeout: 30s
+      interview:
+        base-url: ${INTERVIEW_BASE_URL}
+        connect-timeout: 2s
+        read-timeout: 120s
+  mvc:
+    async:
+      # GraphQL requests run async. submitAnswer grades the answer and writes the next question in one
+      # request (25-43 s in task 1.15); Tomcat's 30 s default answered 503 while the work went on.
+      request-timeout: 120s
+
+server:
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true   # /actuator/health/liveness and /readiness, for Kubernetes probes (task 3.3)
+      group:
+        readiness:
+          # No database here (task 4.1 step 4a). Whether analysis-service and interview-service answer is not part of
+          # readiness: a gateway that cannot reach them still answers with an error (task 4.2 makes it a clear one).
+          include: readinessState
+
+logging:
+  pattern:
+    # Adds the MDC ids (set by the services) after the level: "INFO 0192f0...". Empty here, kept for one log format.
+    level: "%5p %X{projectId:-}%X{sessionId:-}"
+  level:
+    com.aryankanani.repointerviewer: INFO
+
+app:
+  consumer-retry:        # Kafka consumers, kafka profile only (task 2.4, LLD §13.3): the fan-out's error handler
+    max-retries: 3       # 4 deliveries in all, then the dead-letter topic
+    initial-backoff: 1s  # then 2 s, 4 s

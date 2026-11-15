@@ -1,6 +1,6 @@
 package com.aryankanani.repointerviewer.common.messaging;
 
-import com.aryankanani.repointerviewer.common.config.AppProperties;
+import com.aryankanani.repointerviewer.common.config.ConsumerRetryProperties;
 import org.apache.kafka.common.TopicPartition;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
@@ -33,9 +33,8 @@ import org.springframework.kafka.support.ExponentialBackOffWithMaxRetries;
 class KafkaErrorHandlingConfig {
 
 	@Bean
-	DefaultErrorHandler kafkaErrorHandler(KafkaOperations<String, String> kafka, AppProperties properties,
+	DefaultErrorHandler kafkaErrorHandler(KafkaOperations<String, String> kafka, ConsumerRetryProperties retry,
 			ObjectProvider<RetryListener> retryListeners) {
-		AppProperties.ConsumerRetry retry = properties.consumerRetry();
 		ExponentialBackOffWithMaxRetries backOff = new ExponentialBackOffWithMaxRetries(retry.maxRetries());
 		backOff.setInitialInterval(retry.initialBackoff().toMillis());
 		backOff.setMultiplier(2.0);

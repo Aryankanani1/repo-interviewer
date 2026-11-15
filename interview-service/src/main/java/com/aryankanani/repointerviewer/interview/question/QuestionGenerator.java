@@ -1,6 +1,5 @@
 package com.aryankanani.repointerviewer.interview.question;
 
-import com.aryankanani.repointerviewer.common.config.AppProperties;
 import com.aryankanani.repointerviewer.contracts.analysis.AnalysisApi;
 import com.aryankanani.repointerviewer.contracts.analysis.ChunkRangesRequest;
 import com.aryankanani.repointerviewer.contracts.analysis.ChunkSearchRequest;
@@ -12,6 +11,7 @@ import com.aryankanani.repointerviewer.contracts.interview.Difficulty;
 import com.aryankanani.repointerviewer.contracts.interview.QuestionCategory;
 import com.aryankanani.repointerviewer.interview.InterviewTopic;
 import com.aryankanani.repointerviewer.interview.Question;
+import com.aryankanani.repointerviewer.interview.RetrievalProperties;
 import com.aryankanani.repointerviewer.interview.Rubric;
 import com.aryankanani.repointerviewer.llm.LlmGateway;
 import com.aryankanani.repointerviewer.llm.LlmPurpose;
@@ -49,10 +49,10 @@ public class QuestionGenerator {
 
 	private final int maxContextTokens;
 
-	QuestionGenerator(AnalysisApi analysis, LlmGateway llm, AppProperties properties) {
+	QuestionGenerator(AnalysisApi analysis, LlmGateway llm, RetrievalProperties retrieval) {
 		this.analysis = analysis;
 		this.llm = llm;
-		this.maxContextTokens = properties.retrieval().maxContextTokens();
+		this.maxContextTokens = retrieval.maxContextTokens();
 	}
 
 	/**

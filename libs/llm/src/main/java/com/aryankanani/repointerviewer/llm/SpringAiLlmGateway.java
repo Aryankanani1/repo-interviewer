@@ -1,6 +1,5 @@
 package com.aryankanani.repointerviewer.llm;
 
-import com.aryankanani.repointerviewer.common.config.AppProperties;
 import com.aryankanani.repointerviewer.llm.LlmCall.Tokens;
 import com.aryankanani.repointerviewer.llm.output.LlmOutput;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -51,17 +50,17 @@ class SpringAiLlmGateway implements LlmGateway {
 
 	private final LlmCallLedger ledger;
 
-	private final AppProperties.Llm settings;
+	private final LlmProperties settings;
 
 	private final MeterRegistry meters;
 
 	SpringAiLlmGateway(ChatClient.Builder chatClientBuilder, PromptTemplates templates, LlmBudget budget,
-			LlmCallLedger ledger, AppProperties properties, MeterRegistry meters) {
+			LlmCallLedger ledger, LlmProperties settings, MeterRegistry meters) {
 		this.chatClient = chatClientBuilder.build();
 		this.templates = templates;
 		this.budget = budget;
 		this.ledger = ledger;
-		this.settings = properties.llm();
+		this.settings = settings;
 		this.meters = meters;
 	}
 
@@ -156,7 +155,7 @@ class SpringAiLlmGateway implements LlmGateway {
 	}
 
 	private String model(LlmPurpose purpose) {
-		AppProperties.Models models = settings.models();
+		LlmProperties.Models models = settings.models();
 		return switch (purpose) {
 			case SUMMARY -> models.summary();
 			case PLAN -> models.plan();
@@ -168,7 +167,7 @@ class SpringAiLlmGateway implements LlmGateway {
 	}
 
 	private int maxOutputTokens(LlmPurpose purpose) {
-		AppProperties.MaxOutputTokens limits = settings.maxOutputTokens();
+		LlmProperties.MaxOutputTokens limits = settings.maxOutputTokens();
 		return switch (purpose) {
 			case SUMMARY -> limits.summary();
 			case PLAN -> limits.plan();

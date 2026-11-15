@@ -21,10 +21,11 @@
 		<module>libs/common</module>
 		<module>libs/llm</module>
 		<module>libs/contracts</module>
+		<module>libs/outbox</module>
 		<module>libs/test-support</module>
 		<module>analysis-service</module>
 		<module>interview-service</module>
-		<module>app</module>
+		<module>graphql-gateway</module>
 	</modules>
 
 	<!-- Versions verified on start.spring.io and Maven Central on 2026-10-25 (see docs/LLD.md §1). -->
@@ -64,6 +65,11 @@
 			<dependency>
 				<groupId>com.aryankanani</groupId>
 				<artifactId>contracts</artifactId>
+				<version>${project.version}</version>
+			</dependency>
+			<dependency>
+				<groupId>com.aryankanani</groupId>
+				<artifactId>outbox</artifactId>
 				<version>${project.version}</version>
 			</dependency>
 			<dependency>
@@ -111,6 +117,33 @@
 					<groups>${test.groups}</groups>
 					<excludedGroups>${test.excluded-groups}</excludedGroups>
 				</configuration>
+			</plugin>
+			<!-- Task 4.1 (DECISIONS.md D-026): no module may depend on a service, so services cannot use each other's
+			     code and the libraries cannot use any service. They share only libs/contracts (HTTP) and Kafka.
+			     Every module inherits this; the build stops at "validate". Version managed by Spring Boot. -->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-enforcer-plugin</artifactId>
+				<executions>
+					<execution>
+						<id>services-stay-apart</id>
+						<goals>
+							<goal>enforce</goal>
+						</goals>
+						<configuration>
+							<rules>
+								<bannedDependencies>
+									<excludes>
+										<exclude>com.aryankanani:analysis-service</exclude>
+										<exclude>com.aryankanani:interview-service</exclude>
+										<exclude>com.aryankanani:graphql-gateway</exclude>
+									</excludes>
+									<message>A service never depends on another service's module: they talk through libs/contracts over HTTP, and Kafka (DECISIONS.md D-026).</message>
+								</bannedDependencies>
+							</rules>
+						</configuration>
+					</execution>
+				</executions>
 			</plugin>
 		</plugins>
 	</build>

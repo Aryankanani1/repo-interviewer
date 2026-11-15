@@ -83,36 +83,16 @@ logging:
   level:
     com.aryankanani.repointerviewer: INFO
 
-# AppProperties is still one record for all services (D-026): every section must be here, even the analysis ones,
-# which this service does not use. Split per service in task 4.1 step 4.
+# Exactly the app.* sections AppPropertiesConfiguration binds (task 4.1 step 4a). A misspelled key inside one of them
+# stops the start; a section nobody binds would not be read, so another service's sections are left out.
 app:
-  repo:                      # unused here (see above)
-    allowed-host: github.com
-    max-files: 1500
-    max-file-bytes: 300000
-    max-repo-bytes: 25000000
-    ls-remote-timeout: 15s
-    clone-timeout: 60s
-    work-dir: ${java.io.tmpdir}/interview-service
-  chunking:
-    max-chunk-lines: 120
-    small-method-lines: 4
-  embedding:
-    batch-size: 32
-    dimensions: 768
   retrieval:
-    top-k: 8
-    max-context-tokens: 6000
-  repo-map:
-    max-tokens: 12000
-  analysis:
-    stale-after: 15m
+    max-context-tokens: 6000   # tokens of code a prompt may carry: the budget of each chunk search
   outbox:
     poll-interval: 500ms
     batch-size: 100
   roles:
     api: true                # this service's REST API (InterviewApi)
-    analysis-worker: false   # not in this service
     interview-worker: true   # the answer evaluation consumer and the orchestrator
   consumer-retry:
     max-retries: 3

@@ -11,5 +11,5 @@
 !analysis-service/src/main/
 !interview-service/pom.xml
 !interview-service/src/main/
-!app/pom.xml
-!app/src/main/
+!graphql-gateway/pom.xml
+!graphql-gateway/src/main/

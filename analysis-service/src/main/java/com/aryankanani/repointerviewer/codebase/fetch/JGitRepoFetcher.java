@@ -1,6 +1,6 @@
 package com.aryankanani.repointerviewer.codebase.fetch;
 
-import com.aryankanani.repointerviewer.common.config.AppProperties;
+import com.aryankanani.repointerviewer.codebase.RepoProperties;
 import com.aryankanani.repointerviewer.common.error.DomainException;
 import com.aryankanani.repointerviewer.common.error.ErrorCode;
 import java.io.IOException;
@@ -43,8 +43,8 @@ class JGitRepoFetcher implements RepoFetcher {
 	private final long maxRepoBytes;
 
 	@Autowired
-	JGitRepoFetcher(AppProperties properties) {
-		this(properties.repo().lsRemoteTimeout(), properties.repo().cloneTimeout(), properties.repo().maxRepoBytes());
+	JGitRepoFetcher(RepoProperties repo) {
+		this(repo.lsRemoteTimeout(), repo.cloneTimeout(), repo.maxRepoBytes());
 	}
 
 	JGitRepoFetcher(Duration lsRemoteTimeout, Duration cloneTimeout, long maxRepoBytes) {

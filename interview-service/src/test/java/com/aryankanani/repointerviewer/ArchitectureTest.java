@@ -24,21 +24,30 @@ class ArchitectureTest {
 
 	static final String BASE = "com.aryankanani.repointerviewer";
 
-	private static final List<String> MODULES_WITH_ENTITIES = List.of("common", "llm", "interview");
+	private static final List<String> MODULES_WITH_ENTITIES = List.of("outbox", "llm", "interview");
 
 	@ArchTest
 	static final ArchRule modulesDependOnlyInOneDirection = layeredArchitecture()
 			.consideringOnlyDependenciesInLayers()
 			.layer("interview").definedBy(BASE + ".interview..")
 			.layer("llm").definedBy(BASE + ".llm..")
+			.layer("outbox").definedBy(BASE + ".outbox..")
 			.layer("contracts").definedBy(BASE + ".contracts..")
 			.layer("common").definedBy(BASE + ".common..")
 			.whereLayer("interview").mayNotBeAccessedByAnyLayer()
 			// Projects and code come from analysis-service, only through contracts.analysis.AnalysisApi.
-			.whereLayer("interview").mayOnlyAccessLayers("llm", "contracts", "common")
+			.whereLayer("interview").mayOnlyAccessLayers("llm", "outbox", "contracts", "common")
 			.whereLayer("llm").mayOnlyAccessLayers("contracts", "common")
+			.whereLayer("outbox").mayOnlyAccessLayers("common")
 			.whereLayer("contracts").mayNotAccessAnyLayer()
 			.whereLayer("common").mayNotAccessAnyLayer();
+
+	/** A second fence behind Maven Enforcer (task 4.1): the other services' packages stay out of this code too. */
+	@ArchTest
+	static final ArchRule usesNoOtherServicesCode = noClasses()
+			.should().dependOnClassesThat().resideInAnyPackage(BASE + ".project..", BASE + ".codebase..",
+					BASE + ".api..")
+			.because("the services are reached only through contracts over HTTP, and Kafka (DECISIONS.md D-026)");
 
 	@ArchTest
 	static final ArchRule onlyLlmUsesSpringAiChat = noClasses()

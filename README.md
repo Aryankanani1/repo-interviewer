@@ -27,7 +27,7 @@ docker compose up -d            # Postgres (pgvector) on localhost:5433
 # Three apps since task 4.1, one terminal each:
 ./mvnw -pl analysis-service -am spring-boot:run    # projects and code, port 8082 (ANALYSIS_PORT)
 ./mvnw -pl interview-service -am spring-boot:run   # interviews and every model call for them, port 8084 (INTERVIEW_PORT)
-./mvnw -pl app -am spring-boot:run                 # the GraphQL API; GraphiQL: http://localhost:8080/graphiql
+./mvnw -pl graphql-gateway -am spring-boot:run     # the GraphQL API; GraphiQL: http://localhost:8080/graphiql
 # An existing Postgres volume (from before task 4.1) needs each service's user and schema once:
 docker compose exec -T postgres psql -U ri -d repo_interviewer < analysis-service/src/main/resources/db/bootstrap.sql
 docker compose exec -T postgres psql -U ri -d repo_interviewer < interview-service/src/main/resources/db/bootstrap.sql
@@ -38,12 +38,12 @@ Code moves **dev → test → stage → prod**. `application.yml` holds the defa
 
 | Environment | File | How it starts |
 |---|---|---|
-| dev | `<service>/src/main/resources/application-dev.yml` | `./mvnw -pl <service> -am spring-boot:run` (local compose Postgres and Ollama; app on 8080 with GraphiQL, analysis-service on 8082, interview-service on 8084) |
+| dev | `<service>/src/main/resources/application-dev.yml` | `./mvnw -pl <service> -am spring-boot:run` (local compose Postgres and Ollama; graphql-gateway on 8080 with GraphiQL, analysis-service on 8082, interview-service on 8084) |
 | test | `<service>/src/test/resources/application-test.yml` | `./mvnw verify` locally and in CI (Testcontainers, fake models, `FakeAnalysisApi` and `FakeInterviewApi` instead of the other services) |
-| stage | `<service>/src/main/resources/application-stage.yml` | `SPRING_PROFILES_ACTIVE=stage` + `DB_URL`, `DB_USER`, `DB_PASSWORD`, and `ANALYSIS_BASE_URL` + `INTERVIEW_BASE_URL` (app), `OLLAMA_BASE_URL` + `ANTHROPIC_API_KEY` (analysis-service) or `ANALYSIS_BASE_URL` + `ANTHROPIC_API_KEY` (interview-service) |
+| stage | `<service>/src/main/resources/application-stage.yml` | `SPRING_PROFILES_ACTIVE=stage` + `ANALYSIS_BASE_URL` and `INTERVIEW_BASE_URL` (graphql-gateway, no database), or `DB_URL`, `DB_USER`, `DB_PASSWORD`, `ANTHROPIC_API_KEY` and `OLLAMA_BASE_URL` (analysis-service) or `ANALYSIS_BASE_URL` (interview-service) |
 | prod | `<service>/src/main/resources/application-prod.yml` | `SPRING_PROFILES_ACTIVE=prod` + the same variables |
 
-`<service>` is `app`, `analysis-service` or `interview-service` (task 4.1). Starting a jar without an environment stops with "No environment selected". Run another environment locally with `./mvnw -pl app -am spring-boot:run -Dspring-boot.run.profiles=stage`.
+`<service>` is `graphql-gateway`, `analysis-service` or `interview-service` (task 4.1). Starting a jar without an environment stops with "No environment selected". Run another environment locally with `./mvnw -pl graphql-gateway -am spring-boot:run -Dspring-boot.run.profiles=stage`.
 
 ## Local infrastructure
 

@@ -11,13 +11,9 @@
 	<artifactId>common</artifactId>
 	<name>common</name>
 	<!-- A plain jar, not a Spring Boot app: every service gets these classes and its own main class. -->
-	<description>Shared kernel: domain errors, AppProperties, the outbox and the Kafka plumbing</description>
+	<description>Shared kernel: domain errors, shared properties, errors between services and the Kafka plumbing (no database: the outbox is libs/outbox)</description>
 
 	<dependencies>
-		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-data-jpa</artifactId>
-		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-validation</artifactId>
@@ -39,6 +35,11 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>com.tngtech.archunit</groupId>
+			<artifactId>archunit-junit5</artifactId>
 			<scope>test</scope>
 		</dependency>
 	</dependencies>

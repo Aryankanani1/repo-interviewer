@@ -1,7 +1,6 @@
 package com.aryankanani.repointerviewer.codebase.chunk;
 
 import com.aryankanani.repointerviewer.codebase.scan.RedactedFile;
-import com.aryankanani.repointerviewer.common.config.AppProperties;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Pattern;
@@ -34,8 +33,8 @@ public class TextChunker {
 	private final int maxChunkLines;
 
 	@Autowired
-	TextChunker(AppProperties properties) {
-		this(properties.chunking().maxChunkLines());
+	TextChunker(ChunkingProperties settings) {
+		this(settings.maxChunkLines());
 	}
 
 	TextChunker(int maxChunkLines) {

@@ -6,9 +6,9 @@ import com.aryankanani.repointerviewer.FakeEmbeddingModel;
 import com.aryankanani.repointerviewer.FakeLlmGateway;
 import com.aryankanani.repointerviewer.IntegrationTest;
 import com.aryankanani.repointerviewer.LocalDirectoryRepoFetcher;
+import com.aryankanani.repointerviewer.codebase.RepoProperties;
 import com.aryankanani.repointerviewer.codebase.fetch.GithubUrl;
 import com.aryankanani.repointerviewer.codebase.fetch.RemoteHead;
-import com.aryankanani.repointerviewer.common.config.AppProperties;
 import com.aryankanani.repointerviewer.contracts.analysis.AnalysisStatus;
 import com.aryankanani.repointerviewer.contracts.analysis.RepoSummary;
 import com.aryankanani.repointerviewer.llm.LlmPurpose;
@@ -56,7 +56,7 @@ class AnalysisJobTest {
 	AnalysisJobTest(@Autowired AnalysisJob job, @Autowired ProjectRepository projects,
 			@Autowired ProjectService projectService, @Autowired JdbcTemplate jdbc,
 			@Autowired FakeEmbeddingModel embeddingModel, @Autowired FakeLlmGateway llm,
-			@Autowired LocalDirectoryRepoFetcher repoFetcher, @Autowired AppProperties properties) {
+			@Autowired LocalDirectoryRepoFetcher repoFetcher, @Autowired RepoProperties repo) {
 		this.job = job;
 		this.projects = projects;
 		this.projectService = projectService;
@@ -64,7 +64,7 @@ class AnalysisJobTest {
 		this.embeddingModel = embeddingModel;
 		this.llm = llm;
 		this.repoFetcher = repoFetcher;
-		this.workDir = properties.repo().workDir();
+		this.workDir = repo.workDir();
 	}
 
 	@BeforeEach

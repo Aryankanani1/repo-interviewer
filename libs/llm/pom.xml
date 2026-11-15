@@ -17,6 +17,11 @@
 			<groupId>com.aryankanani</groupId>
 			<artifactId>common</artifactId>
 		</dependency>
+		<!-- The llm_call ledger (LlmCall entity); common brought JPA until task 4.1 step 4a -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-data-jpa</artifactId>
+		</dependency>
 		<!-- QuestionCategory, which the plan output uses, is part of the interview contract (task 4.1) -->
 		<dependency>
 			<groupId>com.aryankanani</groupId>
@@ -34,6 +39,11 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>com.tngtech.archunit</groupId>
+			<artifactId>archunit-junit5</artifactId>
 			<scope>test</scope>
 		</dependency>
 	</dependencies>

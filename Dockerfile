@@ -1,13 +1,13 @@
 # syntax=docker/dockerfile:1
 # Repo Interviewer images (task 3.1, docs/LLD.md §14.1), one per service since task 4.1:
-#   docker build -t repo-interviewer:local .                                            (the app, the default)
+#   docker build -t graphql-gateway:local .                                             (the gateway, the default)
 #   docker build --build-arg SERVICE=analysis-service -t analysis-service:local .
 #   docker build --build-arg SERVICE=interview-service -t interview-service:local .
 
 # --- Build stage: package the app with the Maven wrapper, then split the jar into layers ---------------------------
 FROM eclipse-temurin:21-jdk-noble AS build
 # The Maven module to build, which is also its folder and its jar's name.
-ARG SERVICE=app
+ARG SERVICE=graphql-gateway
 WORKDIR /build
 COPY mvnw pom.xml ./
 COPY .mvn/ .mvn/
@@ -16,7 +16,7 @@ COPY .mvn/ .mvn/
 COPY libs/ libs/
 COPY analysis-service/ analysis-service/
 COPY interview-service/ interview-service/
-COPY app/ app/
+COPY graphql-gateway/ graphql-gateway/
 # Tests are not run or compiled here: ./mvnw verify and CI run them (Testcontainers needs a Docker daemon, which a
 # build step does not have). The cache mount keeps ~/.m2 between builds, so dependencies are downloaded only once.
 # -pl SERVICE -am: that service and the libraries it needs ("also make"), each library a plain jar in the fat jar.

@@ -3,6 +3,9 @@ package com.aryankanani.repointerviewer.common.config;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.aryankanani.repointerviewer.AppPropertiesConfiguration;
+import com.aryankanani.repointerviewer.interview.InterviewProperties;
+import com.aryankanani.repointerviewer.llm.LlmProperties;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -21,14 +24,14 @@ class EnvironmentProfilesTest {
 
 	private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
 			.withInitializer(new ConfigDataApplicationContextInitializer())   // loads application*.yml
-			.withUserConfiguration(AppPropertiesTest.PropertiesConfig.class);
+			.withUserConfiguration(AppPropertiesConfiguration.class);
 
 	@ParameterizedTest
 	@ValueSource(strings = { "dev", "test", "stage", "prod" })
 	void everyEnvironmentLoadsOnTopOfTheDefaults(String environment) {
 		runDeployed(environment, context -> {
 			assertThat(context).hasNotFailed();
-			assertThat(context.getBean(AppProperties.class).repo().maxFiles()).isEqualTo(1500);
+			assertThat(context.getBean(InterviewProperties.class).maxQuestionCount()).isEqualTo(8);
 		});
 	}
 
@@ -69,9 +72,9 @@ class EnvironmentProfilesTest {
 	/** 4/5 of the old caps; analysis-service has the rest (D-026). */
 	@Test
 	void devAndStageCapDailyLlmCallsBelowProd() {
-		run("dev", context -> assertThat(context.getBean(AppProperties.class).llm().maxCallsPerDay()).isEqualTo(48));
-		run("stage", context -> assertThat(context.getBean(AppProperties.class).llm().maxCallsPerDay()).isEqualTo(80));
-		run("prod", context -> assertThat(context.getBean(AppProperties.class).llm().maxCallsPerDay()).isEqualTo(240));
+		run("dev", context -> assertThat(context.getBean(LlmProperties.class).maxCallsPerDay()).isEqualTo(48));
+		run("stage", context -> assertThat(context.getBean(LlmProperties.class).maxCallsPerDay()).isEqualTo(80));
+		run("prod", context -> assertThat(context.getBean(LlmProperties.class).maxCallsPerDay()).isEqualTo(240));
 	}
 
 	@Test

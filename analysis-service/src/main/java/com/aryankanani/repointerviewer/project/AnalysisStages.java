@@ -3,15 +3,14 @@ package com.aryankanani.repointerviewer.project;
 import com.aryankanani.repointerviewer.codebase.CodebaseIndexer;
 import com.aryankanani.repointerviewer.codebase.CodebaseQueries;
 import com.aryankanani.repointerviewer.codebase.IndexResult;
+import com.aryankanani.repointerviewer.codebase.RepoProperties;
 import com.aryankanani.repointerviewer.codebase.embed.EmbeddingService;
 import com.aryankanani.repointerviewer.codebase.fetch.ClonedRepo;
 import com.aryankanani.repointerviewer.codebase.fetch.GithubUrl;
 import com.aryankanani.repointerviewer.codebase.fetch.RemoteHead;
 import com.aryankanani.repointerviewer.codebase.fetch.RepoFetcher;
-import com.aryankanani.repointerviewer.common.config.AppProperties;
 import com.aryankanani.repointerviewer.common.error.DomainException;
 import com.aryankanani.repointerviewer.common.error.ModelUnavailableException;
-import com.aryankanani.repointerviewer.common.messaging.EventAlreadyProcessed;
 import com.aryankanani.repointerviewer.common.messaging.RetryableEventException;
 import com.aryankanani.repointerviewer.contracts.analysis.AnalysisStatus;
 import com.aryankanani.repointerviewer.contracts.analysis.RepoSummary;
@@ -19,6 +18,7 @@ import com.aryankanani.repointerviewer.llm.LlmGateway;
 import com.aryankanani.repointerviewer.llm.LlmPurpose;
 import com.aryankanani.repointerviewer.llm.LlmRequest;
 import com.aryankanani.repointerviewer.llm.output.SummaryOutput;
+import com.aryankanani.repointerviewer.outbox.EventAlreadyProcessed;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
@@ -99,7 +99,7 @@ class AnalysisStages {
 
 	AnalysisStages(ProjectRepository projects, PlatformTransactionManager transactionManager, RepoFetcher repoFetcher,
 			CodebaseIndexer indexer, EmbeddingService embeddingService, CodebaseQueries codebaseQueries,
-			LlmGateway llm, SummaryValidator summaryValidator, AppProperties properties) {
+			LlmGateway llm, SummaryValidator summaryValidator, RepoProperties repo) {
 		this.projects = projects;
 		this.transaction = new TransactionTemplate(transactionManager);
 		this.repoFetcher = repoFetcher;
@@ -108,7 +108,7 @@ class AnalysisStages {
 		this.codebaseQueries = codebaseQueries;
 		this.llm = llm;
 		this.summaryValidator = summaryValidator;
-		this.workDir = properties.repo().workDir();
+		this.workDir = repo.workDir();
 	}
 
 	/** SUBMITTED → CLONING in one transaction. @return false when the project is missing, not SUBMITTED, or taken */

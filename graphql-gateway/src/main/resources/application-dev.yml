@@ -1,0 +1,20 @@
+# dev: your machine. analysis-service on 8082 and interview-service on 8084, Kafka from docker-compose.yml with the
+# kafka profile (task 4.1). The default for ./mvnw spring-boot:run (pom.xml spring-boot.run.profiles). No database.
+
+spring:
+  graphql:
+    graphiql:
+      enabled: true   # http://localhost:8080/graphiql
+  http:
+    serviceclient:
+      analysis:
+        base-url: ${ANALYSIS_BASE_URL:http://localhost:${ANALYSIS_PORT:8082}}   # analysis-service's dev port
+      interview:
+        base-url: ${INTERVIEW_BASE_URL:http://localhost:${INTERVIEW_PORT:8084}}   # interview-service's dev port
+  kafka:
+    # docker compose --profile kafka up -d. Used only with the kafka profile (-Dspring-boot.run.profiles=dev,kafka).
+    bootstrap-servers: localhost:${KAFKA_PORT:9094}
+
+logging:
+  level:
+    com.aryankanani.repointerviewer: DEBUG

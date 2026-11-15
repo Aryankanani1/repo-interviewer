@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.groups.Tuple.tuple;
 
 import com.aryankanani.repointerviewer.IntegrationTest;
-import com.aryankanani.repointerviewer.common.config.AppProperties;
 import com.aryankanani.repointerviewer.common.error.ErrorCode;
 import com.aryankanani.repointerviewer.llm.output.EvaluationOutput;
 import com.aryankanani.repointerviewer.llm.output.SummaryOutput;
@@ -47,7 +46,7 @@ class SpringAiLlmGatewayTest {
 
 	private final LlmCallRepository calls;
 
-	private final AppProperties properties;
+	private final LlmProperties settings;
 
 	private final JdbcTemplate jdbc;
 
@@ -62,13 +61,13 @@ class SpringAiLlmGatewayTest {
 	private UUID project;
 
 	SpringAiLlmGatewayTest(@Autowired PromptTemplates templates, @Autowired LlmBudget budget,
-			@Autowired LlmCallLedger ledger, @Autowired LlmCallRepository calls, @Autowired AppProperties properties,
+			@Autowired LlmCallLedger ledger, @Autowired LlmCallRepository calls, @Autowired LlmProperties settings,
 			@Autowired JdbcTemplate jdbc, @Autowired PlatformTransactionManager transactionManager) {
 		this.templates = templates;
 		this.budget = budget;
 		this.ledger = ledger;
 		this.calls = calls;
-		this.properties = properties;
+		this.settings = settings;
 		this.jdbc = jdbc;
 		this.transaction = new TransactionTemplate(transactionManager);
 	}
@@ -78,7 +77,7 @@ class SpringAiLlmGatewayTest {
 		jdbc.update("DELETE FROM llm_call");
 		jdbc.update("DELETE FROM interview_session");
 		project = UUID.randomUUID();   // a model call only records the id (no foreign key since V5)
-		gateway = new SpringAiLlmGateway(ChatClient.builder(claude), templates, budget, ledger, properties, meters);
+		gateway = new SpringAiLlmGateway(ChatClient.builder(claude), templates, budget, ledger, settings, meters);
 	}
 
 	/** Acceptance criterion: a successful call writes one ledger row with its tokens. */
@@ -188,7 +187,7 @@ class SpringAiLlmGatewayTest {
 
 	@Test
 	void withoutBudgetThereIsNoCallAndNoRow() {
-		UUID session = newSession(properties.llm().maxCallsPerSession());
+		UUID session = newSession(settings.maxCallsPerSession());
 
 		assertThatThrownBy(() -> gateway.call(summaryRequest(session))).isInstanceOf(BudgetExceededException.class);
 		assertThat(claude.prompts()).isEmpty();

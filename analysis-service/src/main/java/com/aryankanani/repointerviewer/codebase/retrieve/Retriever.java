@@ -2,7 +2,6 @@ package com.aryankanani.repointerviewer.codebase.retrieve;
 
 import com.aryankanani.repointerviewer.codebase.embed.EmbeddingService;
 import com.aryankanani.repointerviewer.codebase.store.ChunkStore;
-import com.aryankanani.repointerviewer.common.config.AppProperties;
 import com.aryankanani.repointerviewer.contracts.analysis.LineRange;
 import com.aryankanani.repointerviewer.contracts.analysis.RetrievedChunk;
 import com.aryankanani.repointerviewer.contracts.analysis.RetrievedContext;
@@ -37,8 +36,8 @@ public class Retriever {
 	private final int topK;
 
 	@Autowired
-	Retriever(ChunkStore chunkStore, EmbeddingService embeddingService, AppProperties properties) {
-		this(chunkStore, embeddingService, properties.retrieval().topK());
+	Retriever(ChunkStore chunkStore, EmbeddingService embeddingService, RetrievalProperties settings) {
+		this(chunkStore, embeddingService, settings.topK());
 	}
 
 	Retriever(ChunkStore chunkStore, EmbeddingService embeddingService, int topK) {

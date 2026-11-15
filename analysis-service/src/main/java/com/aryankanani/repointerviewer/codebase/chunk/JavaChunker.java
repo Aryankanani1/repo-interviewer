@@ -2,7 +2,6 @@ package com.aryankanani.repointerviewer.codebase.chunk;
 
 import com.aryankanani.repointerviewer.codebase.scan.JavaParsing;
 import com.aryankanani.repointerviewer.codebase.scan.RedactedFile;
-import com.aryankanani.repointerviewer.common.config.AppProperties;
 import com.github.javaparser.Range;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.ImportDeclaration;
@@ -63,8 +62,8 @@ public class JavaChunker {
 	private final TextChunker textChunker;
 
 	@Autowired
-	JavaChunker(AppProperties properties, TextChunker textChunker) {
-		this(properties.chunking().maxChunkLines(), properties.chunking().smallMethodLines(), textChunker);
+	JavaChunker(ChunkingProperties settings, TextChunker textChunker) {
+		this(settings.maxChunkLines(), settings.smallMethodLines(), textChunker);
 	}
 
 	JavaChunker(int maxChunkLines, int smallMethodLines, TextChunker textChunker) {

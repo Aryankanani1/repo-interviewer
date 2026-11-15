@@ -1,6 +1,5 @@
 package com.aryankanani.repointerviewer.interview;
 
-import com.aryankanani.repointerviewer.common.config.AppProperties;
 import com.aryankanani.repointerviewer.contracts.interview.SessionStatus;
 import com.aryankanani.repointerviewer.interview.question.GeneratedQuestion;
 import com.aryankanani.repointerviewer.interview.question.QuestionGenerator;
@@ -48,13 +47,13 @@ class QuestionPrefetcher {
 
 	QuestionPrefetcher(InterviewSessionRepository sessions, InterviewTopicRepository topics,
 			QuestionRepository questions, QuestionGenerator generator, PlatformTransactionManager transactionManager,
-			AppProperties properties) {
+			InterviewProperties settings) {
 		this.sessions = sessions;
 		this.topics = topics;
 		this.questions = questions;
 		this.generator = generator;
 		this.transaction = new TransactionTemplate(transactionManager);
-		this.enabled = properties.interview().prefetchEnabled();
+		this.enabled = settings.prefetchEnabled();
 	}
 
 	/** Returns at once. Runs {@link #prepare} on a virtual thread when {@code app.interview.prefetch-enabled} is on. */

@@ -1,6 +1,5 @@
 package com.aryankanani.repointerviewer.interview;
 
-import com.aryankanani.repointerviewer.common.config.AppProperties;
 import com.aryankanani.repointerviewer.common.error.DomainException;
 import com.aryankanani.repointerviewer.common.error.ErrorCode;
 import com.aryankanani.repointerviewer.contracts.analysis.AnalysisApi;
@@ -88,13 +87,14 @@ public class InterviewService {
 
 	private final TransactionTemplate transaction;
 
-	private final AppProperties.Interview settings;
+	private final InterviewProperties settings;
 
 	InterviewService(AnalysisApi analysis, InterviewSessionRepository sessions,
 			InterviewTopicRepository topics, QuestionRepository questions, AnswerRepository answers,
 			QuestionPlanner planner, QuestionGenerator generator, AnswerEvaluator evaluator,
 			FollowUpPolicy followUpPolicy, ReportWriter reportWriter, QuestionPrefetcher prefetcher,
-			AnswerPipeline answerPipeline, PlatformTransactionManager transactionManager, AppProperties properties) {
+			AnswerPipeline answerPipeline, PlatformTransactionManager transactionManager,
+			InterviewProperties settings) {
 		this.analysis = analysis;
 		this.sessions = sessions;
 		this.topics = topics;
@@ -108,7 +108,7 @@ public class InterviewService {
 		this.prefetcher = prefetcher;
 		this.answerPipeline = answerPipeline;
 		this.transaction = new TransactionTemplate(transactionManager);
-		this.settings = properties.interview();
+		this.settings = settings;
 	}
 
 	/**

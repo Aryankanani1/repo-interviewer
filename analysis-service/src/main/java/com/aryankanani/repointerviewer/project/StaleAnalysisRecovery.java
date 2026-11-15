@@ -1,6 +1,5 @@
 package com.aryankanani.repointerviewer.project;
 
-import com.aryankanani.repointerviewer.common.config.AppProperties;
 import java.time.Duration;
 import java.time.Instant;
 import org.slf4j.Logger;
@@ -31,10 +30,10 @@ class StaleAnalysisRecovery {
 
 	private final TransactionTemplate transaction;
 
-	StaleAnalysisRecovery(ProjectRepository projects, AppProperties properties,
+	StaleAnalysisRecovery(ProjectRepository projects, AnalysisProperties settings,
 			PlatformTransactionManager transactionManager) {
 		this.projects = projects;
-		this.staleAfter = properties.analysis().staleAfter();
+		this.staleAfter = settings.staleAfter();
 		this.transaction = new TransactionTemplate(transactionManager);
 	}
 

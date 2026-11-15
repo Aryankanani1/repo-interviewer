@@ -1,6 +1,5 @@
 package com.aryankanani.repointerviewer.interview.planning;
 
-import com.aryankanani.repointerviewer.common.config.AppProperties;
 import com.aryankanani.repointerviewer.common.error.DomainException;
 import com.aryankanani.repointerviewer.common.error.ErrorCode;
 import com.aryankanani.repointerviewer.contracts.analysis.AnalysisApi;
@@ -8,6 +7,7 @@ import com.aryankanani.repointerviewer.contracts.analysis.CodeNames;
 import com.aryankanani.repointerviewer.contracts.analysis.ProjectContext;
 import com.aryankanani.repointerviewer.contracts.interview.Difficulty;
 import com.aryankanani.repointerviewer.contracts.interview.QuestionCategory;
+import com.aryankanani.repointerviewer.interview.InterviewProperties;
 import com.aryankanani.repointerviewer.llm.LlmGateway;
 import com.aryankanani.repointerviewer.llm.LlmPurpose;
 import com.aryankanani.repointerviewer.llm.LlmRequest;
@@ -44,11 +44,11 @@ public class QuestionPlanner {
 	private final int minQuestionCount;
 
 	QuestionPlanner(LlmGateway llm, TopicValidator topicValidator, AnalysisApi analysis,
-			AppProperties properties) {
+			InterviewProperties settings) {
 		this.llm = llm;
 		this.topicValidator = topicValidator;
 		this.analysis = analysis;
-		this.minQuestionCount = properties.interview().minQuestionCount();
+		this.minQuestionCount = settings.minQuestionCount();
 	}
 
 	/**

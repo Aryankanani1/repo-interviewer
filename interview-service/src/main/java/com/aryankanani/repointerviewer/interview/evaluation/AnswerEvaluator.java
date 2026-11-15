@@ -1,11 +1,11 @@
 package com.aryankanani.repointerviewer.interview.evaluation;
 
-import com.aryankanani.repointerviewer.common.config.AppProperties;
 import com.aryankanani.repointerviewer.contracts.analysis.AnalysisApi;
 import com.aryankanani.repointerviewer.contracts.analysis.ChunkRangesRequest;
 import com.aryankanani.repointerviewer.contracts.analysis.LineRange;
 import com.aryankanani.repointerviewer.contracts.interview.Difficulty;
 import com.aryankanani.repointerviewer.interview.Question;
+import com.aryankanani.repointerviewer.interview.RetrievalProperties;
 import com.aryankanani.repointerviewer.llm.LlmGateway;
 import com.aryankanani.repointerviewer.llm.LlmPurpose;
 import com.aryankanani.repointerviewer.llm.LlmRequest;
@@ -30,10 +30,10 @@ public class AnswerEvaluator {
 
 	private final int maxContextTokens;
 
-	AnswerEvaluator(AnalysisApi analysis, LlmGateway llm, AppProperties properties) {
+	AnswerEvaluator(AnalysisApi analysis, LlmGateway llm, RetrievalProperties retrieval) {
 		this.analysis = analysis;
 		this.llm = llm;
-		this.maxContextTokens = properties.retrieval().maxContextTokens();
+		this.maxContextTokens = retrieval.maxContextTokens();
 	}
 
 	public Evaluation evaluate(UUID projectId, UUID sessionId, Difficulty difficulty, Question question,

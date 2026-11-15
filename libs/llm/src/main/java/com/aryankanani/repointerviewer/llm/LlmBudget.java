@@ -1,6 +1,5 @@
 package com.aryankanani.repointerviewer.llm;
 
-import com.aryankanani.repointerviewer.common.config.AppProperties;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.UUID;
@@ -32,8 +31,8 @@ class LlmBudget {
 	private final int maxCallsPerDay;
 
 	@Autowired
-	LlmBudget(LlmCallRepository calls, JdbcTemplate jdbc, AppProperties properties) {
-		this(calls, jdbc, properties.llm().maxCallsPerSession(), properties.llm().maxCallsPerDay());
+	LlmBudget(LlmCallRepository calls, JdbcTemplate jdbc, LlmProperties settings) {
+		this(calls, jdbc, settings.maxCallsPerSession(), settings.maxCallsPerDay());
 	}
 
 	LlmBudget(LlmCallRepository calls, JdbcTemplate jdbc, int maxCallsPerSession, int maxCallsPerDay) {

@@ -1,6 +1,7 @@
 package com.aryankanani.repointerviewer.interview.evaluation;
 
-import com.aryankanani.repointerviewer.common.config.AppProperties;
+import com.aryankanani.repointerviewer.interview.InterviewProperties;
+import com.aryankanani.repointerviewer.llm.LlmProperties;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -37,9 +38,9 @@ public class FollowUpPolicy {
 	private final int maxCallsPerSession;
 
 	@Autowired
-	FollowUpPolicy(AppProperties properties) {
-		this(properties.interview().followUpScoreMin(), properties.interview().followUpScoreMax(),
-				properties.interview().maxFollowUpsPerTopic(), properties.llm().maxCallsPerSession());
+	FollowUpPolicy(InterviewProperties settings, LlmProperties llm) {
+		this(settings.followUpScoreMin(), settings.followUpScoreMax(), settings.maxFollowUpsPerTopic(),
+				llm.maxCallsPerSession());
 	}
 
 	FollowUpPolicy(int scoreMin, int scoreMax, int maxFollowUpsPerTopic, int maxCallsPerSession) {

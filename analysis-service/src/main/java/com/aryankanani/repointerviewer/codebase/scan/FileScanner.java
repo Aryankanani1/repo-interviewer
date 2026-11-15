@@ -1,8 +1,8 @@
 package com.aryankanani.repointerviewer.codebase.scan;
 
+import com.aryankanani.repointerviewer.codebase.RepoProperties;
 import com.aryankanani.repointerviewer.codebase.scan.ScanResult.Reason;
 import com.aryankanani.repointerviewer.codebase.scan.ScanResult.Skipped;
-import com.aryankanani.repointerviewer.common.config.AppProperties;
 import com.aryankanani.repointerviewer.common.error.DomainException;
 import com.aryankanani.repointerviewer.common.error.ErrorCode;
 import java.io.IOException;
@@ -48,8 +48,8 @@ public class FileScanner {
 	private final long maxFileBytes;
 
 	@Autowired
-	FileScanner(AppProperties properties) {
-		this(properties.repo().maxFiles(), properties.repo().maxFileBytes());
+	FileScanner(RepoProperties repo) {
+		this(repo.maxFiles(), repo.maxFileBytes());
 	}
 
 	FileScanner(int maxFiles, long maxFileBytes) {
