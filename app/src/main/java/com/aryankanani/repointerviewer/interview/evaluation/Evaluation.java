@@ -1,6 +1,6 @@
 package com.aryankanani.repointerviewer.interview.evaluation;
 
-import com.aryankanani.repointerviewer.interview.AnswerVerdict;
+import com.aryankanani.repointerviewer.contracts.interview.AnswerVerdict;
 import java.util.List;
 
 /**

@@ -1,6 +1,6 @@
 package com.aryankanani.repointerviewer.llm.output;
 
-import com.aryankanani.repointerviewer.common.QuestionCategory;
+import com.aryankanani.repointerviewer.contracts.interview.QuestionCategory;
 import java.util.List;
 
 /** One topic of a {@link PlanOutput}. */

@@ -25,7 +25,10 @@ class InterviewRetryListener implements RetryListener {
 
 	private static final Logger log = LoggerFactory.getLogger(InterviewRetryListener.class);
 
-	/** Read by the workers. {@link InterviewEventsFanOut} also reads answer.evaluated, but it never throws. */
+	/**
+	 * Read by the workers. {@code api}'s {@code InterviewEventsFanOut} also reads answer.evaluated, but it never
+	 * throws.
+	 */
 	private static final Set<String> WORKER_TOPICS = Set.of(Topics.ANSWER_SUBMITTED, Topics.ANSWER_EVALUATED);
 
 	private final AnswerFlowOutbox outcomes;

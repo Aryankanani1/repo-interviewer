@@ -1,6 +1,5 @@
 package com.aryankanani.repointerviewer.interview.question;
 
-import com.aryankanani.repointerviewer.common.QuestionCategory;
 import com.aryankanani.repointerviewer.common.config.AppProperties;
 import com.aryankanani.repointerviewer.contracts.analysis.AnalysisApi;
 import com.aryankanani.repointerviewer.contracts.analysis.ChunkRangesRequest;
@@ -8,8 +7,9 @@ import com.aryankanani.repointerviewer.contracts.analysis.ChunkSearchRequest;
 import com.aryankanani.repointerviewer.contracts.analysis.LineRange;
 import com.aryankanani.repointerviewer.contracts.analysis.RetrievedContext;
 import com.aryankanani.repointerviewer.contracts.analysis.TopicQuery;
-import com.aryankanani.repointerviewer.interview.CodeRef;
-import com.aryankanani.repointerviewer.interview.Difficulty;
+import com.aryankanani.repointerviewer.contracts.interview.CodeRef;
+import com.aryankanani.repointerviewer.contracts.interview.Difficulty;
+import com.aryankanani.repointerviewer.contracts.interview.QuestionCategory;
 import com.aryankanani.repointerviewer.interview.InterviewTopic;
 import com.aryankanani.repointerviewer.interview.Question;
 import com.aryankanani.repointerviewer.interview.Rubric;

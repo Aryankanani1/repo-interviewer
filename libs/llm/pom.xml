@@ -17,6 +17,11 @@
 			<groupId>com.aryankanani</groupId>
 			<artifactId>common</artifactId>
 		</dependency>
+		<!-- QuestionCategory, which the plan output uses, is part of the interview contract (task 4.1) -->
+		<dependency>
+			<groupId>com.aryankanani</groupId>
+			<artifactId>contracts</artifactId>
+		</dependency>
 		<dependency>
 			<groupId>org.springframework.ai</groupId>
 			<artifactId>spring-ai-starter-model-anthropic</artifactId>

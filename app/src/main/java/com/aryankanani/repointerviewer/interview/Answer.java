@@ -1,5 +1,6 @@
 package com.aryankanani.repointerviewer.interview;
 
+import com.aryankanani.repointerviewer.contracts.interview.AnswerVerdict;
 import com.aryankanani.repointerviewer.interview.evaluation.Evaluation;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;

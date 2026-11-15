@@ -1,7 +1,7 @@
 package com.aryankanani.repointerviewer.api.graphql;
 
-import com.aryankanani.repointerviewer.common.QuestionCategory;
-import com.aryankanani.repointerviewer.interview.Difficulty;
+import com.aryankanani.repointerviewer.contracts.interview.Difficulty;
+import com.aryankanani.repointerviewer.contracts.interview.QuestionCategory;
 import java.util.List;
 import java.util.UUID;
 

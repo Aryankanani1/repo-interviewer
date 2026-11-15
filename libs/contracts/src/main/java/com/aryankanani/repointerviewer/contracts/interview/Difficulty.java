@@ -1,4 +1,4 @@
-package com.aryankanani.repointerviewer.interview;
+package com.aryankanani.repointerviewer.contracts.interview;
 
 /** The candidate level the questions are pitched at. Mirrors the GraphQL enum {@code Difficulty}. */
 public enum Difficulty {

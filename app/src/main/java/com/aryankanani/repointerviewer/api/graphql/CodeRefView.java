@@ -1,6 +1,6 @@
 package com.aryankanani.repointerviewer.api.graphql;
 
-import com.aryankanani.repointerviewer.interview.CodeRef;
+import com.aryankanani.repointerviewer.contracts.interview.CodeRef;
 import java.util.UUID;
 
 /**

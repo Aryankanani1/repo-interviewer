@@ -8,6 +8,8 @@ import com.aryankanani.repointerviewer.FakeLlmGateway;
 import com.aryankanani.repointerviewer.IntegrationTest;
 import com.aryankanani.repointerviewer.common.error.DomainException;
 import com.aryankanani.repointerviewer.common.error.ErrorCode;
+import com.aryankanani.repointerviewer.contracts.interview.AnswerVerdict;
+import com.aryankanani.repointerviewer.contracts.interview.SessionStatus;
 import com.aryankanani.repointerviewer.llm.LlmPurpose;
 import com.aryankanani.repointerviewer.llm.LlmRequest;
 import com.aryankanani.repointerviewer.llm.LlmUnavailableException;

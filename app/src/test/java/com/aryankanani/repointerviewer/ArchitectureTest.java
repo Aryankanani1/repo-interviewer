@@ -39,13 +39,14 @@ class ArchitectureTest {
 			.layer("llm").definedBy(BASE + ".llm..")
 			.layer("contracts").definedBy(BASE + ".contracts..")
 			.layer("common").definedBy(BASE + ".common..")
-			// Task 4.1: api and interview reach project and codebase only through contracts.analysis.AnalysisApi.
-			.whereLayer("api").mayOnlyAccessLayers("interview", "contracts", "common")
+			// Task 4.1: api and interview reach project and codebase only through contracts.analysis.AnalysisApi, and
+			// api reaches interview only through contracts.interview.InterviewApi (step 3a).
+			.whereLayer("api").mayOnlyAccessLayers("contracts", "common")
 			.whereLayer("api").mayNotBeAccessedByAnyLayer()
 			.whereLayer("interview").mayOnlyAccessLayers("llm", "contracts", "common")
 			.whereLayer("project").mayOnlyAccessLayers("codebase", "llm", "contracts", "common")
 			.whereLayer("codebase").mayOnlyAccessLayers("contracts", "common")
-			.whereLayer("llm").mayOnlyAccessLayers("common")
+			.whereLayer("llm").mayOnlyAccessLayers("contracts", "common")
 			.whereLayer("contracts").mayNotAccessAnyLayer()
 			.whereLayer("common").mayNotAccessAnyLayer();
 
@@ -67,15 +68,15 @@ class ArchitectureTest {
 			.should().dependOnClassesThat().resideInAPackage("org.springframework.graphql..")
 			.because("GraphQL is a delivery detail of the api module");
 
-	/** Other modules get records from queries; only api maps entities to GraphQL views. */
+	/** Other modules, api included since task 4.1, get records from their module's queries or API. */
 	@ArchTest
-	static final ArchRule entitiesAreUsedOnlyByTheirModuleAndApi =
+	static final ArchRule entitiesAreUsedOnlyByTheirModule =
 			CompositeArchRule.of(MODULES_WITH_ENTITIES.stream().map(ArchitectureTest::entitiesStayIn).toList());
 
 	private static ArchRule entitiesStayIn(String module) {
 		String modulePackage = BASE + "." + module + "..";
 		return noClasses()
-				.that().resideOutsideOfPackages(modulePackage, BASE + ".api..")
+				.that().resideOutsideOfPackage(modulePackage)
 				.should().dependOnClassesThat(resideInAPackage(modulePackage).and(annotatedWith(Entity.class)))
 				.because("entities stay inside their module (docs/LLD.md §2)");
 	}

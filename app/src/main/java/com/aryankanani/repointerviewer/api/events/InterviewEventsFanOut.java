@@ -1,10 +1,10 @@
-package com.aryankanani.repointerviewer.interview;
+package com.aryankanani.repointerviewer.api.events;
 
 import com.aryankanani.repointerviewer.common.messaging.EventEnvelope;
 import com.aryankanani.repointerviewer.common.messaging.EventReader;
 import com.aryankanani.repointerviewer.common.messaging.InstanceId;
 import com.aryankanani.repointerviewer.common.messaging.Topics;
-import com.aryankanani.repointerviewer.interview.KafkaAnswerPipeline.AnswerFlowEvent;
+import com.aryankanani.repointerviewer.contracts.interview.AnswerFlowEvent;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Objects;
@@ -26,22 +26,22 @@ import org.springframework.stereotype.Component;
  *
  * <p>Best effort: it never throws. A subscriber that misses an event still finds everything with
  * {@code interviewSession}, and an event of this group must never reach the dead-letter topic, where
- * {@link InterviewRetryListener} would fail the session for it.
+ * the interview side's {@code InterviewRetryListener} would fail the session for it.
  */
 @Component
 @Profile("kafka")
-class InterviewEventsFanOut {
+public class InterviewEventsFanOut {
 
 	/** The listener container's id, for tests that wait for its partitions. Not the group id. */
-	static final String LISTENER_ID = "interview-events";
+	public static final String LISTENER_ID = "interview-events";
 
 	private static final Logger log = LoggerFactory.getLogger(InterviewEventsFanOut.class);
 
 	private static final Map<String, InterviewEventType> TYPES = Map.of(
-			KafkaAnswerPipeline.ANSWER_EVALUATED, InterviewEventType.ANSWER_EVALUATED,
-			KafkaAnswerPipeline.QUESTION_READY, InterviewEventType.QUESTION_READY,
-			KafkaAnswerPipeline.SESSION_COMPLETED, InterviewEventType.SESSION_COMPLETED,
-			KafkaAnswerPipeline.SESSION_FAILED, InterviewEventType.SESSION_FAILED);
+			AnswerFlowEvent.ANSWER_EVALUATED, InterviewEventType.ANSWER_EVALUATED,
+			AnswerFlowEvent.QUESTION_READY, InterviewEventType.QUESTION_READY,
+			AnswerFlowEvent.SESSION_COMPLETED, InterviewEventType.SESSION_COMPLETED,
+			AnswerFlowEvent.SESSION_FAILED, InterviewEventType.SESSION_FAILED);
 
 	private final EventReader events;
 

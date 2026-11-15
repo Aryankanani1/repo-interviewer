@@ -1,12 +1,15 @@
 package com.aryankanani.repointerviewer.interview;
 
-import com.aryankanani.repointerviewer.common.QuestionCategory;
 import com.aryankanani.repointerviewer.common.config.AppProperties;
 import com.aryankanani.repointerviewer.common.error.DomainException;
 import com.aryankanani.repointerviewer.common.error.ErrorCode;
 import com.aryankanani.repointerviewer.contracts.analysis.AnalysisApi;
 import com.aryankanani.repointerviewer.contracts.analysis.AnalysisStatus;
 import com.aryankanani.repointerviewer.contracts.analysis.ProjectContext;
+import com.aryankanani.repointerviewer.contracts.interview.Difficulty;
+import com.aryankanani.repointerviewer.contracts.interview.InterviewReport;
+import com.aryankanani.repointerviewer.contracts.interview.QuestionCategory;
+import com.aryankanani.repointerviewer.contracts.interview.SessionStatus;
 import com.aryankanani.repointerviewer.interview.evaluation.AnswerEvaluator;
 import com.aryankanani.repointerviewer.interview.evaluation.Evaluation;
 import com.aryankanani.repointerviewer.interview.evaluation.FollowUpPolicy;
@@ -344,11 +347,10 @@ public class InterviewService {
 				.collect(Collectors.toMap(Answer::getQuestionId, Function.identity()));
 	}
 
-	/** Session id to its project id. One query. */
+	/** The sessions that exist among these ids. One query. */
 	@Transactional(readOnly = true)
-	public Map<UUID, UUID> projectIdsBySessionIds(Collection<UUID> sessionIds) {
-		return sessions.findAllById(sessionIds).stream()
-				.collect(Collectors.toMap(InterviewSession::getId, InterviewSession::getProjectId));
+	public List<InterviewSession> sessionsByIds(Collection<UUID> sessionIds) {
+		return sessions.findAllById(sessionIds);
 	}
 
 	private List<InterviewTopic> saveTopics(UUID sessionId, List<PlannedTopic> plan) {

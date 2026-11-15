@@ -4,7 +4,8 @@ import com.aryankanani.repointerviewer.common.messaging.AggregateType;
 import com.aryankanani.repointerviewer.common.messaging.OutboxWriter;
 import com.aryankanani.repointerviewer.common.messaging.ProcessedEvents;
 import com.aryankanani.repointerviewer.common.messaging.Topics;
-import com.aryankanani.repointerviewer.interview.KafkaAnswerPipeline.AnswerFlowEvent;
+import com.aryankanani.repointerviewer.contracts.interview.AnswerFlowEvent;
+import com.aryankanani.repointerviewer.contracts.interview.SessionStatus;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.context.annotation.Profile;
@@ -52,7 +53,7 @@ class AnswerFlowOutbox {
 			processed.claim(eventId, consumer);
 			Answer answer = answers.findById(answerId).orElseThrow();
 			if (answer.isEvaluated()) {
-				write(Topics.ANSWER_EVALUATED, sessionId, KafkaAnswerPipeline.ANSWER_EVALUATED,
+				write(Topics.ANSWER_EVALUATED, sessionId, AnswerFlowEvent.ANSWER_EVALUATED,
 						new AnswerFlowEvent(answerId, answer.getQuestionId(), null));
 			}
 		});
@@ -69,11 +70,11 @@ class AnswerFlowOutbox {
 					.orElseThrow();
 			Optional<Question> next = questions.findBySessionIdAndOrderIndex(sessionId, answered.getOrderIndex() + 1);
 			if (next.isPresent()) {
-				write(Topics.QUESTION_READY, sessionId, KafkaAnswerPipeline.QUESTION_READY,
+				write(Topics.QUESTION_READY, sessionId, AnswerFlowEvent.QUESTION_READY,
 						new AnswerFlowEvent(answerId, answered.getId(), next.get().getId()));
 			}
 			else if (sessions.findById(sessionId).orElseThrow().getStatus() == SessionStatus.COMPLETED) {
-				write(Topics.QUESTION_READY, sessionId, KafkaAnswerPipeline.SESSION_COMPLETED,
+				write(Topics.QUESTION_READY, sessionId, AnswerFlowEvent.SESSION_COMPLETED,
 						new AnswerFlowEvent(answerId, answered.getId(), null));
 			}
 		});
@@ -94,7 +95,7 @@ class AnswerFlowOutbox {
 			sessions.findById(sessionId).filter(session -> session.getStatus() == SessionStatus.IN_PROGRESS)
 					.ifPresent(session -> {
 						session.fail(reason);
-						write(Topics.QUESTION_READY, sessionId, KafkaAnswerPipeline.SESSION_FAILED,
+						write(Topics.QUESTION_READY, sessionId, AnswerFlowEvent.SESSION_FAILED,
 								new AnswerFlowEvent(answerId, questionId, null));
 					});
 		});

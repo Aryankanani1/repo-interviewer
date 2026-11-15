@@ -11,8 +11,10 @@ import com.aryankanani.repointerviewer.KafkaConsumerLag;
 import com.aryankanani.repointerviewer.KafkaIntegrationTest;
 import com.aryankanani.repointerviewer.KafkaListeners;
 import com.aryankanani.repointerviewer.RecordingRetryListener;
+import com.aryankanani.repointerviewer.api.events.InterviewEventsFanOut;
 import com.aryankanani.repointerviewer.common.messaging.OutboxPump;
 import com.aryankanani.repointerviewer.common.messaging.Topics;
+import com.aryankanani.repointerviewer.contracts.interview.AnswerFlowEvent;
 import com.aryankanani.repointerviewer.llm.LlmOutputException;
 import com.aryankanani.repointerviewer.llm.LlmPurpose;
 import com.aryankanani.repointerviewer.llm.LlmUnavailableException;
@@ -193,8 +195,8 @@ class AsyncAnswerTest {
 		GraphQlTester.Response again = submit(firstQuestionId, "Both read the same refundedAmount.");
 		again.path("submitAnswer.answer.evaluation.score").entity(Integer.class).isEqualTo(9);
 		again.path("submitAnswer.nextQuestion.order").entity(Integer.class).isEqualTo(2);
-		assertThat(eventTypes()).containsExactly(KafkaAnswerPipeline.ANSWER_SUBMITTED,
-				KafkaAnswerPipeline.ANSWER_EVALUATED, KafkaAnswerPipeline.QUESTION_READY);
+		assertThat(eventTypes()).containsExactly(AnswerFlowEvent.ANSWER_SUBMITTED,
+				AnswerFlowEvent.ANSWER_EVALUATED, AnswerFlowEvent.QUESTION_READY);
 	}
 
 	/** At-least-once: both worker events of a finished step delivered again (same ids) change nothing. */
@@ -206,7 +208,7 @@ class AsyncAnswerTest {
 		long questionCalls = llm.calls(LlmPurpose.QUESTION);
 
 		jdbc.update("UPDATE outbox_event SET published_at = NULL WHERE aggregate_id = ?::uuid AND type IN (?, ?)",
-				sessionId, KafkaAnswerPipeline.ANSWER_SUBMITTED, KafkaAnswerPipeline.ANSWER_EVALUATED);
+				sessionId, AnswerFlowEvent.ANSWER_SUBMITTED, AnswerFlowEvent.ANSWER_EVALUATED);
 		assertThat(OutboxPump.publishPending(context)).hasSize(2);
 		KafkaConsumerLag.awaitCaughtUp(kafkaAdmin, Map.of(AnswerEvaluationConsumer.NAME, Topics.ANSWER_SUBMITTED,
 				InterviewOrchestrator.NAME, Topics.ANSWER_EVALUATED));
@@ -383,7 +385,7 @@ class AsyncAnswerTest {
 		return jdbc.queryForObject("""
 				SELECT count(*) FROM outbox_event
 				WHERE aggregate_id = ?::uuid AND type = ? AND published_at IS NOT NULL
-				""", Integer.class, sessionId, KafkaAnswerPipeline.QUESTION_READY) == 1;
+				""", Integer.class, sessionId, AnswerFlowEvent.QUESTION_READY) == 1;
 	}
 
 	private List<String> eventTypes() {

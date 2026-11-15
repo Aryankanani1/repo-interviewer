@@ -1,10 +1,10 @@
 package com.aryankanani.repointerviewer.api.graphql;
 
-import com.aryankanani.repointerviewer.common.QuestionCategory;
-import com.aryankanani.repointerviewer.interview.Difficulty;
-import com.aryankanani.repointerviewer.interview.InterviewReport;
-import com.aryankanani.repointerviewer.interview.InterviewSession;
-import com.aryankanani.repointerviewer.interview.SessionStatus;
+import com.aryankanani.repointerviewer.contracts.interview.Difficulty;
+import com.aryankanani.repointerviewer.contracts.interview.InterviewReport;
+import com.aryankanani.repointerviewer.contracts.interview.QuestionCategory;
+import com.aryankanani.repointerviewer.contracts.interview.SessionDto;
+import com.aryankanani.repointerviewer.contracts.interview.SessionStatus;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -29,12 +29,12 @@ record InterviewSessionView(
 		UUID projectId,
 		UUID currentQuestionId) {
 
-	static InterviewSessionView from(InterviewSession session) {
-		return new InterviewSessionView(session.getId(), session.getStatus(), session.getDifficulty(),
-				session.getFocusAreas(), session.getPlannedQuestionCount(), session.getFailureReason(),
-				session.getReport(), session.getStartedAt().atOffset(ZoneOffset.UTC),
-				session.getCompletedAt() == null ? null : session.getCompletedAt().atOffset(ZoneOffset.UTC),
-				session.getProjectId(), session.getCurrentQuestionId());
+	static InterviewSessionView from(SessionDto session) {
+		return new InterviewSessionView(session.id(), session.status(), session.difficulty(), session.focusAreas(),
+				session.plannedQuestionCount(), session.failureReason(), session.report(),
+				session.startedAt().atOffset(ZoneOffset.UTC),
+				session.completedAt() == null ? null : session.completedAt().atOffset(ZoneOffset.UTC),
+				session.projectId(), session.currentQuestionId());
 	}
 
 }

@@ -1,4 +1,4 @@
-package com.aryankanani.repointerviewer.interview;
+package com.aryankanani.repointerviewer.api.events;
 
 import java.util.UUID;
 import org.springframework.stereotype.Component;

@@ -1,4 +1,4 @@
-package com.aryankanani.repointerviewer.interview;
+package com.aryankanani.repointerviewer.contracts.interview;
 
 /**
  * Where an interview is (LLD §3.2). Mirrors the GraphQL enum {@code SessionStatus} and the {@code ck_session_status}

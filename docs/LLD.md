@@ -54,15 +54,17 @@ The root `pom.xml` is the parent of every module: versions, BOMs, the `eval` tes
 | Module | Holds | May depend on |
 |---|---|---|
 | `libs/common` | `ri.common..` | Spring Boot starters only |
-| `libs/llm` | `ri.llm..` and `prompts/*.st` | `common` |
-| `libs/contracts` (step 2a) | `ri.contracts..`: `AnalysisApi` and the records it sends | `spring-web` only (the `@HttpExchange` annotations) |
+| `libs/llm` | `ri.llm..` and `prompts/*.st` | `common`, `contracts` (`QuestionCategory`, step 3a) |
+| `libs/contracts` (step 2a) | `ri.contracts..`: `AnalysisApi`, `InterviewApi` (step 3a) and the records they send, `AnswerFlowEvent` (a Kafka payload) | `spring-web` only (the `@HttpExchange` annotations) |
 | `libs/test-support` (step 2b, test scope only) | `FakeLlmGateway`, `FakeAnalysisApi` + `FixtureAnalysis` (snapshot `fixtures/sample-repo-analysis.json`), the Kafka test helpers | `common`, `llm`, `contracts`, Spring Boot test |
 | `analysis-service` (step 2b) | `project`, `codebase`, `AnalysisServiceApplication`, its own `application*.yml`, `db/migration` (schema `analysis`) and `db/bootstrap.sql` | `common`, `llm`, `contracts` |
 | `app` (until step 4) | `api`, `interview`, `RepoInterviewerApplication`, `AnalysisClientConfiguration`, `application*.yml`, migrations (schema `public`), the GraphQL schema | `common`, `llm`, `contracts` |
 
 Maven enforces part of the table below: a module compiles only against what its pom lists, so `app` cannot use a class of `analysis-service` and the libraries cannot use either app. The rest is each app's `ArchitectureTest` (its own module rules, with the libraries' classes read from their jars; `libs/test-support` left out). A library's unit tests live in its module.
 
-`app` reaches `analysis-service` only over HTTP: `AnalysisClientConfiguration` turns `AnalysisApi` into a client with `@ImportHttpServices` (base URL and timeouts in `spring.http.serviceclient.analysis.*`), and `common.web.DomainErrorHandler` turns analysis-service's problem details back into the same `DomainException` (503 LLM_UNAVAILABLE into `RemoteModelUnavailableException`, so workers retry it). The app's tests use `FakeAnalysisApi` instead; `FakeAnalysisApiContractTest` (analysis-service) checks that it answers like the real service, and `FixtureSnapshotTest` that its snapshot is up to date. Step 3 moves `interview` into `interview-service`; `app` becomes `graphql-gateway` in step 4.
+`app` reaches `analysis-service` only over HTTP: `AnalysisClientConfiguration` turns `AnalysisApi` into a client with `@ImportHttpServices` (base URL and timeouts in `spring.http.serviceclient.analysis.*`), and `common.web.DomainErrorHandler` turns analysis-service's problem details back into the same `DomainException` (503 LLM_UNAVAILABLE into `RemoteModelUnavailableException`, so workers retry it). The app's tests use `FakeAnalysisApi` instead; `FakeAnalysisApiContractTest` (analysis-service) checks that it answers like the real service, and `FixtureSnapshotTest` that its snapshot is up to date.
+
+Step 3a (still one JVM) draws the same boundary around `interview`: `api` uses only `contracts.interview.InterviewApi` and its records (`SessionDto`, `QuestionDto`, `AnswerDto`, the start, answer and end responses), never the interview entities; `interview.InterviewApiController` implements it. A failure before anything is saved is a problem detail; one after (a session that started and then FAILED, an answer saved but not graded) comes back inside the response as a `ResultError` next to what was saved. The `interviewEvents` fan-out moved to `api.events`, since feeding subscriptions is the gateway's job; it reads `contracts.interview.AnswerFlowEvent` from Kafka and the rest through `InterviewApi`. Step 3b moves `interview` into `interview-service`; `app` becomes `graphql-gateway` in step 4.
 
 ```
 ri
@@ -106,6 +108,11 @@ ri
 │                           #   it sends: ProjectDto, ProjectPage, ProjectContext, RepoSummary (JSONB, with
 │                           #   ModuleSummary), AnalysisStatus, CodeNames, TopicQuery, LineRange, SnippetRef,
 │                           #   ChunkSearchRequest, ChunkRangesRequest, RetrievedContext, RetrievedChunk
+├── contracts/interview/    # task 4.1 step 3a: InterviewApi and StartInterviewRequest, AnswerRequest, SessionDto,
+│                           #   QuestionDto, AnswerDto, StartResponse, SubmitAnswerResponse, EndResponse,
+│                           #   ResultError; the shared enums and JSON records QuestionCategory (was in common),
+│                           #   Difficulty, SessionStatus, AnswerVerdict, InterviewReport, CategoryScore,
+│                           #   ReviewTopic, CodeRef; AnswerFlowEvent (Kafka payload + its event type names)
 ├── project/                # analysis-service: project aggregate + analysis orchestration
 │   ├── Project.java, ProjectRepository.java, ProjectService.java (submit, reanalyze)
 │   ├── AnalysisApiController       # AnalysisApi over ProjectService, CodebaseQueries, Retriever (task 4.1)
@@ -120,17 +127,19 @@ ri
 │   └── StaleAnalysisRecovery.java
 ├── interview/              # sessions, topics, questions, answers, scoring, report
 │   ├── InterviewService.java       # use cases: start, submitAnswer, end
+│   ├── InterviewApiController, InterviewApiErrors   # InterviewApi over InterviewService (task 4.1 step 3a)
 │   ├── QuestionPrefetcher.java     # next topic's question in the background (here, not in question/: it saves questions)
 │   ├── AnswerPipeline, InProcessAnswerPipeline, KafkaAnswerPipeline   # after an answer is saved (task 2.5)
 │   ├── AnswerEvaluationConsumer, InterviewOrchestrator, AnswerFlowOutbox, InterviewRetryListener   # Kafka workers
-│   ├── InterviewEventsFanOut, InterviewEventStream, InterviewEvent, InterviewEventType   # interviewEvents
-│   ├── InterviewSession, InterviewTopic, Question, Answer (+ repositories), CodeRef, Rubric, enums
+│   ├── InterviewSession, InterviewTopic, Question, Answer (+ repositories), Rubric, QuestionStatus, TopicStatus
 │   ├── planning/   QuestionPlanner, TopicValidator, SummaryText
 │   ├── question/   QuestionGenerator, CodeRefValidator, GeneratedQuestion
 │   ├── evaluation/ AnswerEvaluator, FollowUpPolicy, Scoring, Evaluation, RubricText
 │   └── report/     ReportWriter, TranscriptText, TranscriptEntry
 └── api/                    # GraphQL controllers, input/output mapping, error mapping
     ├── graphql/    ProjectController, InterviewController, SubscriptionController
+    ├── events/     InterviewEventsFanOut, InterviewEventStream, InterviewEvent, InterviewEventType (interviewEvents;
+    │               #   in interview until task 4.1 step 3a)
     ├── scalar/     ScalarConfig
     └── error/      UserError, UserErrorMapper, InputValidator, GraphQlExceptionResolver
 ```
@@ -138,16 +147,16 @@ ri
 ### Dependency rules (ArchUnit, task 0.4)
 
 ```
-api        → interview, contracts, common
+api        → contracts, common
 interview  → llm, contracts, common
 project    → codebase, llm, contracts, common
 codebase   → contracts, common
-llm        → common
+llm        → contracts, common
 contracts  → (nothing)
 common     → (nothing)
 ```
 
-Task 4.1 step 2a: `api` and `interview` reach `project` and `codebase` only through `contracts.analysis.AnalysisApi`. In one JVM the bean behind the interface is `project.AnalysisApiController` itself; from step 2b it is an HTTP client for the same interface.
+Task 4.1 step 2a: `api` and `interview` reach `project` and `codebase` only through `contracts.analysis.AnalysisApi`. In one JVM the bean behind the interface is `project.AnalysisApiController` itself; from step 2b it is an HTTP client for the same interface. Step 3a does the same for `api` → `interview` (`InterviewApi`, `interview.InterviewApiController`), and entities no longer leave their module at all: `api` maps records, not entities, to GraphQL views.
 
 - Nothing depends on `api`.
 - Only `llm` imports `org.springframework.ai.chat..`. Only `codebase.embed` imports `org.springframework.ai.embedding..`.
@@ -161,7 +170,7 @@ All of the above are checked by `ArchitectureTest` on the compiled main classes.
 ## 3. Domain model
 
 ### 3.1 Enums (Java mirrors the GraphQL enums one-to-one)
-`AnalysisStatus`, `FileRole`, `ChunkType` (`TYPE_HEADER, METHOD, CONFIG, DOC, SQL, TEXT`), `SessionStatus`, `Difficulty`, `QuestionCategory` (in `common`: `llm.output.PlannedTopic` and `interview` both use it, task 1.8), `TopicStatus` (`PENDING, ASKED, DONE, SKIPPED`), `QuestionStatus` (`PREPARED, ASKED, ANSWERED, SKIPPED`), `AnswerVerdict`, `LlmPurpose` (`SUMMARY, PLAN, QUESTION, FOLLOW_UP, EVALUATION, REPORT`), `ErrorCode`.
+`AnalysisStatus`, `FileRole`, `ChunkType` (`TYPE_HEADER, METHOD, CONFIG, DOC, SQL, TEXT`), `SessionStatus`, `Difficulty`, `QuestionCategory` (`llm.output.PlannedTopic`, `interview` and `InterviewApi`'s callers all use it: in `common` from task 1.8, in `contracts.interview` since task 4.1), `TopicStatus` (`PENDING, ASKED, DONE, SKIPPED`), `QuestionStatus` (`PREPARED, ASKED, ANSWERED, SKIPPED`), `AnswerVerdict`, `LlmPurpose` (`SUMMARY, PLAN, QUESTION, FOLLOW_UP, EVALUATION, REPORT`), `ErrorCode`.
 
 ### 3.2 State machines
 

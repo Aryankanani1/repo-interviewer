@@ -1,6 +1,9 @@
 package com.aryankanani.repointerviewer.interview;
 
-import com.aryankanani.repointerviewer.common.QuestionCategory;
+import com.aryankanani.repointerviewer.contracts.interview.Difficulty;
+import com.aryankanani.repointerviewer.contracts.interview.InterviewReport;
+import com.aryankanani.repointerviewer.contracts.interview.QuestionCategory;
+import com.aryankanani.repointerviewer.contracts.interview.SessionStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;

@@ -1,7 +1,7 @@
 package com.aryankanani.repointerviewer.api.graphql;
 
-import com.aryankanani.repointerviewer.common.QuestionCategory;
-import com.aryankanani.repointerviewer.interview.Question;
+import com.aryankanani.repointerviewer.contracts.interview.QuestionCategory;
+import com.aryankanani.repointerviewer.contracts.interview.QuestionDto;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -22,12 +22,12 @@ record QuestionView(
 		OffsetDateTime askedAt,
 		UUID parentQuestionId) {
 
-	static QuestionView from(Question question) {
-		return new QuestionView(question.getId(), question.getOrderIndex(), question.getCategory(), question.getText(),
-				question.isFollowUp(),
-				question.getCodeRefs().stream().map(ref -> CodeRefView.from(ref, question.getSessionId())).toList(),
-				question.getAskedAt().atOffset(ZoneOffset.UTC),
-				question.getParentQuestionId());
+	static QuestionView from(QuestionDto question) {
+		return new QuestionView(question.id(), question.order(), question.category(), question.text(),
+				question.followUp(),
+				question.codeRefs().stream().map(ref -> CodeRefView.from(ref, question.sessionId())).toList(),
+				question.askedAt().atOffset(ZoneOffset.UTC),
+				question.parentQuestionId());
 	}
 
 }

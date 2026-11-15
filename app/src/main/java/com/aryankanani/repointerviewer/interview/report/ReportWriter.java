@@ -1,9 +1,9 @@
 package com.aryankanani.repointerviewer.interview.report;
 
-import com.aryankanani.repointerviewer.interview.CategoryScore;
-import com.aryankanani.repointerviewer.interview.Difficulty;
-import com.aryankanani.repointerviewer.interview.InterviewReport;
-import com.aryankanani.repointerviewer.interview.ReviewTopic;
+import com.aryankanani.repointerviewer.contracts.interview.CategoryScore;
+import com.aryankanani.repointerviewer.contracts.interview.Difficulty;
+import com.aryankanani.repointerviewer.contracts.interview.InterviewReport;
+import com.aryankanani.repointerviewer.contracts.interview.ReviewTopic;
 import com.aryankanani.repointerviewer.interview.evaluation.GradedAnswer;
 import com.aryankanani.repointerviewer.interview.evaluation.Scoring;
 import com.aryankanani.repointerviewer.llm.LlmGateway;

@@ -9,6 +9,7 @@ import com.aryankanani.repointerviewer.KafkaIntegrationTest;
 import com.aryankanani.repointerviewer.KafkaListeners;
 import com.aryankanani.repointerviewer.RepoInterviewerApplication;
 import com.aryankanani.repointerviewer.TestDoublesConfiguration;
+import com.aryankanani.repointerviewer.api.events.InterviewEventsFanOut;
 import com.aryankanani.repointerviewer.common.messaging.OutboxPump;
 import com.aryankanani.repointerviewer.llm.LlmPurpose;
 import java.io.IOException;

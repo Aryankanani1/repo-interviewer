@@ -4,7 +4,7 @@ import com.aryankanani.repointerviewer.common.config.AppProperties;
 import com.aryankanani.repointerviewer.contracts.analysis.AnalysisApi;
 import com.aryankanani.repointerviewer.contracts.analysis.ChunkRangesRequest;
 import com.aryankanani.repointerviewer.contracts.analysis.LineRange;
-import com.aryankanani.repointerviewer.interview.Difficulty;
+import com.aryankanani.repointerviewer.contracts.interview.Difficulty;
 import com.aryankanani.repointerviewer.interview.Question;
 import com.aryankanani.repointerviewer.llm.LlmGateway;
 import com.aryankanani.repointerviewer.llm.LlmPurpose;

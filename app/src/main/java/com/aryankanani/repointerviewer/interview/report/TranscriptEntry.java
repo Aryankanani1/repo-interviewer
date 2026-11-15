@@ -1,7 +1,7 @@
 package com.aryankanani.repointerviewer.interview.report;
 
-import com.aryankanani.repointerviewer.common.QuestionCategory;
-import com.aryankanani.repointerviewer.interview.AnswerVerdict;
+import com.aryankanani.repointerviewer.contracts.interview.AnswerVerdict;
+import com.aryankanani.repointerviewer.contracts.interview.QuestionCategory;
 import java.util.List;
 
 /**

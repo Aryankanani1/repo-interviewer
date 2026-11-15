@@ -37,7 +37,7 @@ class ArchitectureTest {
 			.whereLayer("project").mayNotBeAccessedByAnyLayer()
 			.whereLayer("project").mayOnlyAccessLayers("codebase", "llm", "contracts", "common")
 			.whereLayer("codebase").mayOnlyAccessLayers("contracts", "common")
-			.whereLayer("llm").mayOnlyAccessLayers("common")
+			.whereLayer("llm").mayOnlyAccessLayers("contracts", "common")
 			.whereLayer("contracts").mayNotAccessAnyLayer()
 			.whereLayer("common").mayNotAccessAnyLayer();
 

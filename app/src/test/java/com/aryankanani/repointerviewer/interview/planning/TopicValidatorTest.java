@@ -2,7 +2,7 @@ package com.aryankanani.repointerviewer.interview.planning;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.aryankanani.repointerviewer.common.QuestionCategory;
+import com.aryankanani.repointerviewer.contracts.interview.QuestionCategory;
 import com.aryankanani.repointerviewer.llm.output.PlannedTopic;
 import java.util.List;
 import java.util.Set;

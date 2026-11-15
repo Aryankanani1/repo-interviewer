@@ -1,6 +1,6 @@
 package com.aryankanani.repointerviewer.interview.question;
 
-import com.aryankanani.repointerviewer.interview.CodeRef;
+import com.aryankanani.repointerviewer.contracts.interview.CodeRef;
 import com.aryankanani.repointerviewer.interview.Rubric;
 import java.util.List;
 

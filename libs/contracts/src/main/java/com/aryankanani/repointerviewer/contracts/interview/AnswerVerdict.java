@@ -1,4 +1,4 @@
-package com.aryankanani.repointerviewer.interview;
+package com.aryankanani.repointerviewer.contracts.interview;
 
 /**
  * The grade band of an answer, decided by code from the score ({@code Scoring.verdict}), never by the model.

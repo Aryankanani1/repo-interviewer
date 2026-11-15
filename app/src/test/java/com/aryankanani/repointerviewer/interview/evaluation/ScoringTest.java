@@ -1,13 +1,13 @@
 package com.aryankanani.repointerviewer.interview.evaluation;
 
-import static com.aryankanani.repointerviewer.common.QuestionCategory.ARCHITECTURE;
-import static com.aryankanani.repointerviewer.common.QuestionCategory.TESTING;
+import static com.aryankanani.repointerviewer.contracts.interview.QuestionCategory.ARCHITECTURE;
+import static com.aryankanani.repointerviewer.contracts.interview.QuestionCategory.TESTING;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.aryankanani.repointerviewer.common.QuestionCategory;
-import com.aryankanani.repointerviewer.interview.AnswerVerdict;
-import com.aryankanani.repointerviewer.interview.CategoryScore;
+import com.aryankanani.repointerviewer.contracts.interview.AnswerVerdict;
+import com.aryankanani.repointerviewer.contracts.interview.CategoryScore;
+import com.aryankanani.repointerviewer.contracts.interview.QuestionCategory;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;

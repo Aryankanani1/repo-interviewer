@@ -9,7 +9,7 @@ import com.aryankanani.repointerviewer.common.messaging.InvalidEventException;
 import com.aryankanani.repointerviewer.common.messaging.ProcessedEvents;
 import com.aryankanani.repointerviewer.common.messaging.RetryableEventException;
 import com.aryankanani.repointerviewer.common.messaging.Topics;
-import com.aryankanani.repointerviewer.interview.KafkaAnswerPipeline.AnswerFlowEvent;
+import com.aryankanani.repointerviewer.contracts.interview.AnswerFlowEvent;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -49,7 +49,7 @@ class AnswerEvaluationConsumer {
 
 	@KafkaListener(topics = Topics.ANSWER_SUBMITTED, groupId = NAME, autoStartup = "${app.roles.interview-worker}")
 	void onAnswerSubmitted(String message) {
-		EventEnvelope event = events.read(message, KafkaAnswerPipeline.ANSWER_SUBMITTED);
+		EventEnvelope event = events.read(message, AnswerFlowEvent.ANSWER_SUBMITTED);
 		AnswerFlowEvent payload = events.payload(event, AnswerFlowEvent.class);
 		if (payload.answerId() == null) {
 			throw new InvalidEventException("Event " + event.eventId() + " without answerId");

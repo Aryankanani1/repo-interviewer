@@ -1,6 +1,5 @@
-package com.aryankanani.repointerviewer.interview;
+package com.aryankanani.repointerviewer.contracts.interview;
 
-import com.aryankanani.repointerviewer.common.QuestionCategory;
 
 /**
  * The plain average score of the graded answers in one category. GraphQL type {@code CategoryScore}.

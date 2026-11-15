@@ -1,13 +1,13 @@
 package com.aryankanani.repointerviewer.interview.planning;
 
-import com.aryankanani.repointerviewer.common.QuestionCategory;
 import com.aryankanani.repointerviewer.common.config.AppProperties;
 import com.aryankanani.repointerviewer.common.error.DomainException;
 import com.aryankanani.repointerviewer.common.error.ErrorCode;
 import com.aryankanani.repointerviewer.contracts.analysis.AnalysisApi;
 import com.aryankanani.repointerviewer.contracts.analysis.CodeNames;
 import com.aryankanani.repointerviewer.contracts.analysis.ProjectContext;
-import com.aryankanani.repointerviewer.interview.Difficulty;
+import com.aryankanani.repointerviewer.contracts.interview.Difficulty;
+import com.aryankanani.repointerviewer.contracts.interview.QuestionCategory;
 import com.aryankanani.repointerviewer.llm.LlmGateway;
 import com.aryankanani.repointerviewer.llm.LlmPurpose;
 import com.aryankanani.repointerviewer.llm.LlmRequest;

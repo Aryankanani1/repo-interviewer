@@ -1,6 +1,7 @@
 package com.aryankanani.repointerviewer.interview;
 
-import com.aryankanani.repointerviewer.common.QuestionCategory;
+import com.aryankanani.repointerviewer.contracts.interview.CodeRef;
+import com.aryankanani.repointerviewer.contracts.interview.QuestionCategory;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;

@@ -3,6 +3,7 @@ package com.aryankanani.repointerviewer.interview;
 import com.aryankanani.repointerviewer.common.messaging.AggregateType;
 import com.aryankanani.repointerviewer.common.messaging.OutboxWriter;
 import com.aryankanani.repointerviewer.common.messaging.Topics;
+import com.aryankanani.repointerviewer.contracts.interview.AnswerFlowEvent;
 import java.util.UUID;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
@@ -17,29 +18,12 @@ import org.springframework.stereotype.Component;
  * after the next step: QuestionReady | SessionCompleted | SessionFailed → interview.question.ready
  * </pre>
  *
- * {@link InterviewEventsFanOut} reads the last two topics for the {@code interviewEvents} subscription.
+ * {@code api}'s {@code InterviewEventsFanOut} reads the last two topics for the {@code interviewEvents}
+ * subscription.
  */
 @Component
 @Profile("kafka")
 class KafkaAnswerPipeline implements AnswerPipeline {
-
-	static final String ANSWER_SUBMITTED = "AnswerSubmitted";
-
-	static final String ANSWER_EVALUATED = "AnswerEvaluated";
-
-	static final String QUESTION_READY = "QuestionReady";
-
-	static final String SESSION_COMPLETED = "SessionCompleted";
-
-	static final String SESSION_FAILED = "SessionFailed";
-
-	/**
-	 * The payload of every interview event. Only ids: everything else is in the database.
-	 *
-	 * @param nextQuestionId the question just asked, in QuestionReady only
-	 */
-	record AnswerFlowEvent(UUID answerId, UUID questionId, UUID nextQuestionId) {
-	}
 
 	private final OutboxWriter outbox;
 
@@ -49,7 +33,7 @@ class KafkaAnswerPipeline implements AnswerPipeline {
 
 	@Override
 	public void answerSaved(Answer answer, UUID sessionId) {
-		outbox.write(Topics.ANSWER_SUBMITTED, AggregateType.SESSION, sessionId, ANSWER_SUBMITTED,
+		outbox.write(Topics.ANSWER_SUBMITTED, AggregateType.SESSION, sessionId, AnswerFlowEvent.ANSWER_SUBMITTED,
 				new AnswerFlowEvent(answer.getId(), answer.getQuestionId(), null));
 	}
 

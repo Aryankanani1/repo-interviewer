@@ -1,6 +1,6 @@
 package com.aryankanani.repointerviewer.api.graphql;
 
-import com.aryankanani.repointerviewer.interview.InterviewEventType;
+import com.aryankanani.repointerviewer.api.events.InterviewEventType;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 

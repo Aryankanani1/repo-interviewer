@@ -1,6 +1,6 @@
 package com.aryankanani.repointerviewer.interview.report;
 
-import com.aryankanani.repointerviewer.interview.CategoryScore;
+import com.aryankanani.repointerviewer.contracts.interview.CategoryScore;
 import com.aryankanani.repointerviewer.llm.PromptMarkup;
 import java.util.List;
 import java.util.stream.Collectors;

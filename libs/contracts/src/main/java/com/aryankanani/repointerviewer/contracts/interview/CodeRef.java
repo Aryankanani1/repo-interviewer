@@ -1,4 +1,4 @@
-package com.aryankanani.repointerviewer.interview;
+package com.aryankanani.repointerviewer.contracts.interview;
 
 /**
  * A place in the repository a question is about (LLD §3.4), stored as JSON in {@code question.code_refs}. Only

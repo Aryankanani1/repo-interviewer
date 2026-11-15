@@ -1,6 +1,7 @@
 package com.aryankanani.repointerviewer.interview;
 
 import com.aryankanani.repointerviewer.common.config.AppProperties;
+import com.aryankanani.repointerviewer.contracts.interview.SessionStatus;
 import com.aryankanani.repointerviewer.interview.question.GeneratedQuestion;
 import com.aryankanani.repointerviewer.interview.question.QuestionGenerator;
 import jakarta.annotation.PreDestroy;

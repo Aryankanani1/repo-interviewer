@@ -1,8 +1,8 @@
 package com.aryankanani.repointerviewer.interview.evaluation;
 
-import com.aryankanani.repointerviewer.common.QuestionCategory;
-import com.aryankanani.repointerviewer.interview.AnswerVerdict;
-import com.aryankanani.repointerviewer.interview.CategoryScore;
+import com.aryankanani.repointerviewer.contracts.interview.AnswerVerdict;
+import com.aryankanani.repointerviewer.contracts.interview.CategoryScore;
+import com.aryankanani.repointerviewer.contracts.interview.QuestionCategory;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;

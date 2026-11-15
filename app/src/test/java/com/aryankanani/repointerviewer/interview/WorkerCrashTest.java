@@ -10,6 +10,7 @@ import com.aryankanani.repointerviewer.FakeModelServer;
 import com.aryankanani.repointerviewer.KafkaIntegrationTest;
 import com.aryankanani.repointerviewer.WorkerProcess;
 import com.aryankanani.repointerviewer.common.messaging.Topics;
+import com.aryankanani.repointerviewer.contracts.interview.AnswerFlowEvent;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -122,7 +123,7 @@ class WorkerCrashTest {
 
 		startWorker("worker-2");   // the restart: Kafka delivers the same AnswerSubmitted again
 		await().atMost(Duration.ofSeconds(120)).pollInterval(Duration.ofMillis(500))
-				.until(() -> events(sessionId, KafkaAnswerPipeline.QUESTION_READY) == 1);
+				.until(() -> events(sessionId, AnswerFlowEvent.QUESTION_READY) == 1);
 
 		List<Map<String, Object>> calls = evaluationCalls(sessionId);
 		assertThat(calls).hasSize(1);
@@ -130,7 +131,7 @@ class WorkerCrashTest {
 		assertThat(jdbc.queryForObject("SELECT score FROM answer WHERE question_id = ?::uuid", Integer.class,
 				questionId)).isEqualTo(9);
 		assertThat(evaluatedAt(questionId)).isNotNull();
-		assertThat(events(sessionId, KafkaAnswerPipeline.ANSWER_EVALUATED)).isEqualTo(1);
+		assertThat(events(sessionId, AnswerFlowEvent.ANSWER_EVALUATED)).isEqualTo(1);
 		assertThat(models.evaluationRequests()).as("one killed, one answered").isEqualTo(2);
 		assertThat(models.otherRequests()).isZero();
 		assertThat(jdbc.queryForObject("""

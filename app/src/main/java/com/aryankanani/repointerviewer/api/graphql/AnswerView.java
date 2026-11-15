@@ -1,8 +1,7 @@
 package com.aryankanani.repointerviewer.api.graphql;
 
-import com.aryankanani.repointerviewer.interview.Answer;
-import com.aryankanani.repointerviewer.interview.AnswerVerdict;
-import com.aryankanani.repointerviewer.interview.Question;
+import com.aryankanani.repointerviewer.contracts.interview.AnswerDto;
+import com.aryankanani.repointerviewer.contracts.interview.AnswerVerdict;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -17,14 +16,13 @@ record AnswerView(UUID id, String text, OffsetDateTime submittedAt, Evaluation e
 			OffsetDateTime evaluatedAt) {
 	}
 
-	/** @param question the answered question, for its ideal outline */
-	static AnswerView from(Answer answer, Question question) {
-		Evaluation evaluation = answer.getEvaluatedAt() == null ? null
-				: new Evaluation(answer.getScore(), answer.getVerdict(), answer.getFeedback(), answer.getCoveredPoints(),
-						answer.getMissedPoints(), answer.getIncorrectClaims(), question.getIdealAnswerOutline(),
-						answer.getEvaluatedAt().atOffset(ZoneOffset.UTC));
-		return new AnswerView(answer.getId(), answer.getText(), answer.getSubmittedAt().atOffset(ZoneOffset.UTC),
-				evaluation);
+	static AnswerView from(AnswerDto answer) {
+		AnswerDto.Evaluation graded = answer.evaluation();
+		Evaluation evaluation = graded == null ? null
+				: new Evaluation(graded.score(), graded.verdict(), graded.feedback(), graded.coveredPoints(),
+						graded.missedPoints(), graded.incorrectClaims(), graded.idealAnswerOutline(),
+						graded.evaluatedAt().atOffset(ZoneOffset.UTC));
+		return new AnswerView(answer.id(), answer.text(), answer.submittedAt().atOffset(ZoneOffset.UTC), evaluation);
 	}
 
 }
