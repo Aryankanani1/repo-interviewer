@@ -50,17 +50,22 @@ class OutboxEvent {
 
 	private Instant publishedAt;
 
+	/** The W3C traceparent of the span that wrote it (V2, task 4.3, {@link OutboxTracing}); null outside a trace. */
+	private String traceParent;
+
 	/** For JPA only. */
 	protected OutboxEvent() {
 	}
 
-	OutboxEvent(String topic, AggregateType aggregateType, UUID aggregateId, String type, String payload) {
+	OutboxEvent(String topic, AggregateType aggregateType, UUID aggregateId, String type, String payload,
+			String traceParent) {
 		this.topic = topic;
 		this.aggregateType = aggregateType;
 		this.aggregateId = aggregateId;
 		this.type = type;
 		this.version = FIRST_VERSION;
 		this.payload = payload;
+		this.traceParent = traceParent;
 	}
 
 	/** Kafka acknowledged it. */
@@ -98,6 +103,10 @@ class OutboxEvent {
 
 	Instant getPublishedAt() {
 		return publishedAt;
+	}
+
+	String getTraceParent() {
+		return traceParent;
 	}
 
 }

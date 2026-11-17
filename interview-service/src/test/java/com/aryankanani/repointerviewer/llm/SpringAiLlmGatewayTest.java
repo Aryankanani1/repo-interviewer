@@ -8,12 +8,18 @@ import com.aryankanani.repointerviewer.IntegrationTest;
 import com.aryankanani.repointerviewer.common.error.ErrorCode;
 import com.aryankanani.repointerviewer.llm.output.EvaluationOutput;
 import com.aryankanani.repointerviewer.llm.output.SummaryOutput;
+import io.micrometer.common.KeyValue;
+import io.micrometer.core.instrument.observation.DefaultMeterObservationHandler;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationHandler;
+import io.micrometer.observation.ObservationRegistry;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.anthropic.AnthropicChatOptions;
@@ -56,6 +62,12 @@ class SpringAiLlmGatewayTest {
 
 	private final SimpleMeterRegistry meters = new SimpleMeterRegistry();
 
+	/** The gateway's observations, as Boot wires them: each stopped one becomes a timer in {@link #meters}. */
+	private final ObservationRegistry observations = ObservationRegistry.create();
+
+	/** Every observation that was stopped, to read its name and key values (task 4.3). */
+	private final List<Observation.Context> stopped = new CopyOnWriteArrayList<>();
+
 	private SpringAiLlmGateway gateway;
 
 	private UUID project;
@@ -77,7 +89,20 @@ class SpringAiLlmGatewayTest {
 		jdbc.update("DELETE FROM llm_call");
 		jdbc.update("DELETE FROM interview_session");
 		project = UUID.randomUUID();   // a model call only records the id (no foreign key since V5)
-		gateway = new SpringAiLlmGateway(ChatClient.builder(claude), templates, budget, ledger, settings, meters);
+		observations.observationConfig().observationHandler(new DefaultMeterObservationHandler(meters))
+				.observationHandler(new ObservationHandler<>() {
+					@Override
+					public void onStop(Observation.Context context) {
+						stopped.add(context);
+					}
+
+					@Override
+					public boolean supportsContext(Observation.Context context) {
+						return true;
+					}
+				});
+		gateway = new SpringAiLlmGateway(ChatClient.builder(claude), templates, budget, ledger, settings,
+				observations);
 	}
 
 	/** Acceptance criterion: a successful call writes one ledger row with its tokens. */
@@ -102,6 +127,23 @@ class SpringAiLlmGatewayTest {
 		assertThat(row.getAttempt()).isEqualTo(1);
 		assertThat(meters.get("ri.llm.call").tag("outcome", "success").tag("purpose", "SUMMARY").timer().count())
 				.isEqualTo(1);
+	}
+
+	/** Task 4.3: each attempt is one observation, so a trace shows the call as a span named after its purpose. */
+	@Test
+	void eachAttemptIsAnObservationNamedAfterItsPurpose() {
+		claude.reply("not json").reply(VALID_SUMMARY);
+
+		gateway.call(summaryRequest(null));
+
+		assertThat(stopped).hasSize(2).allSatisfy(context -> {
+			assertThat(context.getName()).isEqualTo("ri.llm.call");
+			assertThat(context.getContextualName()).isEqualTo("llm SUMMARY");
+			assertThat(context.getLowCardinalityKeyValues()).contains(KeyValue.of("purpose", "SUMMARY"),
+					KeyValue.of("model", "claude-haiku-4-5"));
+		});
+		assertThat(stopped).extracting(context -> context.getLowCardinalityKeyValue("outcome").getValue())
+				.containsExactly("output_invalid", "success");
 	}
 
 	@Test

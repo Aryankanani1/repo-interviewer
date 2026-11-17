@@ -52,6 +52,12 @@
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-actuator</artifactId>
 		</dependency>
+		<!-- Traces over OTLP (task 4.3): Micrometer Tracing on OpenTelemetry. The exporter starts only when
+		     management.opentelemetry.tracing.export.otlp.endpoint is set (application-dev.yml: Jaeger). -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-opentelemetry</artifactId>
+		</dependency>
 
 		<!-- Phase 2: Spring for Apache Kafka (versions managed by Boot: spring-kafka 4.1.2, kafka-clients 4.2.2) -->
 		<dependency>

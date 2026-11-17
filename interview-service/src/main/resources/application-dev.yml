@@ -32,3 +32,12 @@ app:
     # ~20K tokens in and the largest output cap out, 7000 for a question: about $0.11 at $2 / $10 per MTok),
     # so a bug or a loop cannot burn through a small top-up in one afternoon. Raise it on purpose when needed.
     max-calls-per-day: 48   # 48 here + 12 in analysis-service (D-026)
+
+# Traces to Jaeger (task 4.3): docker compose --profile observability up -d, then http://localhost:16686. Without it
+# the exporter logs a warning when it tries to send.
+management:
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${OTLP_TRACES_URL:http://localhost:4318/v1/traces}

@@ -11,7 +11,7 @@ import tools.jackson.databind.json.JsonMapper;
 /**
  * Writes an event to the outbox (task 2.2, LLD §13.1), in the transaction that changes the state it describes: both
  * commit or neither does, so there is no "saved but not sent" and no "sent but rolled back" (the dual-write problem).
- * {@link OutboxRelay} sends it to Kafka later.
+ * {@link OutboxRelay} sends it to Kafka later, in the trace it was written in ({@link OutboxTracing}, task 4.3).
  *
  * <p>Plain database work, so it exists without the {@code kafka} profile too; only the relay needs a broker.
  */
@@ -22,9 +22,12 @@ public class OutboxWriter {
 
 	private final JsonMapper json;
 
-	OutboxWriter(OutboxEventRepository events, JsonMapper json) {
+	private final OutboxTracing tracing;
+
+	OutboxWriter(OutboxEventRepository events, JsonMapper json, OutboxTracing tracing) {
 		this.events = events;
 		this.json = json;
+		this.tracing = tracing;
 	}
 
 	/**
@@ -41,8 +44,8 @@ public class OutboxWriter {
 		if (!Topics.ALL.contains(topic)) {
 			throw new IllegalArgumentException("Unknown topic " + topic + ": declare it in Topics");
 		}
-		return events.save(new OutboxEvent(topic, aggregateType, aggregateId, type, json.writeValueAsString(payload)))
-				.getId();
+		return events.save(new OutboxEvent(topic, aggregateType, aggregateId, type, json.writeValueAsString(payload),
+				tracing.currentTraceParent())).getId();
 	}
 
 }

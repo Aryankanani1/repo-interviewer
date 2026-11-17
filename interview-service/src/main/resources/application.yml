@@ -41,8 +41,11 @@ spring:
       max-poll-records: 1
       properties:
         max.poll.interval.ms: 900000
+    template:
+      observation-enabled: true   # a span per send, and the trace in the record's headers (task 4.3)
     listener:
       ack-mode: record
+      observation-enabled: true   # a span per record, continuing the trace from its headers (task 4.3)
   # analysis-service's AnalysisApi (AnalysisClientConfiguration). No fallback URL: dev sets localhost:8082, stage and
   # prod set ANALYSIS_BASE_URL. The slowest call is a chunk search, which embeds its query (a second or two while
   # Ollama loads the model): 10 s to read (30 s until task 4.2), so a hung analysis-service fails a call in 10 s.
@@ -70,6 +73,13 @@ server:
   shutdown: graceful
 
 management:
+  tracing:
+    sampling:
+      probability: 1.0   # every request (Boot's default is 10%): few requests, each one worth a trace (task 4.3)
+  otlp:
+    metrics:
+      export:
+        enabled: false   # the OpenTelemetry starter would also push metrics over OTLP; they stay on /actuator
   endpoints:
     web:
       exposure:

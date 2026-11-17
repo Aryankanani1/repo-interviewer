@@ -1,6 +1,8 @@
 package com.aryankanani.repointerviewer.outbox;
 
 import com.aryankanani.repointerviewer.common.messaging.EventEnvelope;
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.Tracer;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -31,6 +33,9 @@ import tools.jackson.databind.json.JsonMapper;
  * <li><b>Network inside a transaction, on purpose</b> (DECISIONS.md D-017): the row locks are what keep two relays
  * from sending the same row at once, so they must last until the ack. Only outbox rows are locked, and the producer
  * timeouts in application.yml cap a send at 10 s.</li>
+ * <li><b>In the event's trace</b> (task 4.3): each send runs in a span that continues the trace the event was written
+ * in ({@link OutboxTracing}), so the record carries it to the consumer. The polls themselves are not traced
+ * ({@link OutboxObservations}).</li>
  * </ul>
  */
 @Component
@@ -50,14 +55,17 @@ class OutboxRelay {
 
 	private final TransactionTemplate transaction;
 
+	private final OutboxTracing tracing;
+
 	private final int batchSize;
 
 	OutboxRelay(OutboxEventRepository events, KafkaOperations<String, String> kafka, JsonMapper json,
-			PlatformTransactionManager transactionManager, OutboxProperties settings) {
+			PlatformTransactionManager transactionManager, OutboxTracing tracing, OutboxProperties settings) {
 		this.events = events;
 		this.kafka = kafka;
 		this.json = json;
 		this.transaction = new TransactionTemplate(transactionManager);
+		this.tracing = tracing;
 		this.batchSize = settings.batchSize();
 	}
 
@@ -89,12 +97,14 @@ class OutboxRelay {
 	private boolean send(OutboxEvent event) {
 		String envelope = json.writeValueAsString(new EventEnvelope(event.getId(), event.getType(), event.getVersion(),
 				event.getCreatedAt(), event.getAggregateId(), json.readTree(event.getPayload())));
-		try {
+		Span span = tracing.sendSpan(event);
+		try (Tracer.SpanInScope scope = tracing.inScope(span)) {
 			kafka.send(event.getTopic(), event.getAggregateId().toString(), envelope)
 					.get(SEND_TIMEOUT_SECONDS, TimeUnit.SECONDS);
 			return true;
 		}
 		catch (ExecutionException | TimeoutException | RuntimeException ex) {   // the try holds only the send
+			span.error(ex);
 			log.warn("Outbox: event {} to {} not sent, retried on the next poll: {}", event.getId(), event.getTopic(),
 					ex.toString());
 			return false;
@@ -102,6 +112,9 @@ class OutboxRelay {
 		catch (InterruptedException ex) {
 			Thread.currentThread().interrupt();   // shutting down: stop, the event stays unpublished
 			return false;
+		}
+		finally {
+			span.end();
 		}
 	}
 

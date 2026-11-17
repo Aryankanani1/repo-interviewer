@@ -86,6 +86,16 @@ services:
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
       DYNAMIC_CONFIG_ENABLED: "true"
 
+  # ---------------- Phase 4 ----------------
+  # Traces (task 4.3): the apps send spans over OTLP/HTTP to 4318 (application-dev.yml), the UI is on 16686. All in
+  # one container, spans kept in memory: a restart forgets them.
+  jaeger:
+    image: jaegertracing/jaeger:2.23.0
+    profiles: ["observability"]
+    ports:
+      - "${JAEGER_UI_PORT:-16686}:16686"
+      - "${OTLP_HTTP_PORT:-4318}:4318"
+
 volumes:
   pgdata:
   ollama:

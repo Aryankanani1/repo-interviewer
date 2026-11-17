@@ -6,6 +6,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.aryankanani.repointerviewer.IntegrationTest;
 import com.aryankanani.repointerviewer.common.messaging.AggregateType;
 import com.aryankanani.repointerviewer.common.messaging.Topics;
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.Tracer;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -32,12 +34,15 @@ class OutboxWriterTest {
 
 	private final ApplicationContext context;
 
+	private final Tracer tracer;
+
 	OutboxWriterTest(@Autowired OutboxWriter writer, @Autowired PlatformTransactionManager transactionManager,
-			@Autowired JdbcTemplate jdbc, @Autowired ApplicationContext context) {
+			@Autowired JdbcTemplate jdbc, @Autowired ApplicationContext context, @Autowired Tracer tracer) {
 		this.writer = writer;
 		this.transaction = new TransactionTemplate(transactionManager);
 		this.jdbc = jdbc;
 		this.context = context;
+		this.tracer = tracer;
 	}
 
 	@BeforeEach
@@ -64,6 +69,29 @@ class OutboxWriterTest {
 				.containsEntry("project_id", aggregate.toString()).containsEntry("attempt", 1);
 	}
 
+	/**
+	 * Task 4.3: an event keeps the W3C traceparent of the span it was written in (the request's, or the Kafka
+	 * record's), so the relay can send it in the same trace. Outside any span there is nothing to keep.
+	 */
+	@Test
+	void anEventKeepsTheTraceparentOfTheSpanItWasWrittenIn() {
+		Span request = tracer.nextSpan().name("request").start();
+		UUID traced;
+		try (Tracer.SpanInScope scope = tracer.withSpan(request)) {
+			traced = transaction.execute(status -> writer.write(Topics.ANALYSIS_REQUESTED, AggregateType.PROJECT,
+					UUID.randomUUID(), "AnalysisRequested", Map.of()));
+		}
+		finally {
+			request.end();
+		}
+		UUID untraced = transaction.execute(status -> writer.write(Topics.ANALYSIS_REQUESTED, AggregateType.PROJECT,
+				UUID.randomUUID(), "AnalysisRequested", Map.of()));
+
+		assertThat(traceParent(traced)).hasSize(55)   // 00-<trace id>-<span id>-<flags>
+				.startsWith("00-" + request.context().traceId() + "-" + request.context().spanId() + "-");
+		assertThat(traceParent(untraced)).isNull();
+	}
+
 	/** {@code MANDATORY}: without the caller's transaction there would be no state change to commit it with. */
 	@Test
 	void writingOutsideATransactionIsRefused() {
@@ -83,6 +111,10 @@ class OutboxWriterTest {
 	@Test
 	void withoutTheKafkaProfileNothingSendsTheOutbox() {
 		assertThat(context.getBeanNamesForType(OutboxRelay.class)).isEmpty();
+	}
+
+	private String traceParent(UUID event) {
+		return jdbc.queryForObject("SELECT trace_parent FROM outbox_event WHERE id = ?", String.class, event);
 	}
 
 }

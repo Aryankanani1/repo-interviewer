@@ -35,8 +35,15 @@ final class GraphQlHttp implements AutoCloseable {
 
 	/** @return the whole response: {@code data}, and {@code errors} when there are any */
 	JsonNode execute(String document, Map<String, Object> variables) throws IOException, InterruptedException {
-		HttpResponse<String> response = http.send(request(document, variables, "application/json")
-				.timeout(Duration.ofSeconds(60)).build(), HttpResponse.BodyHandlers.ofString());
+		return execute(document, variables, Map.of());
+	}
+
+	/** With extra request headers, for example a W3C {@code traceparent} (task 4.3). */
+	JsonNode execute(String document, Map<String, Object> variables, Map<String, String> headers)
+			throws IOException, InterruptedException {
+		HttpRequest.Builder request = request(document, variables, "application/json").timeout(Duration.ofSeconds(60));
+		headers.forEach(request::header);
+		HttpResponse<String> response = http.send(request.build(), HttpResponse.BodyHandlers.ofString());
 		return JSON.readTree(response.body());
 	}
 

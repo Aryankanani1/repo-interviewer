@@ -29,8 +29,11 @@ spring:
       fail-fast: true   # with the kafka profile, an unreachable broker stops the startup instead of failing later
     # No producer or consumer settings here (task 4.1): the outbox relay and the slow workers they were tuned for are
     # the services'. The gateway's one listener, the subscriptions' fan-out, sets its own (auto.offset.reset=latest).
+    template:
+      observation-enabled: true   # a span per send, and the trace in the record's headers (task 4.3)
     listener:
       ack-mode: record   # commit each record's offset once its listener returned, not once per batch
+      observation-enabled: true   # a span per record, continuing the trace from its headers (task 4.3)
   graphql:
     graphiql:
       enabled: false   # on in dev and stage only
@@ -73,6 +76,13 @@ server:
   shutdown: graceful
 
 management:
+  tracing:
+    sampling:
+      probability: 1.0   # every request (Boot's default is 10%): few requests, each one worth a trace (task 4.3)
+  otlp:
+    metrics:
+      export:
+        enabled: false   # the OpenTelemetry starter would also push metrics over OTLP; they stay on /actuator
   endpoints:
     web:
       exposure:

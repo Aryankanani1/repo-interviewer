@@ -13,6 +13,9 @@ import com.aryankanani.repointerviewer.KafkaIntegrationTest;
 import com.aryankanani.repointerviewer.common.messaging.AggregateType;
 import com.aryankanani.repointerviewer.common.messaging.EventEnvelope;
 import com.aryankanani.repointerviewer.common.messaging.Topics;
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.Tracer;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -75,11 +78,16 @@ class OutboxRelayTest {
 
 	private final List<ScheduledTaskHolder> scheduled;
 
+	private final OutboxTracing tracing;
+
+	private final Tracer tracer;
+
 	OutboxRelayTest(@Autowired OutboxRelay relay, @Autowired OutboxWriter writer,
 			@Autowired OutboxEventRepository events, @Autowired KafkaTemplate<String, String> kafkaTemplate,
 			@Autowired KafkaAdmin kafkaAdmin, @Autowired JsonMapper json,
 			@Autowired PlatformTransactionManager transactionManager, @Autowired OutboxProperties properties,
-			@Autowired JdbcTemplate jdbc, @Autowired List<ScheduledTaskHolder> scheduled) {
+			@Autowired JdbcTemplate jdbc, @Autowired List<ScheduledTaskHolder> scheduled, @Autowired OutboxTracing tracing,
+			@Autowired Tracer tracer) {
 		this.relay = relay;
 		this.writer = writer;
 		this.events = events;
@@ -91,6 +99,8 @@ class OutboxRelayTest {
 		this.properties = properties;
 		this.jdbc = jdbc;
 		this.scheduled = scheduled;
+		this.tracing = tracing;
+		this.tracer = tracer;
 	}
 
 	@BeforeEach
@@ -196,13 +206,38 @@ class OutboxRelayTest {
 		KafkaTemplate<String, String> brokerDownForSecond = spy(kafkaTemplate);
 		doReturn(CompletableFuture.failedFuture(new TimeoutException("broker down"))).when(brokerDownForSecond)
 				.send(eq(TOPIC), eq(aggregate.toString()), argThat((String value) -> value.contains(written.get(1).toString())));
-		OutboxRelay failingRelay = new OutboxRelay(events, brokerDownForSecond, json, transactionManager, properties);
+		OutboxRelay failingRelay = new OutboxRelay(events, brokerDownForSecond, json, transactionManager, tracing,
+				properties);
 
 		assertThat(failingRelay.publishBatch()).containsExactly(written.get(0));
 		assertThat(events.findById(written.get(1)).orElseThrow().getPublishedAt()).isNull();
 		assertThat(relay.publishBatch()).containsExactly(written.get(1), written.get(2));
 		assertThat(receivedUntil(aggregate, written.getLast())).extracting(EventEnvelope::type)
 				.containsExactly("First", "Second", "Third");
+	}
+
+	/**
+	 * Task 4.3: the record carries the trace its event was written in, as a W3C {@code traceparent} header, which the
+	 * consumer's observation continues. Its span is the send's, a child of the one that wrote the event.
+	 */
+	@Test
+	void aRecordCarriesTheTraceItsEventWasWrittenIn() {
+		UUID aggregate = UUID.randomUUID();
+		Span request = tracer.nextSpan().name("request").start();
+		UUID event;
+		try (Tracer.SpanInScope scope = tracer.withSpan(request)) {
+			event = writeCommitted(aggregate);
+		}
+		finally {
+			request.end();
+		}
+
+		assertThat(relay.publishBatch()).containsExactly(event);
+
+		ConsumerRecord<String, String> record = recordsUntil(aggregate, event).getLast();
+		String header = new String(record.headers().lastHeader("traceparent").value(), StandardCharsets.UTF_8);
+		assertThat(header).startsWith("00-" + request.context().traceId() + "-")
+				.doesNotContain(request.context().spanId());
 	}
 
 	/** The timer the other tests slow down: wired, with app.outbox.poll-interval as its delay. */
@@ -223,18 +258,23 @@ class OutboxRelayTest {
 		return writer.write(TOPIC, AggregateType.PROJECT, aggregate, type, Map.of("aggregateId", aggregate));
 	}
 
+	/** @return the aggregate's envelopes until {@code lastEventId}, in the order Kafka holds them */
+	private List<EventEnvelope> receivedUntil(UUID aggregate, UUID lastEventId) {
+		return recordsUntil(aggregate, lastEventId).stream().map(this::envelope).toList();
+	}
+
 	/**
 	 * Reads the topic from the beginning with a consumer of its own (no group: it reads all partitions itself) until
-	 * {@code lastEventId} arrives. @return the aggregate's envelopes, in the order Kafka holds them
+	 * {@code lastEventId} arrives. @return the aggregate's records, in the order Kafka holds them
 	 */
-	private List<EventEnvelope> receivedUntil(UUID aggregate, UUID lastEventId) {
+	private List<ConsumerRecord<String, String>> recordsUntil(UUID aggregate, UUID lastEventId) {
 		Map<String, Object> config = Map.of(
 				ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG,
 				kafkaAdmin.getConfigurationProperties().get(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG),
 				ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class,
 				ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class,
 				ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
-		List<EventEnvelope> found = new ArrayList<>();
+		List<ConsumerRecord<String, String>> found = new ArrayList<>();
 		try (KafkaConsumer<String, String> consumer = new KafkaConsumer<>(config)) {
 			List<TopicPartition> partitions = consumer.partitionsFor(TOPIC).stream()
 					.map(partition -> new TopicPartition(TOPIC, partition.partition())).toList();
@@ -244,13 +284,17 @@ class OutboxRelayTest {
 			await().pollInSameThread().atMost(Duration.ofSeconds(10)).until(() -> {
 				for (ConsumerRecord<String, String> record : consumer.poll(Duration.ofMillis(200))) {
 					if (record.key().equals(aggregate.toString())) {
-						found.add(json.readValue(record.value(), EventEnvelope.class));
+						found.add(record);
 					}
 				}
-				return found.stream().anyMatch(envelope -> envelope.eventId().equals(lastEventId));
+				return found.stream().anyMatch(record -> envelope(record).eventId().equals(lastEventId));
 			});
 		}
 		return found;
+	}
+
+	private EventEnvelope envelope(ConsumerRecord<String, String> record) {
+		return json.readValue(record.value(), EventEnvelope.class);
 	}
 
 }

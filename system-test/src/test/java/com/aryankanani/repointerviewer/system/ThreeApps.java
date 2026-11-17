@@ -13,6 +13,8 @@ import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.ConsumerGroupDescription;
 import org.apache.kafka.clients.admin.GroupListing;
+import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.kafka.KafkaContainer;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
@@ -21,18 +23,24 @@ import org.testcontainers.utility.MountableFile;
 /**
  * The whole system for the system test (task 4.1 step 4b): one Postgres with both services' {@code bootstrap.sql}
  * (each service logs in as its own user, as deployed), one Kafka broker, {@link FakeModelServer} for Claude and
- * Ollama, and the three apps' jars as processes, with the {@code stage} and {@code kafka} profiles and their settings
- * as command-line arguments, as a deployment would give them.
+ * Ollama, Jaeger for their traces (task 4.3), and the three apps' jars as processes, with the {@code stage} and
+ * {@code kafka} profiles and their settings as command-line arguments, as a deployment would give them.
  */
 final class ThreeApps implements AutoCloseable {
 
 	private static final Duration START_TIMEOUT = Duration.ofMinutes(3);
+
+	private static final int OTLP_HTTP = 4318;
+
+	private static final int JAEGER_API = 16686;
 
 	private final PostgreSQLContainer postgres;
 
 	private final KafkaContainer kafka;
 
 	private final FakeModelServer models;
+
+	private final GenericContainer<?> jaeger;
 
 	private final List<AppProcess> apps = new ArrayList<>();
 
@@ -54,6 +62,8 @@ final class ThreeApps implements AutoCloseable {
 						"/docker-entrypoint-initdb.d/20-interview.sql");
 		kafka = new KafkaContainer(DockerImageName.parse("apache/kafka:4.2.2")).withStartupAttempts(3);
 		models = new FakeModelServer();
+		jaeger = new GenericContainer<>(DockerImageName.parse("jaegertracing/jaeger:2.23.0"))   // as in Compose
+				.withExposedPorts(OTLP_HTTP, JAEGER_API).waitingFor(Wait.forHttp("/").forPort(JAEGER_API));
 	}
 
 	/** Starts everything; the three apps start side by side, each with its own random port. */
@@ -62,6 +72,7 @@ final class ThreeApps implements AutoCloseable {
 		try {
 			system.postgres.start();
 			system.kafka.start();
+			system.jaeger.start();
 			system.analysis = system.app("analysis-service", List.of(
 					"--spring.datasource.url=" + system.postgres.getJdbcUrl(),
 					"--spring.datasource.username=analysis_svc", "--spring.datasource.password=analysis_svc",
@@ -102,6 +113,11 @@ final class ThreeApps implements AutoCloseable {
 		return postgres.getPassword();
 	}
 
+	/** Jaeger's query API, for example {@code /api/traces/<trace id>}. */
+	String jaegerUrl() {
+		return "http://" + jaeger.getHost() + ":" + jaeger.getMappedPort(JAEGER_API);
+	}
+
 	AppProcess analysisService() {
 		return analysis;
 	}
@@ -137,6 +153,9 @@ final class ThreeApps implements AutoCloseable {
 				"--spring.kafka.bootstrap-servers=" + kafka.getBootstrapServers(),
 				"--spring.ai.anthropic.base-url=" + models.baseUrl(),
 				"--spring.ai.anthropic.api-key=test-key-not-used", "--spring.ai.anthropic.max-retries=0",
+				"--management.opentelemetry.tracing.export.otlp.endpoint=http://" + jaeger.getHost() + ":"
+						+ jaeger.getMappedPort(OTLP_HTTP) + "/v1/traces",
+				"--management.opentelemetry.tracing.export.schedule-delay=500ms",   // spans sent within a second
 				"--logging.level.com.aryankanani.repointerviewer=INFO"));
 		arguments.addAll(own);
 		AppProcess app = AppProcess.start(module, arguments);
@@ -150,6 +169,7 @@ final class ThreeApps implements AutoCloseable {
 			app.close();
 		}
 		models.close();
+		jaeger.stop();
 		kafka.stop();
 		postgres.stop();
 	}

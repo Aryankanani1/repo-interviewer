@@ -2,8 +2,8 @@ package com.aryankanani.repointerviewer.llm;
 
 import com.aryankanani.repointerviewer.llm.LlmCall.Tokens;
 import com.aryankanani.repointerviewer.llm.output.LlmOutput;
-import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.core.instrument.Timer;
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationRegistry;
 import java.time.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,7 +23,8 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  * the output record's JSON schema as Anthropic's {@code outputSchema}. With the schema, Anthropic itself makes the
  * reply match it ("native structured output").</li>
  * <li>Read the reply into the record ourselves ({@link BeanOutputConverter}), then normalize it.</li>
- * <li>Write one {@code llm_call} row and record the {@code ri.llm.call} timer, success or failure.</li>
+ * <li>Write one {@code llm_call} row and stop the {@code ri.llm.call} observation, success or failure: a timer with
+ * the purpose, model and outcome, and a span named after the purpose, around Spring AI's own (task 4.3).</li>
  * </ol>
  * Two kinds of failure, kept apart on purpose:
  * <ul>
@@ -52,16 +53,16 @@ class SpringAiLlmGateway implements LlmGateway {
 
 	private final LlmProperties settings;
 
-	private final MeterRegistry meters;
+	private final ObservationRegistry observations;
 
 	SpringAiLlmGateway(ChatClient.Builder chatClientBuilder, PromptTemplates templates, LlmBudget budget,
-			LlmCallLedger ledger, LlmProperties settings, MeterRegistry meters) {
+			LlmCallLedger ledger, LlmProperties settings, ObservationRegistry observations) {
 		this.chatClient = chatClientBuilder.build();
 		this.templates = templates;
 		this.budget = budget;
 		this.ledger = ledger;
 		this.settings = settings;
-		this.meters = meters;
+		this.observations = observations;
 	}
 
 	@Override
@@ -79,9 +80,14 @@ class SpringAiLlmGateway implements LlmGateway {
 		String correction = "";
 		for (int attempt = 1;; attempt++) {
 			budget.reserve(request.sessionId());
+			Observation observation = Observation.createNotStarted("ri.llm.call", observations)
+					.contextualName("llm " + purpose)   // the span's name, e.g. "llm EVALUATION"
+					.lowCardinalityKeyValue("purpose", purpose.name())
+					.lowCardinalityKeyValue("model", model)
+					.start();
 			long start = System.nanoTime();
 			ChatResponse response;
-			try {
+			try (Observation.Scope scope = observation.openScope()) {   // Spring AI's span becomes a child of this one
 				response = chatClient.prompt()
 						.system(templates.system())
 						.user(prompt + correction)
@@ -94,17 +100,17 @@ class SpringAiLlmGateway implements LlmGateway {
 						.chatResponse();
 			}
 			catch (RuntimeException ex) {
-				finish(request, model, version, attempt, start, Tokens.NONE, ex.getClass().getSimpleName());
+				finish(observation, request, model, version, attempt, start, Tokens.NONE, ex.getClass().getSimpleName());
 				throw new LlmUnavailableException(ex);
 			}
 			Tokens tokens = tokens(response);
 			try {
 				T output = converter.convert(response.getResult().getOutput().getText()).normalized();
-				finish(request, model, version, attempt, start, tokens, null);
+				finish(observation, request, model, version, attempt, start, tokens, null);
 				return output;
 			}
 			catch (RuntimeException ex) {
-				finish(request, model, version, attempt, start, tokens, OUTPUT_INVALID);
+				finish(observation, request, model, version, attempt, start, tokens, OUTPUT_INVALID);
 				if (attempt == MAX_ATTEMPTS) {
 					throw new LlmOutputException(ex);
 				}
@@ -120,16 +126,11 @@ class SpringAiLlmGateway implements LlmGateway {
 		return templates.version(purpose.template());
 	}
 
-	private void finish(LlmRequest<?> request, String model, String version, int attempt, long start, Tokens tokens,
-			String errorType) {
+	private void finish(Observation observation, LlmRequest<?> request, String model, String version, int attempt,
+			long start, Tokens tokens, String errorType) {
 		long nanos = System.nanoTime() - start;
 		String outcome = errorType == null ? "success" : (errorType.equals(OUTPUT_INVALID) ? "output_invalid" : "unavailable");
-		Timer.builder("ri.llm.call")
-				.tag("purpose", request.purpose().name())
-				.tag("model", model)
-				.tag("outcome", outcome)
-				.register(meters)
-				.record(Duration.ofNanos(nanos));
+		observation.lowCardinalityKeyValue("outcome", outcome).stop();
 		int latencyMs = (int) Duration.ofNanos(nanos).toMillis();
 		ledger.record(new LlmCall(request, model, version, attempt, latencyMs, tokens, errorType));
 		// Never the prompt or the reply: they hold repository code and candidate answers.

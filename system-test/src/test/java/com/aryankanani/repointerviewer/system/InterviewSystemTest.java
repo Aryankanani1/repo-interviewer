@@ -6,6 +6,10 @@ import static org.awaitility.Awaitility.await;
 import com.aryankanani.repointerviewer.CannedLlmOutputs;
 import com.aryankanani.repointerviewer.llm.LlmPurpose;
 import com.aryankanani.repointerviewer.llm.output.EvaluationOutput;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -14,6 +18,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -26,6 +31,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.TestMethodOrder;
 import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Task 4.1 step 4b: the three apps together, as deployed, driven only through the gateway's GraphQL over HTTP. Real
@@ -38,7 +44,7 @@ import tools.jackson.databind.JsonNode;
  * {@code system-test/target/system-*.log}.
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-@TestMethodOrder(MethodOrderer.OrderAnnotation.class)   // the last two stop analysis-service, then interview-service
+@TestMethodOrder(MethodOrderer.OrderAnnotation.class)   // 3 reads 2's trace; the last two stop the services
 class InterviewSystemTest {
 
 	private static final String ANALYSIS_UNAVAILABLE = "The analysis service is not available right now. "
@@ -62,6 +68,9 @@ class InterviewSystemTest {
 
 	/** The session of {@link #anInterviewRunsAcrossTheThreeApps}, read again while analysis-service is down. */
 	private String endedSession;
+
+	/** The W3C trace id the answer of {@link #anInterviewRunsAcrossTheThreeApps} is sent in (task 4.3). */
+	private final String answerTraceId = UUID.randomUUID().toString().replace("-", "");
 
 	@BeforeAll
 	void startTheSystem() throws Exception {
@@ -125,7 +134,8 @@ class InterviewSystemTest {
 				  }
 				}
 				""", Map.of("input", Map.of("questionId", first.get("id").asString(),
-				"text", "Both read the same refundedAmount, so both checks pass.")));
+				"text", "Both read the same refundedAmount, so both checks pass.")),
+				Map.of("traceparent", "00-" + answerTraceId + "-00f067aa0ba902b7-01"));   // as a browser's tracing would
 
 		// With Kafka the request only saves the answer: the grade and the next question come as events.
 		assertThat(answered.at("/data/submitAnswer/errors").size()).as(answered.toString()).isZero();
@@ -157,9 +167,33 @@ class InterviewSystemTest {
 		assertThat(count("SELECT count(*) FROM analysis.llm_call")).isZero();
 	}
 
-	/** Each service owns the tables of its schema, and the gateway made none (it has no database). */
+	/**
+	 * Task 4.3: the answer of {@link #anInterviewRunsAcrossTheThreeApps}, sent with a W3C traceparent, is one trace in
+	 * Jaeger across the three apps: the gateway's request, interview-service saving the answer, the outbox sends and
+	 * the Kafka workers, the model calls, analysis-service's code lookups, and the gateway's fan-out of the events.
+	 */
 	@Test
 	@Order(3)
+	void theAnswerIsOneTraceAcrossTheThreeApps() throws Exception {
+		await().atMost(Duration.ofSeconds(30)).pollInterval(Duration.ofSeconds(1)).untilAsserted(() -> {
+			List<String> spans = spansOf(answerTraceId);
+			assertThat(spans).as(String.join("\n", spans)).contains(
+					"graphql-gateway: graphql field submitAnswer",
+					"interview-service: http post /internal/questions/{id}/answer",
+					"interview-service: outbox AnswerSubmitted",
+					"interview-service: interview.answer.submitted process",            // the evaluation worker
+					"analysis-service: http post /internal/projects/{id}/chunks/ranges", // the code to grade against
+					"interview-service: llm EVALUATION",
+					"interview-service: outbox AnswerEvaluated",
+					"interview-service: interview.answer.evaluated process",            // the orchestrator
+					"interview-service: outbox QuestionReady",
+					"graphql-gateway: interview.question.ready process");                // the subscriptions' fan-out
+		});
+	}
+
+	/** Each service owns the tables of its schema, and the gateway made none (it has no database). */
+	@Test
+	@Order(4)
 	void eachServiceOwnsItsSchemaAndTheGatewayHasNone() throws Exception {
 		assertThat(count("""
 				SELECT count(*) FROM pg_tables WHERE schemaname = 'analysis' AND tableowner <> 'analysis_svc'
@@ -177,7 +211,7 @@ class InterviewSystemTest {
 	 * own call for projects fails the same way; what interview-service holds is still served.
 	 */
 	@Test
-	@Order(4)
+	@Order(5)
 	void withAnalysisServiceDownAStartFailsFastWithAClearError() throws Exception {
 		apps.analysisService().stop();
 
@@ -205,7 +239,7 @@ class InterviewSystemTest {
 
 	/** interview-service stopped too: the gateway still answers at once, with the same clear error for it. */
 	@Test
-	@Order(5)
+	@Order(6)
 	void withInterviewServiceDownTheGatewayStillAnswersAtOnce() throws Exception {
 		apps.interviewService().stop();
 
@@ -218,6 +252,21 @@ class InterviewSystemTest {
 		assertThat(interview.at("/errors/0/message").asString())
 				.isEqualTo("The interview service is not available right now. Try again in a minute.");
 		assertThat(took).isLessThan(Duration.ofSeconds(5));
+	}
+
+	/** @return each span of the trace in Jaeger as "service: operation", empty while Jaeger has none of it */
+	private List<String> spansOf(String traceId) throws Exception {
+		try (HttpClient http = HttpClient.newHttpClient()) {
+			String body = http.send(HttpRequest.newBuilder(URI.create(apps.jaegerUrl() + "/api/traces/" + traceId))
+					.build(), HttpResponse.BodyHandlers.ofString()).body();
+			JsonNode trace = JsonMapper.builder().build().readTree(body).at("/data/0");
+			List<String> spans = new ArrayList<>();
+			for (JsonNode span : trace.path("spans")) {
+				String service = trace.at("/processes/" + span.get("processID").asString() + "/serviceName").asString();
+				spans.add(service + ": " + span.get("operationName").asString());
+			}
+			return spans;
+		}
 	}
 
 	private static int cannedScore() {

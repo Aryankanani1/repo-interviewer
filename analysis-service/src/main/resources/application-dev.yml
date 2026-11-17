@@ -28,3 +28,12 @@ logging:
 app:
   llm:
     max-calls-per-day: 12
+
+# Traces to Jaeger (task 4.3): docker compose --profile observability up -d, then http://localhost:16686. Without it
+# the exporter logs a warning when it tries to send.
+management:
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${OTLP_TRACES_URL:http://localhost:4318/v1/traces}

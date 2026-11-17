@@ -32,6 +32,8 @@ docker compose up -d            # Postgres (pgvector) on localhost:5433
 docker compose exec -T postgres psql -U ri -d repo_interviewer < analysis-service/src/main/resources/db/bootstrap.sql
 docker compose exec -T postgres psql -U ri -d repo_interviewer < interview-service/src/main/resources/db/bootstrap.sql
 # The two services' internal REST APIs (task 4.2): http://localhost:8082/swagger-ui.html, http://localhost:8084/swagger-ui.html
+# Traces across the three apps (task 4.3): Jaeger, then http://localhost:16686 (service graphql-gateway)
+docker compose --profile observability up -d
 ```
 
 ## Environments
