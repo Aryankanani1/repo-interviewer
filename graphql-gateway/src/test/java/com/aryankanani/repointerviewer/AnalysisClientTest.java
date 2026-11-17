@@ -27,6 +27,7 @@ import org.springframework.boot.http.client.autoconfigure.service.HttpServiceCli
 import org.springframework.boot.jackson.autoconfigure.JacksonAutoConfiguration;
 import org.springframework.boot.restclient.autoconfigure.RestClientAutoConfiguration;
 import org.springframework.boot.restclient.autoconfigure.service.HttpServiceClientAutoConfiguration;
+import org.springframework.boot.test.context.ConfigDataApplicationContextInitializer;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -40,7 +41,8 @@ import org.springframework.web.client.support.RestClientHttpServiceGroupConfigur
 /**
  * The client half of the analysis contract (task 4.1; the server half is analysis-service's
  * {@code AnalysisApiControllerTest}). A small context with Boot's HTTP client auto-configuration and
- * {@link AnalysisClientConfiguration}, as in the app, and a {@link MockRestServiceServer} in place of the network.
+ * {@link AnalysisClientConfiguration}, as in the app (with its {@code ServiceCallGuard}, task 4.2), and a
+ * {@link MockRestServiceServer} in place of the network.
  */
 class AnalysisClientTest {
 
@@ -51,10 +53,12 @@ class AnalysisClientTest {
 			""";
 
 	private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
+			.withInitializer(new ConfigDataApplicationContextInitializer())   // application.yml: app.service-calls
 			.withConfiguration(AutoConfigurations.of(JacksonAutoConfiguration.class, HttpClientAutoConfiguration.class,
 					ImperativeHttpClientAutoConfiguration.class, HttpServiceClientPropertiesAutoConfiguration.class,
 					RestClientAutoConfiguration.class, HttpServiceClientAutoConfiguration.class))
-			.withUserConfiguration(AnalysisClientConfiguration.class, MockServerConfiguration.class)
+			.withUserConfiguration(AnalysisClientConfiguration.class, AppPropertiesConfiguration.class,
+					MockServerConfiguration.class)
 			.withPropertyValues("spring.http.serviceclient.analysis.base-url=" + BASE);
 
 	@Test

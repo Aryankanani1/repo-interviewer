@@ -15,6 +15,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.aryankanani.repointerviewer.FakeAnalysisApi;
 import com.aryankanani.repointerviewer.FakeLlmGateway;
 import com.aryankanani.repointerviewer.IntegrationTest;
+import com.aryankanani.repointerviewer.common.error.ServiceUnavailableException;
 import com.aryankanani.repointerviewer.llm.LlmPurpose;
 import com.aryankanani.repointerviewer.llm.output.CodeRefOutput;
 import com.aryankanani.repointerviewer.llm.output.EvaluationOutput;
@@ -41,6 +42,8 @@ import org.springframework.web.context.WebApplicationContext;
 class InterviewApiControllerTest {
 
 	private static final String CONTROLLER = "src/main/java/com/example/shop/order/OrderController.java";
+
+	private static final String UNAVAILABLE = "The analysis service is not available right now. Try again in a minute.";
 
 	private final MockMvc mvc;
 
@@ -98,6 +101,21 @@ class InterviewApiControllerTest {
 				.andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
 				.andExpect(jsonPath("$.code").value("NOT_FOUND"))
 				.andExpect(jsonPath("$.field").value("projectId"));
+	}
+
+	/** Task 4.2: analysis-service down (its client's ServiceCallGuard gave up), before any session is saved. */
+	@Test
+	void anUnavailableAnalysisServiceIsA503AndSavesNothing() throws Exception {
+		fixture.failNextCall(new ServiceUnavailableException(UNAVAILABLE));
+
+		start("""
+				{"projectId": "%s"}
+				""".formatted(project))
+				.andExpect(status().isServiceUnavailable())
+				.andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+				.andExpect(jsonPath("$.code").value("SERVICE_UNAVAILABLE"))
+				.andExpect(jsonPath("$.detail").value(UNAVAILABLE));
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM interview_session", Integer.class)).isZero();
 	}
 
 	@Test

@@ -2,6 +2,7 @@ package com.aryankanani.repointerviewer.interview;
 
 import com.aryankanani.repointerviewer.common.error.DomainException;
 import com.aryankanani.repointerviewer.common.error.ModelUnavailableException;
+import com.aryankanani.repointerviewer.common.error.ServiceUnavailableException;
 import com.aryankanani.repointerviewer.common.messaging.EventEnvelope;
 import com.aryankanani.repointerviewer.common.messaging.EventReader;
 import com.aryankanani.repointerviewer.common.messaging.InvalidEventException;
@@ -20,7 +21,8 @@ import org.springframework.stereotype.Component;
 
 /**
  * The evaluation worker (task 2.5): AnswerSubmitted → {@code InterviewService.grade} (the EVALUATION call) →
- * AnswerEvaluated. While the model is unavailable the event is retried, then dead-lettered (task 2.4); a failure that
+ * AnswerEvaluated. While the model or analysis-service (task 4.2) is unavailable the event is retried, then
+ * dead-lettered (task 2.4); a failure that
  * would repeat (budget, an unusable reply) fails the session at once.
  */
 @Component
@@ -63,8 +65,8 @@ class AnswerEvaluationConsumer {
 			try {
 				interviewService.grade(payload.answerId());
 			}
-			catch (ModelUnavailableException ex) {   // the chat model or the embedding model (task 3.6)
-				log.warn("Answer not graded: model unavailable; the error handler retries or dead-letters it");
+			catch (ModelUnavailableException | ServiceUnavailableException ex) {   // a model (task 3.6), analysis-service (4.2)
+				log.warn("Answer not graded: {}; the error handler retries or dead-letters it", ex.getMessage());
 				throw new RetryableEventException(ex);
 			}
 			catch (DomainException ex) {

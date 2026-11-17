@@ -9,8 +9,9 @@ import org.springframework.boot.test.context.ConfigDataApplicationContextInitial
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 /**
- * graphql-gateway's application.yml binds into the one record it turns on ({@link AppPropertiesConfiguration}, task
- * 4.1 step 4a): the Kafka consumers' retries. The services' records and their rules are tested in the services.
+ * graphql-gateway's application.yml binds into the records it turns on ({@link AppPropertiesConfiguration}, task
+ * 4.1 step 4a): the Kafka consumers' retries, and the calls to the services (task 4.2). The services' records and
+ * their rules are tested in the services.
  */
 class AppPropertiesTest {
 
@@ -25,6 +26,9 @@ class AppPropertiesTest {
 			ConsumerRetryProperties retry = context.getBean(ConsumerRetryProperties.class);
 			assertThat(retry.maxRetries()).isEqualTo(3);
 			assertThat(retry.initialBackoff()).isEqualTo(Duration.ofSeconds(1));
+			ServiceCallProperties calls = context.getBean(ServiceCallProperties.class);   // task 4.2
+			assertThat(calls.maxAttempts()).isEqualTo(3);
+			assertThat(calls.openDuration()).isEqualTo(Duration.ofSeconds(10));
 		});
 	}
 

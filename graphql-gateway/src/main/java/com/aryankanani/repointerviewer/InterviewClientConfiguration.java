@@ -1,6 +1,8 @@
 package com.aryankanani.repointerviewer;
 
+import com.aryankanani.repointerviewer.common.config.ServiceCallProperties;
 import com.aryankanani.repointerviewer.common.web.DomainErrorHandler;
+import com.aryankanani.repointerviewer.common.web.ServiceCallGuard;
 import com.aryankanani.repointerviewer.contracts.interview.InterviewApi;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -13,7 +15,8 @@ import tools.jackson.databind.json.JsonMapper;
  * The {@link InterviewApi} bean of this app: an HTTP client for interview-service (task 4.1 step 3b), built like
  * {@link AnalysisClientConfiguration}'s. Base URL and timeouts: {@code spring.http.serviceclient.interview.*}. An
  * error that interview-service answered with a problem detail throws the same {@code DomainException} as before the
- * split ({@link DomainErrorHandler}).
+ * split ({@link DomainErrorHandler}). With interview-service down, a call fails fast with SERVICE_UNAVAILABLE: a retry
+ * and a circuit breaker ({@link ServiceCallGuard}, task 4.2, {@code app.service-calls}).
  */
 @Configuration(proxyBeanMethods = false)
 @ImportHttpServices(group = InterviewClientConfiguration.GROUP, types = InterviewApi.class)
@@ -22,10 +25,11 @@ class InterviewClientConfiguration {
 	static final String GROUP = "interview";
 
 	@Bean
-	RestClientHttpServiceGroupConfigurer interviewErrors(JsonMapper jsonMapper) {
+	RestClientHttpServiceGroupConfigurer interviewCalls(JsonMapper jsonMapper, ServiceCallProperties calls) {
 		DomainErrorHandler errors = new DomainErrorHandler(jsonMapper);
-		return groups -> groups.filterByName(GROUP)
-				.forEachClient((group, builder) -> builder.defaultStatusHandler(HttpStatusCode::isError, errors));
+		return groups -> groups.filterByName(GROUP).forEachClient((group, builder) -> builder
+				.requestInterceptor(new ServiceCallGuard("interview service", calls))
+				.defaultStatusHandler(HttpStatusCode::isError, errors));
 	}
 
 }

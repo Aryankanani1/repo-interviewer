@@ -44,13 +44,18 @@ spring:
     listener:
       ack-mode: record
   # analysis-service's AnalysisApi (AnalysisClientConfiguration). No fallback URL: dev sets localhost:8082, stage and
-  # prod set ANALYSIS_BASE_URL. A chunk search embeds its query, hence 30 s to read.
+  # prod set ANALYSIS_BASE_URL. The slowest call is a chunk search, which embeds its query (a second or two while
+  # Ollama loads the model): 10 s to read (30 s until task 4.2), so a hung analysis-service fails a call in 10 s.
+  # The JDK's HttpClient, named because ServiceCallGuard's retry knows its exceptions (task 4.2).
   http:
+    clients:
+      imperative:
+        factory: jdk
     serviceclient:
       analysis:
         base-url: ${ANALYSIS_BASE_URL}
         connect-timeout: 2s
-        read-timeout: 30s
+        read-timeout: 10s
   ai:
     model:
       chat: anthropic        # plan, questions, grades, report; no embeddings here
@@ -113,6 +118,14 @@ app:
   consumer-retry:
     max-retries: 3
     initial-backoff: 1s
+  service-calls:                # calls to another service over HTTP (task 4.2, ServiceCallGuard)
+    max-attempts: 3             # tried again only when the connection failed: the request was never sent
+    retry-backoff: 200ms        # then 400 ms
+    sliding-window-size: 10     # the circuit breaker looks at the latest 10 calls;
+    minimum-calls: 5            # once at least 5 were made
+    failure-rate-threshold: 50  # and half of them got no answer (refused, timed out), it opens:
+    open-duration: 10s          # every call fails at once for 10 s, without a request,
+    trial-calls: 2              # then 2 go through, and if they get answers it closes
   interview:
     default-question-count: 5
     min-question-count: 3

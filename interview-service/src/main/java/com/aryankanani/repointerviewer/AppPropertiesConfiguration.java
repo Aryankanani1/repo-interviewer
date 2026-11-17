@@ -2,6 +2,7 @@ package com.aryankanani.repointerviewer;
 
 import com.aryankanani.repointerviewer.common.config.ConsumerRetryProperties;
 import com.aryankanani.repointerviewer.common.config.RolesProperties;
+import com.aryankanani.repointerviewer.common.config.ServiceCallProperties;
 import com.aryankanani.repointerviewer.interview.InterviewProperties;
 import com.aryankanani.repointerviewer.interview.RetrievalProperties;
 import com.aryankanani.repointerviewer.llm.LlmProperties;
@@ -18,6 +19,6 @@ import org.springframework.context.annotation.Configuration;
  */
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties({ InterviewProperties.class, RetrievalProperties.class, LlmProperties.class,
-		OutboxProperties.class, ConsumerRetryProperties.class, RolesProperties.class })
+		OutboxProperties.class, ConsumerRetryProperties.class, RolesProperties.class, ServiceCallProperties.class })
 public class AppPropertiesConfiguration {
 }

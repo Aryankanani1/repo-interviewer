@@ -2,6 +2,7 @@ package com.aryankanani.repointerviewer.interview;
 
 import com.aryankanani.repointerviewer.common.error.DomainException;
 import com.aryankanani.repointerviewer.common.error.ModelUnavailableException;
+import com.aryankanani.repointerviewer.common.error.ServiceUnavailableException;
 import com.aryankanani.repointerviewer.common.messaging.EventEnvelope;
 import com.aryankanani.repointerviewer.common.messaging.EventReader;
 import com.aryankanani.repointerviewer.common.messaging.InvalidEventException;
@@ -64,8 +65,8 @@ class InterviewOrchestrator {
 			try {
 				interviewService.advance(payload.answerId());
 			}
-			catch (ModelUnavailableException ex) {   // the chat model or the embedding model (task 3.6)
-				log.warn("Next question not written: model unavailable; the error handler retries or dead-letters it");
+			catch (ModelUnavailableException | ServiceUnavailableException ex) {   // a model (task 3.6), analysis-service (4.2)
+				log.warn("Next question not written: {}; the error handler retries or dead-letters it", ex.getMessage());
 				throw new RetryableEventException(ex);
 			}
 			catch (DomainException ex) {

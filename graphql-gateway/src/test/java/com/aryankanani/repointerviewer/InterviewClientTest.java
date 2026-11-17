@@ -10,6 +10,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 import com.aryankanani.repointerviewer.common.error.DomainException;
 import com.aryankanani.repointerviewer.common.error.ErrorCode;
+import com.aryankanani.repointerviewer.common.error.ServiceUnavailableException;
 import com.aryankanani.repointerviewer.contracts.interview.AnswerRequest;
 import com.aryankanani.repointerviewer.contracts.interview.AnswerVerdict;
 import com.aryankanani.repointerviewer.contracts.interview.CodeRef;
@@ -33,29 +34,34 @@ import org.springframework.boot.http.client.autoconfigure.service.HttpServiceCli
 import org.springframework.boot.jackson.autoconfigure.JacksonAutoConfiguration;
 import org.springframework.boot.restclient.autoconfigure.RestClientAutoConfiguration;
 import org.springframework.boot.restclient.autoconfigure.service.HttpServiceClientAutoConfiguration;
+import org.springframework.boot.test.context.ConfigDataApplicationContextInitializer;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.test.web.client.ExpectedCount;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.support.RestClientHttpServiceGroupConfigurer;
 
 /**
  * The client half of the interview contract (task 4.1 step 3b; the server half is interview-service's
  * {@code InterviewApiControllerTest}). A small context with Boot's HTTP client auto-configuration and
- * {@link InterviewClientConfiguration}, as in the app, and a {@link MockRestServiceServer} in place of the network.
+ * {@link InterviewClientConfiguration}, as in the app (with its {@code ServiceCallGuard}, task 4.2), and a
+ * {@link MockRestServiceServer} in place of the network.
  */
 class InterviewClientTest {
 
 	private static final String BASE = "http://interview.test";
 
 	private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
+			.withInitializer(new ConfigDataApplicationContextInitializer())   // application.yml: app.service-calls
 			.withConfiguration(AutoConfigurations.of(JacksonAutoConfiguration.class, HttpClientAutoConfiguration.class,
 					ImperativeHttpClientAutoConfiguration.class, HttpServiceClientPropertiesAutoConfiguration.class,
 					RestClientAutoConfiguration.class, HttpServiceClientAutoConfiguration.class))
-			.withUserConfiguration(InterviewClientConfiguration.class, MockServerConfiguration.class)
+			.withUserConfiguration(InterviewClientConfiguration.class, AppPropertiesConfiguration.class,
+					MockServerConfiguration.class)
 			.withPropertyValues("spring.http.serviceclient.interview.base-url=" + BASE);
 
 	@Test
@@ -160,6 +166,30 @@ class InterviewClientTest {
 						assertThat(ex.getMessage()).isEqualTo("Write an answer first.");
 						assertThat(ex.field()).contains("text");
 					});
+		});
+	}
+
+	/**
+	 * Task 4.2: interview-service is up, but analysis-service behind it is not, so it answers 503 SERVICE_UNAVAILABLE.
+	 * Its message comes through, and an answer is no failure for this client's circuit breaker: all 10 calls are sent
+	 * (it would open after 5 failures).
+	 */
+	@Test
+	void serviceUnavailableFromInterviewServiceIsItsMessageAndLeavesTheBreakerClosed() {
+		String analysisDown = "The analysis service is not available right now. Try again in a minute.";
+		run((interviews, server) -> {
+			server.expect(ExpectedCount.times(10), requestTo(BASE + "/internal/sessions"))
+					.andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE)
+							.contentType(MediaType.APPLICATION_PROBLEM_JSON).body("""
+									{"type": "about:blank", "title": "Service Unavailable", "status": 503,
+									 "detail": "%s", "code": "SERVICE_UNAVAILABLE"}
+									""".formatted(analysisDown)));
+
+			for (int call = 0; call < 10; call++) {
+				assertThatThrownBy(() -> interviews.start(new StartInterviewRequest(UUID.randomUUID(), null, null, null)))
+						.isInstanceOf(ServiceUnavailableException.class).hasMessage(analysisDown);
+			}
+			server.verify();
 		});
 	}
 

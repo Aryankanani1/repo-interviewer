@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.aryankanani.repointerviewer.FakeAnalysisApi;
 import com.aryankanani.repointerviewer.FakeInterviewApi;
 import com.aryankanani.repointerviewer.IntegrationTest;
+import com.aryankanani.repointerviewer.common.error.ServiceUnavailableException;
+import java.net.ConnectException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
@@ -20,7 +22,6 @@ import org.springframework.graphql.test.tester.GraphQlTester;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.client.HttpServerErrorException;
-import org.springframework.web.client.ResourceAccessException;
 
 /**
  * Task 1.14 acceptance tests: every kind of failure reaches the client in a safe, predictable shape, through the real
@@ -33,6 +34,9 @@ class GraphQlErrorHandlingTest {
 	/** Bits of server internals, or of the services behind this app, that must never reach a client. */
 	private static final List<String> NEVER_IN_A_RESPONSE = List.of("Exception", "at com.", "at org.", "select ",
 			"SELECT ", "SECRET PROMPT TEXT", "NOT_A_CATEGORY", "interview-service", "Connection refused");
+
+	private static final String INTERVIEW_UNAVAILABLE = "The interview service is not available right now. "
+			+ "Try again in a minute.";
 
 	private final GraphQlTester graphQlTester;
 
@@ -78,18 +82,37 @@ class GraphQlErrorHandlingTest {
 				});
 	}
 
-	/** interview-service unreachable: a generic error, with nothing about where or why (task 4.2 makes it clearer). */
+	/**
+	 * interview-service unreachable (task 4.2): its client's guard gives up with SERVICE_UNAVAILABLE, which a mutation
+	 * returns in its payload, with a message that names the service and says nothing about where or why.
+	 */
 	@Test
-	void anUnreachableServiceIsInternalAndSaysNothingAboutIt() {
+	void anUnreachableServiceIsServiceUnavailableInTheMutationsPayload() {
 		UUID project = fixture.readyProject();
-		interviews.failNextCall(new ResourceAccessException("I/O error on POST request for "
-				+ "\"http://interview-service:8080/internal/sessions\": Connection refused; SECRET PROMPT TEXT"));
+		interviews.failNextCall(unreachable());
 
 		graphQlTester.document("""
-				mutation ($input: StartInterviewInput!) { startInterview(input: $input) { session { id } errors { code } } }
+				mutation ($input: StartInterviewInput!) {
+				  startInterview(input: $input) { session { id } errors { code message } }
+				}
 				""").variable("input", Map.of("projectId", project)).execute()
+				.errors().verify()
+				.path("startInterview.session").valueIsNull()
+				.path("startInterview.errors[0].code").entity(String.class).isEqualTo("SERVICE_UNAVAILABLE")
+				.path("startInterview.errors[0].message").entity(String.class).isEqualTo(INTERVIEW_UNAVAILABLE);
+	}
+
+	/** A query has no payload: a top-level error with the code, and the same message. */
+	@Test
+	void anUnreachableServiceIsATopLevelServiceUnavailableInAQuery() {
+		interviews.failNextCall(unreachable());
+
+		graphQlTester.document("query ($id: ID!) { interviewSession(id: $id) { id } }")
+				.variable("id", UUID.randomUUID()).execute()
 				.errors().satisfy(errors -> {
-					assertThat(single(errors).getExtensions()).containsEntry("code", "INTERNAL");
+					ResponseError error = single(errors);
+					assertThat(error.getExtensions()).containsEntry("code", "SERVICE_UNAVAILABLE");
+					assertThat(error.getMessage()).isEqualTo(INTERVIEW_UNAVAILABLE);
 					assertSafe(errors);
 				});
 	}
@@ -124,6 +147,12 @@ class GraphQlErrorHandlingTest {
 				""").variable("input", Map.of("questionId", UUID.randomUUID(), "text", "x".repeat(25_000))).execute()
 				.path("submitAnswer.errors[0].code").entity(String.class).isEqualTo("INVALID_INPUT")
 				.path("submitAnswer.errors[0].field").entityList(String.class).containsExactly("input", "text");
+	}
+
+	/** What the interview client's {@code ServiceCallGuard} throws when interview-service refuses the connection. */
+	private static ServiceUnavailableException unreachable() {
+		return new ServiceUnavailableException(INTERVIEW_UNAVAILABLE,
+				new ConnectException("Connection refused: interview-service:8080"));
 	}
 
 	private static ResponseError single(List<ResponseError> errors) {

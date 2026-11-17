@@ -6,6 +6,7 @@ import com.aryankanani.repointerviewer.AppPropertiesConfiguration;
 import com.aryankanani.repointerviewer.interview.InterviewProperties;
 import com.aryankanani.repointerviewer.interview.RetrievalProperties;
 import com.aryankanani.repointerviewer.llm.LlmProperties;
+import java.time.Duration;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.ConfigDataApplicationContextInitializer;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -37,6 +38,9 @@ class AppPropertiesTest {
 			assertThat(llm.maxOutputTokens().evaluation()).isEqualTo(3000);
 			assertThat(context.getBean(RolesProperties.class).interviewWorker()).isTrue();
 			assertThat(context.getBean(RolesProperties.class).analysisWorker()).isFalse();
+			ServiceCallProperties calls = context.getBean(ServiceCallProperties.class);   // task 4.2
+			assertThat(calls.maxAttempts()).isEqualTo(3);
+			assertThat(calls.openDuration()).isEqualTo(Duration.ofSeconds(10));
 		});
 	}
 

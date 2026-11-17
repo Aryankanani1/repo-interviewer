@@ -71,6 +71,8 @@ public class FakeAnalysisApi implements AnalysisApi {
 
 	private final AtomicReference<DomainException> nextFailure = new AtomicReference<>();
 
+	private final AtomicReference<DomainException> everyFailure = new AtomicReference<>();
+
 	// --- What a test sets up
 
 	/** A READY project with the fixture's stats and summary, like {@code FixtureIndexer.readyProject()}. */
@@ -98,6 +100,7 @@ public class FakeAnalysisApi implements AnalysisApi {
 		calls.clear();
 		searchesToFail.set(0);
 		nextFailure.set(null);
+		everyFailure.set(null);
 	}
 
 	/**
@@ -111,6 +114,11 @@ public class FakeAnalysisApi implements AnalysisApi {
 	/** The next call, of any method, throws {@code failure}. */
 	public void failNextCall(DomainException failure) {
 		nextFailure.set(failure);
+	}
+
+	/** Every call, of any method, throws {@code failure} until {@link #reset()}: analysis-service stays down. */
+	public void failEveryCall(DomainException failure) {
+		everyFailure.set(failure);
 	}
 
 	/** How many times {@code method} was called since the last {@link #reset()}: one call is one HTTP request. */
@@ -311,6 +319,9 @@ public class FakeAnalysisApi implements AnalysisApi {
 	private void called(String method) {
 		calls.computeIfAbsent(method, name -> new AtomicInteger()).incrementAndGet();
 		DomainException failure = nextFailure.getAndSet(null);
+		if (failure == null) {
+			failure = everyFailure.get();
+		}
 		if (failure != null) {
 			throw failure;
 		}

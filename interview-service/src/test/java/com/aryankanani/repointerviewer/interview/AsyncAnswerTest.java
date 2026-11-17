@@ -8,6 +8,7 @@ import com.aryankanani.repointerviewer.FakeLlmGateway;
 import com.aryankanani.repointerviewer.KafkaConsumerLag;
 import com.aryankanani.repointerviewer.KafkaIntegrationTest;
 import com.aryankanani.repointerviewer.RecordingRetryListener;
+import com.aryankanani.repointerviewer.common.error.ServiceUnavailableException;
 import com.aryankanani.repointerviewer.common.messaging.Topics;
 import com.aryankanani.repointerviewer.contracts.interview.AnswerDto;
 import com.aryankanani.repointerviewer.contracts.interview.AnswerFlowEvent;
@@ -47,6 +48,9 @@ import org.springframework.kafka.core.KafkaAdmin;
 class AsyncAnswerTest {
 
 	private static final String MODEL_UNAVAILABLE = new LlmUnavailableException(new RuntimeException()).getMessage();
+
+	private static final String ANALYSIS_UNAVAILABLE = "The analysis service is not available right now. "
+			+ "Try again in a minute.";
 
 	/** The events a subscriber sees, in order: everything but AnswerSubmitted, which only the workers read. */
 	private static final List<String> SUBSCRIBED = List.of(AnswerFlowEvent.ANSWER_EVALUATED,
@@ -220,6 +224,38 @@ class AsyncAnswerTest {
 		assertThat(retries.deadLettered(Topics.ANSWER_EVALUATED, sessionId.toString())).isEqualTo(1);
 		assertThat(session().failureReason())
 				.isEqualTo(FakeAnalysisApi.EMBEDDING_UNAVAILABLE);   // analysis-service's message, over the wire
+	}
+
+	/**
+	 * Task 4.2: analysis-service does not answer once while the answer is graded (its client's guard gives up with
+	 * SERVICE_UNAVAILABLE). The worker retries it like a model that is down, and the second delivery grades it.
+	 */
+	@Test
+	void anAnalysisServiceThatComesBackDuringTheRetriesLetsTheGradingGoOn() {
+		llm.enqueue(LlmPurpose.EVALUATION, strong());
+		fixture.failNextCall(new ServiceUnavailableException(ANALYSIS_UNAVAILABLE));
+
+		submit(firstQuestionId, "Both read the same refundedAmount.");
+		pumpUntil(() -> currentQuestionOrder() == 2);
+
+		assertThat(retries.failedAttempts(Topics.ANSWER_SUBMITTED, sessionId.toString())).containsExactly(1);
+		assertThat(retries.deadLettered(Topics.ANSWER_SUBMITTED, sessionId.toString())).isZero();
+		assertThat(answer(firstQuestionId).evaluation()).isNotNull();
+	}
+
+	/** Task 4.2: analysis-service stays down: 4 deliveries, the dead-letter topic, the session FAILED with why. */
+	@Test
+	void anAnalysisServiceThatStaysDownFailsTheSessionWithAClearReason() {
+		fixture.failEveryCall(new ServiceUnavailableException(ANALYSIS_UNAVAILABLE));
+
+		submit(firstQuestionId, "Both read the same refundedAmount.");
+		pumpUntil(() -> sent(AnswerFlowEvent.SESSION_FAILED));
+
+		assertThat(retries.failedAttempts(Topics.ANSWER_SUBMITTED, sessionId.toString())).containsExactly(1, 2, 3, 4);
+		assertThat(retries.deadLettered(Topics.ANSWER_SUBMITTED, sessionId.toString())).isEqualTo(1);
+		assertThat(session().status()).isEqualTo(SessionStatus.FAILED);
+		assertThat(session().failureReason()).isEqualTo(ANALYSIS_UNAVAILABLE);
+		assertThat(llm.calls(LlmPurpose.EVALUATION)).isZero();   // the code to grade against never came
 	}
 
 	/** A reply the model would get wrong again is not retried: the session fails at once, after one call. */

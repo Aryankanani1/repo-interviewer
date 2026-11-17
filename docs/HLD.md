@@ -319,6 +319,7 @@ flowchart LR
 |---|---|---|
 | LLM 429 / 5xx / timeout | Step fails | Retry with backoff (Spring AI retry), then `LLM_UNAVAILABLE`. Steps are resumable. |
 | LLM output fails to parse | Step fails | One retry with the parse error included, then fail the step. |
+| Another service down or hung (Phase 4) | Internal call fails | Retry a connection that failed, a circuit breaker, then `SERVICE_UNAVAILABLE` (task 4.2, D-027). Kafka workers retry the event, then dead-letter it and fail the session. |
 | Hallucinated paths or lines | Ungrounded question | Ref validator: retry once, drop bad refs, discard if none left. |
 | Repo private, missing, or too large | Cannot analyze | Typed errors: `REPO_NOT_FOUND`, `REPO_TOO_LARGE`. Size checks before and during clone. |
 | App restarts mid-analysis | Project stuck in progress | Startup recovery marks stale jobs `FAILED`; `reanalyzeProject` retries. |

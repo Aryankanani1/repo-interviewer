@@ -48,8 +48,12 @@ spring:
   # fallback URLs, like the database: dev sets localhost:8082 and :8084, stage and prod set ANALYSIS_BASE_URL and
   # INTERVIEW_BASE_URL. Submitting a project checks the repository on GitHub (up to 15 s), hence 30 s to read.
   # Starting an interview or grading an answer takes two or more model calls (25-43 s in task 1.15), so up to the
-  # GraphQL request's own 120 s below.
+  # GraphQL request's own 120 s below. The JDK's HttpClient, named because ServiceCallGuard's retry knows its
+  # exceptions (task 4.2).
   http:
+    clients:
+      imperative:
+        factory: jdk
     serviceclient:
       analysis:
         base-url: ${ANALYSIS_BASE_URL}
@@ -94,3 +98,11 @@ app:
   consumer-retry:        # Kafka consumers, kafka profile only (task 2.4, LLD §13.3): the fan-out's error handler
     max-retries: 3       # 4 deliveries in all, then the dead-letter topic
     initial-backoff: 1s  # then 2 s, 4 s
+  service-calls:                # calls to another service over HTTP (task 4.2, ServiceCallGuard)
+    max-attempts: 3             # tried again only when the connection failed: the request was never sent
+    retry-backoff: 200ms        # then 400 ms
+    sliding-window-size: 10     # the circuit breaker looks at the latest 10 calls;
+    minimum-calls: 5            # once at least 5 were made
+    failure-rate-threshold: 50  # and half of them got no answer (refused, timed out), it opens:
+    open-duration: 10s          # every call fails at once for 10 s, without a request,
+    trial-calls: 2              # then 2 go through, and if they get answers it closes

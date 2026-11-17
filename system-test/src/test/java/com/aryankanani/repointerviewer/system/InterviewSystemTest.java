@@ -31,14 +31,18 @@ import tools.jackson.databind.JsonNode;
  * Task 4.1 step 4b: the three apps together, as deployed, driven only through the gateway's GraphQL over HTTP. Real
  * HTTP between the apps (AnalysisApi, InterviewApi), real Kafka between the interview workers and the gateway's
  * subscriptions, real Postgres with one user and schema per service. Fake only: the models ({@code FakeModelServer})
- * and the analysis of the fixture repository, which is loaded from its snapshot ({@link FixtureSeeder}).
+ * and the analysis of the fixture repository, which is loaded from its snapshot ({@link FixtureSeeder}). Then the
+ * services are stopped one after the other, and the system must fail fast and clearly (task 4.2).
  *
  * <p>About a minute: two containers and three app starts, once for the class. App output:
  * {@code system-test/target/system-*.log}.
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-@TestMethodOrder(MethodOrderer.OrderAnnotation.class)   // the last test stops interview-service
+@TestMethodOrder(MethodOrderer.OrderAnnotation.class)   // the last two stop analysis-service, then interview-service
 class InterviewSystemTest {
+
+	private static final String ANALYSIS_UNAVAILABLE = "The analysis service is not available right now. "
+			+ "Try again in a minute.";
 
 	private static final String SUBSCRIBE = """
 			subscription ($id: ID!) {
@@ -55,6 +59,9 @@ class InterviewSystemTest {
 	private GraphQlHttp graphQl;
 
 	private UUID project;
+
+	/** The session of {@link #anInterviewRunsAcrossTheThreeApps}, read again while analysis-service is down. */
+	private String endedSession;
 
 	@BeforeAll
 	void startTheSystem() throws Exception {
@@ -139,6 +146,7 @@ class InterviewSystemTest {
 				""", Map.of("input", Map.of("sessionId", session)));
 		assertThat(ended.at("/data/endInterview/errors").size()).as(ended.toString()).isZero();
 		assertThat(ended.at("/data/endInterview/session/status").asString()).isEqualTo("ABANDONED");
+		endedSession = session;
 		assertThat(ended.at("/data/endInterview/session/report/overallScore").asDouble()).isPositive();
 
 		// Every model call is interview-service's, recorded in its own schema; the analysis was loaded, not run.
@@ -164,11 +172,40 @@ class InterviewSystemTest {
 	}
 
 	/**
-	 * interview-service stopped: the gateway still answers at once, with a generic error for an interview and data
-	 * for a project. A clear error and a circuit breaker are task 4.2.
+	 * Task 4.2 acceptance criterion: analysis-service stopped. Starting an interview fails within seconds with a clear
+	 * SERVICE_UNAVAILABLE, raised by interview-service's client and passed on as a problem detail, and the gateway's
+	 * own call for projects fails the same way; what interview-service holds is still served.
 	 */
 	@Test
 	@Order(4)
+	void withAnalysisServiceDownAStartFailsFastWithAClearError() throws Exception {
+		apps.analysisService().stop();
+
+		Instant before = Instant.now();
+		JsonNode started = graphQl.execute("""
+				mutation ($input: StartInterviewInput!) {
+				  startInterview(input: $input) { session { id } errors { code message } }
+				}
+				""", Map.of("input", Map.of("projectId", project.toString())));
+		Duration took = Duration.between(before, Instant.now());
+
+		assertThat(started.at("/data/startInterview/errors/0/code").asString()).as(started.toString())
+				.isEqualTo("SERVICE_UNAVAILABLE");
+		assertThat(started.at("/data/startInterview/errors/0/message").asString()).isEqualTo(ANALYSIS_UNAVAILABLE);
+		assertThat(started.at("/data/startInterview/session").isNull()).isTrue();
+		assertThat(took).isLessThan(Duration.ofSeconds(3));
+		JsonNode projects = graphQl.execute("{ projects(first: 1) { edges { node { id } } } }", Map.of());
+		assertThat(projects.at("/errors/0/extensions/code").asString()).isEqualTo("SERVICE_UNAVAILABLE");
+		assertThat(projects.at("/errors/0/message").asString()).isEqualTo(ANALYSIS_UNAVAILABLE);
+		JsonNode session = graphQl.execute("query ($id: ID!) { interviewSession(id: $id) { status } }",
+				Map.of("id", endedSession));
+		assertThat(session.at("/data/interviewSession/status").asString()).as(session.toString())
+				.isEqualTo("ABANDONED");
+	}
+
+	/** interview-service stopped too: the gateway still answers at once, with the same clear error for it. */
+	@Test
+	@Order(5)
 	void withInterviewServiceDownTheGatewayStillAnswersAtOnce() throws Exception {
 		apps.interviewService().stop();
 
@@ -177,10 +214,10 @@ class InterviewSystemTest {
 				Map.of("id", UUID.randomUUID().toString()));
 		Duration took = Duration.between(before, Instant.now());
 
-		assertThat(interview.at("/errors/0/extensions/code").asString()).isEqualTo("INTERNAL");
+		assertThat(interview.at("/errors/0/extensions/code").asString()).isEqualTo("SERVICE_UNAVAILABLE");
+		assertThat(interview.at("/errors/0/message").asString())
+				.isEqualTo("The interview service is not available right now. Try again in a minute.");
 		assertThat(took).isLessThan(Duration.ofSeconds(5));
-		JsonNode projects = graphQl.execute("{ projects(first: 1) { edges { node { id } } } }", Map.of());
-		assertThat(projects.has("errors")).as(projects.toString()).isFalse();
 	}
 
 	private static int cannedScore() {

@@ -102,6 +102,10 @@ final class ThreeApps implements AutoCloseable {
 		return postgres.getPassword();
 	}
 
+	AppProcess analysisService() {
+		return analysis;
+	}
+
 	AppProcess interviewService() {
 		return interview;
 	}

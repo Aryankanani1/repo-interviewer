@@ -3,6 +3,7 @@ package com.aryankanani.repointerviewer.common.web;
 import com.aryankanani.repointerviewer.common.error.DomainException;
 import com.aryankanani.repointerviewer.common.error.ErrorCode;
 import com.aryankanani.repointerviewer.common.error.RemoteModelUnavailableException;
+import com.aryankanani.repointerviewer.common.error.ServiceUnavailableException;
 import java.util.Arrays;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
@@ -27,7 +28,7 @@ public final class DomainProblems {
 		return switch (code) {
 			case NOT_FOUND -> HttpStatus.NOT_FOUND;
 			case BUDGET_EXCEEDED -> HttpStatus.TOO_MANY_REQUESTS;
-			case LLM_UNAVAILABLE -> HttpStatus.SERVICE_UNAVAILABLE;
+			case LLM_UNAVAILABLE, SERVICE_UNAVAILABLE -> HttpStatus.SERVICE_UNAVAILABLE;
 			default -> HttpStatus.UNPROCESSABLE_CONTENT;
 		};
 	}
@@ -43,15 +44,19 @@ public final class DomainProblems {
 	 * @param code the {@code code} of a problem detail; null or unknown when the error did not come from a
 	 * {@link DomainException} (a crash, a proxy, a wrong URL)
 	 * @return the exception the other service threw, or null if {@code code} is not an {@link ErrorCode}.
-	 * LLM_UNAVAILABLE becomes a {@link RemoteModelUnavailableException}, so it is retried like a local one.
+	 * LLM_UNAVAILABLE becomes a {@link RemoteModelUnavailableException}, so it is retried like a local one, and
+	 * SERVICE_UNAVAILABLE a {@link ServiceUnavailableException} (task 4.2).
 	 */
 	public static DomainException toException(String code, String detail, String field) {
 		if (code == null || Arrays.stream(ErrorCode.values()).noneMatch(known -> known.name().equals(code))) {
 			return null;
 		}
 		ErrorCode errorCode = ErrorCode.valueOf(code);
-		return errorCode == ErrorCode.LLM_UNAVAILABLE ? new RemoteModelUnavailableException(detail)
-				: new DomainException(errorCode, detail, field);
+		return switch (errorCode) {
+			case LLM_UNAVAILABLE -> new RemoteModelUnavailableException(detail);
+			case SERVICE_UNAVAILABLE -> new ServiceUnavailableException(detail);
+			default -> new DomainException(errorCode, detail, field);
+		};
 	}
 
 }
