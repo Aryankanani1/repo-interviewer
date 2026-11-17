@@ -1,5 +1,7 @@
-# Settings every app Deployment reads as environment variables (task 3.3). Secrets are not here: the database
-# credentials come from the Secret "postgres", the API key from the Secret "anthropic" (k8s/README.md).
+# Settings the three apps read as environment variables (tasks 3.3 and 4.1); each uses only its own (the gateway the
+# two service URLs and Kafka, analysis-service the database and Ollama, interview-service the database and
+# analysis-service). Secrets are not here: each service's database login comes from its own Secret ("analysis-db",
+# "interview-db"), the API key from the Secret "anthropic" (k8s/README.md).
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -7,6 +9,8 @@ metadata:
 data:
   DB_URL: jdbc:postgresql://postgres:5432/repo_interviewer
   SPRING_KAFKA_BOOTSTRAP_SERVERS: events-kafka-bootstrap:9092
+  ANALYSIS_BASE_URL: http://analysis-service:8080
+  INTERVIEW_BASE_URL: http://interview-service:8080
   OLLAMA_BASE_URL: http://ollama:11434   # a cluster with its own Ollama; the kind overlay points at the host
   # Heap at most 60% of the container's memory limit (the image says 75%): the rest, about 300 MiB of 768, is for
   # metaspace, threads and network buffers. Exit on OutOfMemoryError, so Kubernetes restarts the container.

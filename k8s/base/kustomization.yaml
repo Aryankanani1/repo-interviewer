@@ -1,4 +1,8 @@
 # Portable base (task 3.2): what any cluster runs. Environment specifics (secrets, where Ollama is) live in overlays.
+# Since task 4.1 step 4c: the three services, one Deployment and Service each, and the Job that creates their
+# database users. It reads the services' own db/bootstrap.sql from outside this folder, so build it with
+#   kubectl kustomize --load-restrictor LoadRestrictionsNone k8s/overlays/kind | kubectl apply -f -
+# (plain "kubectl apply -k" refuses files outside the kustomization's root; k8s/README.md).
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: repo-interviewer
@@ -9,9 +13,19 @@ resources:
   - ../namespace
   - postgres.yaml
   - kafka.yaml
-  - app/configmap.yaml
-  - app/api.yaml
-  - app/analysis-worker.yaml
-  - app/interview-worker.yaml
-  - app/service.yaml
-  - app/scaling.yaml
+  - services/configmap.yaml
+  - services/database-bootstrap.yaml
+  - services/graphql-gateway.yaml
+  - services/analysis-service.yaml
+  - services/interview-service.yaml
+  - services/scaling.yaml
+configMapGenerator:
+  # The services' own files, not copies: one place to change them (Compose, the tests and this all run them).
+  - name: database-bootstrap
+    files:
+      - analysis.sql=../../analysis-service/src/main/resources/db/bootstrap.sql
+      - interview.sql=../../interview-service/src/main/resources/db/bootstrap.sql
+    options:
+      # A fixed name: a Job cannot change once created, and a new hash in its volume would make the apply fail.
+      # After changing a bootstrap.sql: kubectl delete job database-bootstrap, then apply again.
+      disableNameSuffixHash: true

@@ -1,6 +1,8 @@
-# Autoscaling the workers on Kafka consumer lag (task 3.4, LLD §14.4): KEDA reads how many events each consumer
-# group has not handled yet and drives an HPA, so the replicas are about lag / lagThreshold. A group cannot use more
-# consumers than its topic has partitions (3), so above 3 KEDA adds no more (allowIdleConsumers is false).
+# Autoscaling the two services on their workers' Kafka consumer lag (task 3.4, LLD §14.4; per service since task 4.1,
+# whose pods run their API and their workers together): KEDA reads how many events each consumer group has not
+# handled yet and drives an HPA, so the replicas are about lag / lagThreshold; more pods also serve more API calls.
+# A group cannot use more consumers than its topic has partitions (3), so above 3 KEDA adds no more
+# (allowIdleConsumers is false).
 # Kafka by its full DNS name: KEDA connects to it from its own namespace "keda", where the short name does not resolve.
 # The HPA reads the lag through KEDA's metrics server about every 15 s (its own sync period); KEDA's pollingInterval
 # only matters when scaling from or to zero (minReplicaCount 0), which these do not.
@@ -8,10 +10,10 @@
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:
-  name: interview-worker
+  name: interview-service
 spec:
   scaleTargetRef:
-    name: interview-worker
+    name: interview-service
   minReplicaCount: 1
   maxReplicaCount: 5
   triggers:
@@ -26,10 +28,10 @@ spec:
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:
-  name: analysis-worker
+  name: analysis-service
 spec:
   scaleTargetRef:
-    name: analysis-worker
+    name: analysis-service
   minReplicaCount: 1
   maxReplicaCount: 5
   triggers:   # one Deployment runs ingest and embed; the HPA follows whichever trigger asks for more

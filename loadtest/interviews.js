@@ -1,7 +1,7 @@
 // Load test for task 3.4 (k6, https://k6.io): real interviews and analyses through the API, so the workers'
 // Kafka consumer lag grows and KEDA scales them. Uses the real model: every call costs money and counts toward the
-// daily cap (stage: 100). Run against a port-forward:
-//   kubectl -n repo-interviewer port-forward svc/api 8086:8080
+// services' daily caps (stage: interview-service 80, analysis-service 20). Run against a port-forward:
+//   kubectl -n repo-interviewer port-forward svc/graphql-gateway 8086:8080
 //   k6 run -e SESSIONS=7 loadtest/interviews.js
 // with loadtest/sample-scaling.sh in another terminal to log the replicas.
 import http from 'k6/http';

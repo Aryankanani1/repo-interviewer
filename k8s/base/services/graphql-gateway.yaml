@@ -1,25 +1,27 @@
-# The app as "interview-worker" (task 3.3, LLD §14.3): the same image as every role, with
-# SPRING_PROFILES_ACTIVE=stage,kafka,interview-worker.
-# Runs the evaluation consumer and the orchestrator. A record cut off by a shutdown is delivered again (task 2.7).
+# graphql-gateway (task 4.1 step 4c, LLD §14.3): the public GraphQL API and the SSE subscriptions, behind the Service
+# "graphql-gateway". No database and no API key: it calls analysis-service and interview-service (ANALYSIS_BASE_URL,
+# INTERVIEW_BASE_URL in the ConfigMap "app") and reads their events from Kafka. Shutdown: 5 s to leave the Service,
+# then Spring's graceful shutdown (open requests get up to 30 s), within the 45 s grace period.
+# It was the Deployment "api" of the single app until task 4.1.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: interview-worker
+  name: graphql-gateway
   labels:
-    app.kubernetes.io/name: repo-interviewer
-    app.kubernetes.io/component: interview-worker
-spec:   # no replicas: the ScaledObject's HPA owns it (scaling.yaml)
+    app.kubernetes.io/name: graphql-gateway
+    app.kubernetes.io/component: app
+spec:
+  replicas: 1
   selector:
     matchLabels:
-      app.kubernetes.io/name: repo-interviewer
-      app.kubernetes.io/component: interview-worker
+      app.kubernetes.io/name: graphql-gateway
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: repo-interviewer
-        app.kubernetes.io/component: interview-worker
+        app.kubernetes.io/name: graphql-gateway
+        app.kubernetes.io/component: app
     spec:
-      terminationGracePeriodSeconds: 60
+      terminationGracePeriodSeconds: 45
       securityContext:   # the image's non-root user (task 3.1); Kubernetes refuses to start it as root
         runAsNonRoot: true
         runAsUser: 10001
@@ -28,7 +30,7 @@ spec:   # no replicas: the ScaledObject's HPA owns it (scaling.yaml)
           type: RuntimeDefault
       containers:
         - name: app
-          image: repo-interviewer
+          image: graphql-gateway
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -38,26 +40,11 @@ spec:   # no replicas: the ScaledObject's HPA owns it (scaling.yaml)
                 name: app
           env:
             - name: SPRING_PROFILES_ACTIVE
-              value: stage,kafka,interview-worker
-            - name: DB_USER
-              valueFrom:
-                secretKeyRef:
-                  name: postgres
-                  key: username
-            - name: DB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: postgres
-                  key: password
-            - name: ANTHROPIC_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: anthropic
-                  key: ANTHROPIC_API_KEY
+              value: stage,kafka
           # Startup: up to 5 min to boot before the other two probes begin (three JVMs booting at once on a busy
           # laptop node took over 3 min; alone, 12 s). Liveness: is this JVM still working? Restart it only after
-          # a minute without an answer: a busy but healthy JVM (a long GC pause, a starved node) must not be killed,
-          # as happened once in a model call. Readiness: may it get work and traffic now (it includes the database)?
+          # a minute without an answer: a busy but healthy JVM (a long GC pause, a starved node) must not be killed.
+          # Readiness: may it get traffic now? (No database here; the services behind it are not checked.)
           startupProbe:
             httpGet:
               path: /actuator/health/liveness
@@ -78,6 +65,10 @@ spec:   # no replicas: the ScaledObject's HPA owns it (scaling.yaml)
             periodSeconds: 5
             timeoutSeconds: 5
             failureThreshold: 3
+          lifecycle:   # on shutdown, wait 5 s first: the Service stops sending it requests before Spring stops
+            preStop:
+              sleep:
+                seconds: 5
           resources:
             requests:   # what the scheduler reserves on the node
               cpu: 250m
@@ -93,6 +84,19 @@ spec:   # no replicas: the ScaledObject's HPA owns it (scaling.yaml)
             - name: tmp
               mountPath: /tmp
       volumes:
-        - name: tmp   # repository clones (app.repo.work-dir) and Tomcat's temporary files
+        - name: tmp   # Tomcat's temporary files
           emptyDir:
-            sizeLimit: 1Gi
+            sizeLimit: 256Mi
+---
+# The gateway inside the cluster, on port 8080. Locally: kubectl port-forward svc/graphql-gateway 8080:8080.
+apiVersion: v1
+kind: Service
+metadata:
+  name: graphql-gateway
+spec:
+  selector:
+    app.kubernetes.io/name: graphql-gateway
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

@@ -13,3 +13,4 @@
 !interview-service/src/main/
 !graphql-gateway/pom.xml
 !graphql-gateway/src/main/
+!system-test/pom.xml

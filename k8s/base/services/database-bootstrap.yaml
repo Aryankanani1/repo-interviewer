@@ -1,0 +1,81 @@
+# The services' database users and schemas (task 4.1 step 4c, DECISIONS.md D-026): what docker-compose.yml does on a
+# new volume, for a cluster whose Postgres already has data. Runs the two services' own db/bootstrap.sql as the
+# database admin (Secret "postgres"), from the ConfigMap "database-bootstrap" that kustomization.yaml builds from
+# those files, then sets each service's password from its own Secret ("analysis-db", "interview-db"): the SQL files
+# set the user name as the password, for a local database only. Safe to run again; the service pods wait for their
+# login (an init container) instead of failing. The only object here with the admin's credentials.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: database-bootstrap
+spec:
+  backoffLimit: 10   # Postgres may still be starting: retried with growing delays
+  template:
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999    # the "postgres" user of the image; psql needs nothing else
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: psql
+          image: pgvector/pgvector:pg17   # for psql; the same image as Postgres, already on the node
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c"]
+          # :'name' is a psql variable as a quoted SQL literal, so a password is never part of the SQL text itself.
+          args:
+            - |
+              set -e
+              until pg_isready -q; do echo 'waiting for Postgres'; sleep 2; done
+              psql -v ON_ERROR_STOP=1 -f /sql/analysis.sql -f /sql/interview.sql
+              psql -v ON_ERROR_STOP=1 -v analysis="$ANALYSIS_DB_PASSWORD" -v interview="$INTERVIEW_DB_PASSWORD" <<'SQL'
+              ALTER ROLE analysis_svc PASSWORD :'analysis';
+              ALTER ROLE interview_svc PASSWORD :'interview';
+              SQL
+              echo 'analysis_svc and interview_svc are ready'
+          env:
+            - name: PGHOST
+              value: postgres
+            - name: PGDATABASE
+              value: repo_interviewer
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres
+                  key: username
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres
+                  key: password
+            - name: ANALYSIS_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: analysis-db
+                  key: password
+            - name: INTERVIEW_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: interview-db
+                  key: password
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: sql
+              mountPath: /sql
+              readOnly: true
+      volumes:
+        - name: sql
+          configMap:
+            name: database-bootstrap

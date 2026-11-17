@@ -1,0 +1,150 @@
+# interview-service (task 4.1 step 4c, LLD §14.3): interviews behind the Service "interview-service" (InterviewApi,
+# called by the gateway), and the interview consumers (answer evaluation, the orchestrator). Reads projects and code
+# from analysis-service (ANALYSIS_BASE_URL). Logs in as interview_svc (Secret "interview-db"), whose user and schema
+# the Job "database-bootstrap" creates. Shutdown: 5 s to leave the Service, then Spring's graceful shutdown; a record
+# cut off by it is delivered again (task 2.7). It was the Deployment "interview-worker" of the single app until 4.1.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: interview-service
+  labels:
+    app.kubernetes.io/name: interview-service
+    app.kubernetes.io/component: app
+spec:   # no replicas: the ScaledObject's HPA owns it (scaling.yaml)
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: interview-service
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: interview-service
+        app.kubernetes.io/component: app
+    spec:
+      terminationGracePeriodSeconds: 60
+      securityContext:   # the image's non-root user (task 3.1); Kubernetes refuses to start it as root
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      # Until interview_svc can log in: the Job "database-bootstrap" may still be creating it. Without this the app
+      # would fail at Flyway and restart with growing delays (CrashLoopBackOff) instead of starting when ready.
+      initContainers:
+        - name: wait-for-database-user
+          image: pgvector/pgvector:pg17   # for psql; already on the node for Postgres
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c", "until psql -c 'SELECT 1' > /dev/null 2>&1; do echo 'waiting for interview_svc'; sleep 3; done"]
+          env:
+            - name: PGHOST
+              value: postgres
+            - name: PGDATABASE
+              value: repo_interviewer
+            - name: PGCONNECT_TIMEOUT
+              value: "3"
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: interview-db
+                  key: username
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: interview-db
+                  key: password
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      containers:
+        - name: app
+          image: interview-service
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: app
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: stage,kafka
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: interview-db
+                  key: username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: interview-db
+                  key: password
+            - name: ANTHROPIC_API_KEY   # plan, questions, grades, report
+              valueFrom:
+                secretKeyRef:
+                  name: anthropic
+                  key: ANTHROPIC_API_KEY
+          # Startup: up to 5 min to boot (three JVMs booting at once on a laptop node took over 3 min). Liveness:
+          # restart only after a minute without an answer (a long GC pause or a starved node must not kill a busy
+          # JVM). Readiness: its API may get calls once the database answers.
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 3
+          lifecycle:   # on shutdown, wait 5 s first: the Service stops sending it requests before Spring stops
+            preStop:
+              sleep:
+                seconds: 5
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              memory: 768Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true   # it can write only /tmp below
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp   # Tomcat's temporary files
+          emptyDir:
+            sizeLimit: 256Mi
+---
+# InterviewApi inside the cluster, on port 8080: INTERVIEW_BASE_URL of the gateway.
+apiVersion: v1
+kind: Service
+metadata:
+  name: interview-service
+spec:
+  selector:
+    app.kubernetes.io/name: interview-service
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

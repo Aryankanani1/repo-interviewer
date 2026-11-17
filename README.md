@@ -82,28 +82,17 @@ mutation {
 
 ## Run as a container
 
-One image for every environment (`Dockerfile`, task 3.1). It builds the jar inside Docker, so no local JDK is needed, and runs as a non-root user (UID 10001).
+One image per service (`Dockerfile`, tasks 3.1 and 4.1). Each builds its jar inside Docker, so no local JDK is needed, and runs as a non-root user (UID 10001).
 ```bash
-docker build -t repo-interviewer:local .      # first build ~6 min (downloads dependencies), then seconds
+for service in graphql-gateway analysis-service interview-service; do
+  docker build --build-arg SERVICE=$service -t "${service}:local" .   # first build ~6 min, then 1.5-3 min each
+done
 ```
-Run it against the Compose infrastructure (Postgres and Kafka up, Ollama native on the host):
-```bash
-docker compose up -d && docker compose --profile kafka up -d
-docker run --rm --name ri-app --network repo-interviewer_default -p 8086:8080 --memory=1g \
-  --read-only --tmpfs /tmp:rw,size=256m --cap-drop=ALL --security-opt=no-new-privileges \
-  -e SPRING_PROFILES_ACTIVE=stage,kafka \
-  -e DB_URL=jdbc:postgresql://postgres:5432/repo_interviewer \
-  -e SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:29092 \
-  -e OLLAMA_BASE_URL=http://host.docker.internal:11434 \
-  --env-file .env \
-  repo-interviewer:local
-curl localhost:8086/actuator/health           # {"status":"UP"}
-```
-Inside the Compose network the app reaches `postgres:5432` and Kafka's internal listener `kafka:29092`; Ollama runs on the Mac itself, which a container reaches as `host.docker.internal`. `--env-file .env` passes `ANTHROPIC_API_KEY` (and `DB_USER`/`DB_PASSWORD`) at run time; the key is never in the image. The JVM heap is 75% of `--memory`. The `--read-only` and `--cap-drop` flags are optional hardening: the app only writes to `/tmp`.
+The three run together on the local Kubernetes cluster below (each with its own database login, created by a Job), or as plain processes with the three Maven commands of the quick start. Settings come from the environment, as in the table above; the API key is never in an image. The JVM heap is 75% of the container's memory limit, and the apps only write to `/tmp`, so `--read-only` and `--cap-drop=ALL` work.
 
 ## Kubernetes (local)
 
-A local [kind](https://kind.sigs.k8s.io/) cluster with Postgres and Kafka (Strimzi operator, KRaft): exact commands in [`k8s/README.md`](k8s/README.md) (task 3.2).
+A local [kind](https://kind.sigs.k8s.io/) cluster with Postgres, Kafka (Strimzi operator, KRaft), the three services and KEDA scaling them on Kafka lag: exact commands in [`k8s/README.md`](k8s/README.md) (tasks 3.2 to 3.4, one Deployment per service since task 4.1).
 
 ## Privacy
 Analyzed code is sent to the Claude API. Only submit repositories you own or that are public. The tool never builds or runs submitted code.

@@ -17,6 +17,8 @@ COPY libs/ libs/
 COPY analysis-service/ analysis-service/
 COPY interview-service/ interview-service/
 COPY graphql-gateway/ graphql-gateway/
+# Only its pom: Maven needs every listed module to read the build, but the system test is never built here.
+COPY system-test/pom.xml system-test/
 # Tests are not run or compiled here: ./mvnw verify and CI run them (Testcontainers needs a Docker daemon, which a
 # build step does not have). The cache mount keeps ~/.m2 between builds, so dependencies are downloaded only once.
 # -pl SERVICE -am: that service and the libraries it needs ("also make"), each library a plain jar in the fat jar.
