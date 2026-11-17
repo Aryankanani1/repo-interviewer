@@ -38,6 +38,8 @@
 		<!-- Newest release; built against graphql-java 24.1 while Boot 4.1.2 manages 25.1. Task 1.1 verifies DateTime. -->
 		<graphql-java-extended-scalars.version>24.0</graphql-java-extended-scalars.version>
 		<archunit.version>1.5.1</archunit.version>
+		<!-- Checked on Maven Central 2026-11-16 (task 4.2): built on spring-boot-starter-parent 4.1.2. -->
+		<springdoc.version>3.2.0</springdoc.version>
 		<!-- Tests tagged "eval" call the real model and cost money: skipped by default, run alone with -Pevals. -->
 		<test.groups></test.groups>
 		<test.excluded-groups>eval</test.excluded-groups>
@@ -105,6 +107,11 @@
 				<groupId>com.tngtech.archunit</groupId>
 				<artifactId>archunit-junit5</artifactId>
 				<version>${archunit.version}</version>
+			</dependency>
+			<dependency>
+				<groupId>org.springdoc</groupId>
+				<artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+				<version>${springdoc.version}</version>
 			</dependency>
 		</dependencies>
 	</dependencyManagement>

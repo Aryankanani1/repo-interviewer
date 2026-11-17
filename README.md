@@ -31,6 +31,7 @@ docker compose up -d            # Postgres (pgvector) on localhost:5433
 # An existing Postgres volume (from before task 4.1) needs each service's user and schema once:
 docker compose exec -T postgres psql -U ri -d repo_interviewer < analysis-service/src/main/resources/db/bootstrap.sql
 docker compose exec -T postgres psql -U ri -d repo_interviewer < interview-service/src/main/resources/db/bootstrap.sql
+# The two services' internal REST APIs (task 4.2): http://localhost:8082/swagger-ui.html, http://localhost:8084/swagger-ui.html
 ```
 
 ## Environments

@@ -77,6 +77,22 @@ management:
         readiness:
           include: readinessState,db
 
+# OpenAPI docs of the internal API (task 4.2), generated from the controller: the spec at /v3/api-docs (the Service
+# is reachable only inside the cluster), Swagger UI only in dev. Only /internal/**: not the error page.
+springdoc:
+  paths-to-match: /internal/**
+  swagger-ui:
+    enabled: false
+  open-api:
+    info:
+      title: interview-service internal API
+      description: >-
+        Interviews, for graphql-gateway. The source of truth is the Java interface contracts.interview.InterviewApi,
+        which both the controller and the gateway's HTTP client use. Expected failures before anything is saved are
+        RFC 9457 problem details with the ErrorCode in "code" and the input field in "field": 404 NOT_FOUND,
+        429 BUDGET_EXCEEDED, 503 LLM_UNAVAILABLE, 422 the others. A failure after something was saved comes back
+        inside the response, as "error" next to what was saved.
+
 logging:
   pattern:
     level: "%5p %X{projectId:-}%X{sessionId:-}"

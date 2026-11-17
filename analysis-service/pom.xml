@@ -88,6 +88,12 @@
 			<artifactId>org.eclipse.jgit</artifactId>
 		</dependency>
 
+		<!-- OpenAPI docs of the internal API (task 4.2): /v3/api-docs, Swagger UI in dev -->
+		<dependency>
+			<groupId>org.springdoc</groupId>
+			<artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+		</dependency>
+
 		<!-- Tests -->
 		<dependency>
 			<groupId>com.aryankanani</groupId>

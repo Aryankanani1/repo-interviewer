@@ -18,6 +18,10 @@ server:
   # INTERVIEW_PORT changes it for both this service and the app.
   port: ${INTERVIEW_PORT:8084}
 
+springdoc:
+  swagger-ui:
+    enabled: true   # http://localhost:8084/swagger-ui.html
+
 logging:
   level:
     com.aryankanani.repointerviewer: DEBUG

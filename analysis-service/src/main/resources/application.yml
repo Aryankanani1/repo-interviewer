@@ -77,6 +77,21 @@ management:
         readiness:
           include: readinessState,db
 
+# OpenAPI docs of the internal API (task 4.2), generated from the controller: the spec at /v3/api-docs (the Service
+# is reachable only inside the cluster), Swagger UI only in dev. Only /internal/**: not the error page.
+springdoc:
+  paths-to-match: /internal/**
+  swagger-ui:
+    enabled: false
+  open-api:
+    info:
+      title: analysis-service internal API
+      description: >-
+        Projects and their code, for graphql-gateway and interview-service. The source of truth is the Java
+        interface contracts.analysis.AnalysisApi, which both the controller and the callers' HTTP client use.
+        Expected failures are RFC 9457 problem details with the ErrorCode in "code" and the input field in
+        "field": 404 NOT_FOUND, 429 BUDGET_EXCEEDED, 503 LLM_UNAVAILABLE, 422 the others.
+
 logging:
   pattern:
     level: "%5p %X{projectId:-}%X{sessionId:-}"
