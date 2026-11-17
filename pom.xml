@@ -26,6 +26,7 @@
 		<module>analysis-service</module>
 		<module>interview-service</module>
 		<module>graphql-gateway</module>
+		<module>system-test</module>
 	</modules>
 
 	<!-- Versions verified on start.spring.io and Maven Central on 2026-10-25 (see docs/LLD.md §1). -->

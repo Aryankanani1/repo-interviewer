@@ -3,6 +3,7 @@ package com.aryankanani.repointerviewer.interview;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
+import com.aryankanani.repointerviewer.CannedLlmOutputs;
 import com.aryankanani.repointerviewer.FakeAnalysisApi;
 import com.aryankanani.repointerviewer.FakeAnalysisServer;
 import com.aryankanani.repointerviewer.FakeLlmGateway;
@@ -16,6 +17,8 @@ import com.aryankanani.repointerviewer.contracts.interview.AnswerRequest;
 import com.aryankanani.repointerviewer.contracts.interview.InterviewApi;
 import com.aryankanani.repointerviewer.contracts.interview.StartInterviewRequest;
 import com.aryankanani.repointerviewer.contracts.interview.StartResponse;
+import com.aryankanani.repointerviewer.llm.LlmPurpose;
+import com.aryankanani.repointerviewer.llm.output.EvaluationOutput;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -131,7 +134,7 @@ class WorkerCrashTest {
 		assertThat(calls).hasSize(1);
 		assertThat(calls.getFirst()).containsEntry("success", true).containsEntry("error_type", null);
 		assertThat(jdbc.queryForObject("SELECT score FROM answer WHERE question_id = ?::uuid", Integer.class,
-				questionId)).isEqualTo(9);
+				questionId)).isEqualTo(((EvaluationOutput) CannedLlmOutputs.of(LlmPurpose.EVALUATION)).score());
 		assertThat(evaluatedAt(questionId)).isNotNull();
 		assertThat(events(sessionId, AnswerFlowEvent.ANSWER_EVALUATED)).isEqualTo(1);
 		assertThat(models.evaluationRequests()).as("one killed, one answered").isEqualTo(2);

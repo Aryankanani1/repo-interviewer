@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+	<parent>
+		<groupId>com.aryankanani</groupId>
+		<artifactId>repo-interviewer</artifactId>
+		<version>0.0.1-SNAPSHOT</version>
+	</parent>
+	<artifactId>system-test</artifactId>
+	<name>system-test</name>
+	<!-- Task 4.1 step 4b (DECISIONS.md D-026): the three apps' real jars, started as processes on Testcontainers
+	     Postgres and Kafka and a fake model server, driven only through the gateway's GraphQL over HTTP. Tests only.
+	     Runs with Failsafe in "integration-test", after the apps were packaged: ./mvnw verify runs it, ./mvnw test
+	     does not (it would start stale jars). -->
+	<description>System test: graphql-gateway, analysis-service and interview-service together</description>
+
+	<dependencies>
+		<!-- Only so Maven builds and packages the three apps before this module. Type pom with every transitive
+		     dependency excluded: none of their code or libraries reaches this module's classpath. -->
+		<dependency>
+			<groupId>com.aryankanani</groupId>
+			<artifactId>analysis-service</artifactId>
+			<version>${project.version}</version>
+			<type>pom</type>
+			<scope>test</scope>
+			<exclusions>
+				<exclusion>
+					<groupId>*</groupId>
+					<artifactId>*</artifactId>
+				</exclusion>
+			</exclusions>
+		</dependency>
+		<dependency>
+			<groupId>com.aryankanani</groupId>
+			<artifactId>interview-service</artifactId>
+			<version>${project.version}</version>
+			<type>pom</type>
+			<scope>test</scope>
+			<exclusions>
+				<exclusion>
+					<groupId>*</groupId>
+					<artifactId>*</artifactId>
+				</exclusion>
+			</exclusions>
+		</dependency>
+		<dependency>
+			<groupId>com.aryankanani</groupId>
+			<artifactId>graphql-gateway</artifactId>
+			<version>${project.version}</version>
+			<type>pom</type>
+			<scope>test</scope>
+			<exclusions>
+				<exclusion>
+					<groupId>*</groupId>
+					<artifactId>*</artifactId>
+				</exclusion>
+			</exclusions>
+		</dependency>
+
+		<!-- The fakes and the fixture snapshot -->
+		<dependency>
+			<groupId>com.aryankanani</groupId>
+			<artifactId>test-support</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>com.aryankanani</groupId>
+			<artifactId>llm</artifactId>
+			<scope>test</scope>
+		</dependency>
+
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>testcontainers-postgresql</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>testcontainers-kafka</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.postgresql</groupId>
+			<artifactId>postgresql</artifactId>
+			<scope>test</scope>
+		</dependency>
+	</dependencies>
+
+	<build>
+		<plugins>
+			<!-- Even here no service's code: only the pom-type dependencies above, which order the build. -->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-enforcer-plugin</artifactId>
+				<executions>
+					<execution>
+						<id>services-stay-apart</id>
+						<configuration>
+							<rules>
+								<bannedDependencies>
+									<excludes>
+										<exclude>com.aryankanani:analysis-service:*:jar</exclude>
+										<exclude>com.aryankanani:interview-service:*:jar</exclude>
+										<exclude>com.aryankanani:graphql-gateway:*:jar</exclude>
+									</excludes>
+									<message>The system test starts the services' jars as processes; it never uses their code (DECISIONS.md D-026).</message>
+								</bannedDependencies>
+							</rules>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
+			<!-- Not in "test": it needs the packaged jars. -->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-surefire-plugin</artifactId>
+				<configuration>
+					<skip>true</skip>
+				</configuration>
+			</plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-failsafe-plugin</artifactId>
+				<configuration>
+					<includes>
+						<include>**/*SystemTest.java</include>
+					</includes>
+					<systemPropertyVariables>
+						<system.root>${maven.multiModuleProjectDirectory}</system.root>
+						<system.version>${project.version}</system.version>
+					</systemPropertyVariables>
+				</configuration>
+			</plugin>
+		</plugins>
+	</build>
+
+</project>
