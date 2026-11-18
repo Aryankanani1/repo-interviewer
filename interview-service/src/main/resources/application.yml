@@ -80,6 +80,12 @@ management:
     metrics:
       export:
         enabled: false   # the OpenTelemetry starter would also push metrics over OTLP; they stay on /actuator
+  metrics:
+    distribution:
+      percentiles-histogram:
+        ri.llm.call: true   # buckets, so Prometheus can compute p50 and p95 per purpose (task 4.3)
+      maximum-expected-value:
+        ri.llm.call: 120s   # app.llm.timeout is 60 s per request, plus the Anthropic client's retries; default 30 s
   endpoints:
     web:
       exposure:

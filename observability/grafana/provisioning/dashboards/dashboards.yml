@@ -1,0 +1,10 @@
+# Task 4.3: loads every dashboard JSON in observability/grafana/dashboards (mounted read-only) at Grafana's start.
+# Edit the JSON in the repository, not in Grafana: a change made in the UI is not saved back.
+apiVersion: 1
+providers:
+  - name: repo-interviewer
+    folder: Repo Interviewer
+    type: file
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards

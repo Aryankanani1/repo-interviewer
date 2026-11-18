@@ -58,6 +58,12 @@
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-opentelemetry</artifactId>
 		</dependency>
+		<!-- Metrics for Prometheus at /actuator/prometheus (task 4.3): the registry Boot exports to when present -->
+		<dependency>
+			<groupId>io.micrometer</groupId>
+			<artifactId>micrometer-registry-prometheus</artifactId>
+			<scope>runtime</scope>
+		</dependency>
 
 		<!-- Phase 2: Spring for Apache Kafka (versions managed by Boot: spring-kafka 4.1.2, kafka-clients 4.2.2) -->
 		<dependency>

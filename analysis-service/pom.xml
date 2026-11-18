@@ -60,6 +60,12 @@
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-opentelemetry</artifactId>
 		</dependency>
+		<!-- Metrics for Prometheus at /actuator/prometheus (task 4.3): the registry Boot exports to when present -->
+		<dependency>
+			<groupId>io.micrometer</groupId>
+			<artifactId>micrometer-registry-prometheus</artifactId>
+			<scope>runtime</scope>
+		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-flyway</artifactId>

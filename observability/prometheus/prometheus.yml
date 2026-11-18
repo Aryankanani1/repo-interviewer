@@ -1,0 +1,19 @@
+# Task 4.3: Prometheus pulls each app's metrics from /actuator/prometheus every 15 s. In dev the apps run on the Mac
+# (./mvnw spring-boot:run, README), so from this container they are host.docker.internal on their dev ports. Each job
+# is named after its app, so the dashboard can group by job.
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: graphql-gateway
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["host.docker.internal:8080"]
+  - job_name: analysis-service
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["host.docker.internal:8082"]
+  - job_name: interview-service
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["host.docker.internal:8084"]

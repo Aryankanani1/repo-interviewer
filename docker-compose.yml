@@ -96,6 +96,34 @@ services:
       - "${JAEGER_UI_PORT:-16686}:16686"
       - "${OTLP_HTTP_PORT:-4318}:4318"
 
+  # Metrics (task 4.3): Prometheus scrapes the three apps on the host every 15 s (observability/prometheus).
+  prometheus:
+    image: prom/prometheus:v3.16.0
+    profiles: ["observability"]
+    ports:
+      - "${PROMETHEUS_PORT:-9091}:9090"   # 9090 is often another project's Prometheus
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # the apps on the host: built into Docker Desktop, needed on Linux
+
+  # The dashboard (observability/grafana/dashboards) and the Prometheus and Jaeger data sources, loaded at start.
+  # http://localhost:3001, open to view without a login; admin / admin to edit.
+  grafana:
+    image: grafana/grafana:13.2.6
+    profiles: ["observability"]
+    depends_on:
+      - prometheus
+      - jaeger
+    ports:
+      - "${GRAFANA_PORT:-3001}:3000"   # 3000 is often another project's Grafana
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+
 volumes:
   pgdata:
   ollama:

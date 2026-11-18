@@ -102,7 +102,7 @@ class SpringAiLlmGatewayTest {
 					}
 				});
 		gateway = new SpringAiLlmGateway(ChatClient.builder(claude), templates, budget, ledger, settings,
-				observations);
+				observations, meters);
 	}
 
 	/** Acceptance criterion: a successful call writes one ledger row with its tokens. */
@@ -127,6 +127,8 @@ class SpringAiLlmGatewayTest {
 		assertThat(row.getAttempt()).isEqualTo(1);
 		assertThat(meters.get("ri.llm.call").tag("outcome", "success").tag("purpose", "SUMMARY").timer().count())
 				.isEqualTo(1);
+		assertThat(tokens("input")).isEqualTo(StubChatModel.INPUT_TOKENS);   // task 4.3
+		assertThat(tokens("output")).isEqualTo(StubChatModel.OUTPUT_TOKENS);
 	}
 
 	/** Task 4.3: each attempt is one observation, so a trace shows the call as a span named after its purpose. */
@@ -274,6 +276,12 @@ class SpringAiLlmGatewayTest {
 				VALUES (?, 'IN_PROGRESS', 'JUNIOR', 5, ?)
 				RETURNING id
 				""", UUID.class, project, callsUsed);
+	}
+
+	/** {@code ri.llm.tokens} of the SUMMARY calls, by type. */
+	private double tokens(String type) {
+		return meters.get("ri.llm.tokens").tag("purpose", "SUMMARY").tag("model", "claude-haiku-4-5")
+				.tag("type", type).counter().count();
 	}
 
 	private List<LlmCall> rows() {

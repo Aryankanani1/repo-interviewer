@@ -10,6 +10,8 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -22,7 +24,11 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.MethodOrderer;
@@ -44,7 +50,7 @@ import tools.jackson.databind.json.JsonMapper;
  * {@code system-test/target/system-*.log}.
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-@TestMethodOrder(MethodOrderer.OrderAnnotation.class)   // 3 reads 2's trace; the last two stop the services
+@TestMethodOrder(MethodOrderer.OrderAnnotation.class)   // 3 and 4 read what 2 left; the last two stop the services
 class InterviewSystemTest {
 
 	private static final String ANALYSIS_UNAVAILABLE = "The analysis service is not available right now. "
@@ -191,9 +197,43 @@ class InterviewSystemTest {
 		});
 	}
 
-	/** Each service owns the tables of its schema, and the gateway made none (it has no database). */
+	/**
+	 * Task 4.3: after the interview, each app serves its metrics to Prometheus: interview-service the model calls'
+	 * latency histogram and tokens per purpose and its workers' lag per partition, every app its consumers' lag. Every
+	 * metric the Grafana dashboard queries is among them, so the dashboard cannot drift from the code. And these
+	 * scrapes, like the readiness probes at the start, made no traces.
+	 */
 	@Test
 	@Order(4)
+	void eachAppServesTheMetricsTheDashboardQueries() throws Exception {
+		String analysis = get(apps.analysisService().url() + "/actuator/prometheus");
+		String gateway = get(apps.gatewayUrl() + "/actuator/prometheus");
+		// A consumer's lag per partition exists once it has fetched records there, and Micrometer looks for a Kafka
+		// client's new metrics every 60 s: the interview's workers read records, so it appears within a minute.
+		String interview = await().atMost(Duration.ofSeconds(75)).pollInterval(Duration.ofSeconds(2))
+				.until(() -> get(apps.interviewService().url() + "/actuator/prometheus"),
+						metrics -> metrics.contains("kafka_consumer_fetch_manager_records_lag{"));
+
+		assertThat(interview).contains("ri_llm_call_seconds_bucket{")
+				.containsPattern("ri_llm_tokens_total\\{[^}]*purpose=\"EVALUATION\"");
+		assertThat(List.of(interview, analysis, gateway))   // each consumer's own lag, from its start
+				.allSatisfy(metrics -> assertThat(metrics).contains("kafka_consumer_fetch_manager_records_lag_max{"));
+		Set<String> queried = dashboardMetrics();
+		String scraped = interview + analysis + gateway;
+		assertThat(queried).isNotEmpty().allSatisfy(metric -> assertThat(scraped).as("queried by the dashboard")
+				.containsPattern("(?m)^" + metric + "[{ ]"));
+		for (String service : List.of("graphql-gateway", "analysis-service", "interview-service")) {
+			List<String> operations = new ArrayList<>();   // Jaeger 2's v3 API: {"operations": [{"name": ...}]}
+			JsonMapper.builder().build().readTree(get(apps.jaegerUrl() + "/api/v3/operations?service=" + service))
+					.path("operations").forEach(operation -> operations.add(operation.path("name").asString()));
+			assertThat(operations).as(service).anyMatch(name -> name.startsWith("http "))
+					.noneMatch(name -> name.contains("actuator"));
+		}
+	}
+
+	/** Each service owns the tables of its schema, and the gateway made none (it has no database). */
+	@Test
+	@Order(5)
 	void eachServiceOwnsItsSchemaAndTheGatewayHasNone() throws Exception {
 		assertThat(count("""
 				SELECT count(*) FROM pg_tables WHERE schemaname = 'analysis' AND tableowner <> 'analysis_svc'
@@ -211,7 +251,7 @@ class InterviewSystemTest {
 	 * own call for projects fails the same way; what interview-service holds is still served.
 	 */
 	@Test
-	@Order(5)
+	@Order(6)
 	void withAnalysisServiceDownAStartFailsFastWithAClearError() throws Exception {
 		apps.analysisService().stop();
 
@@ -239,7 +279,7 @@ class InterviewSystemTest {
 
 	/** interview-service stopped too: the gateway still answers at once, with the same clear error for it. */
 	@Test
-	@Order(6)
+	@Order(7)
 	void withInterviewServiceDownTheGatewayStillAnswersAtOnce() throws Exception {
 		apps.interviewService().stop();
 
@@ -256,16 +296,37 @@ class InterviewSystemTest {
 
 	/** @return each span of the trace in Jaeger as "service: operation", empty while Jaeger has none of it */
 	private List<String> spansOf(String traceId) throws Exception {
-		try (HttpClient http = HttpClient.newHttpClient()) {
-			String body = http.send(HttpRequest.newBuilder(URI.create(apps.jaegerUrl() + "/api/traces/" + traceId))
-					.build(), HttpResponse.BodyHandlers.ofString()).body();
-			JsonNode trace = JsonMapper.builder().build().readTree(body).at("/data/0");
-			List<String> spans = new ArrayList<>();
-			for (JsonNode span : trace.path("spans")) {
-				String service = trace.at("/processes/" + span.get("processID").asString() + "/serviceName").asString();
-				spans.add(service + ": " + span.get("operationName").asString());
+		JsonNode trace = JsonMapper.builder().build().readTree(get(apps.jaegerUrl() + "/api/traces/" + traceId))
+				.at("/data/0");
+		List<String> spans = new ArrayList<>();
+		for (JsonNode span : trace.path("spans")) {
+			String service = trace.at("/processes/" + span.get("processID").asString() + "/serviceName").asString();
+			spans.add(service + ": " + span.get("operationName").asString());
+		}
+		return spans;
+	}
+
+	/** The metric names in the Grafana dashboard's queries (observability/grafana/dashboards, task 4.3). */
+	private static Set<String> dashboardMetrics() throws Exception {
+		Path dashboard = Path.of(System.getProperty("system.root", ".."),
+				"observability/grafana/dashboards/repo-interviewer.json");
+		Set<String> metrics = new TreeSet<>();
+		for (JsonNode panel : JsonMapper.builder().build().readTree(Files.readString(dashboard)).path("panels")) {
+			for (JsonNode target : panel.path("targets")) {
+				Matcher metric = Pattern.compile("\\b(?:ri|kafka|http|jvm|process)_[a-z0-9_]+")
+						.matcher(target.path("expr").asString());
+				while (metric.find()) {
+					metrics.add(metric.group());
+				}
 			}
-			return spans;
+		}
+		return metrics;
+	}
+
+	private static String get(String url) throws Exception {
+		try (HttpClient http = HttpClient.newHttpClient()) {
+			return http.send(HttpRequest.newBuilder(URI.create(url)).build(), HttpResponse.BodyHandlers.ofString())
+					.body();
 		}
 	}
 
