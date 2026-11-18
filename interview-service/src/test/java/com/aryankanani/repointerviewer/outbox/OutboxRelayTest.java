@@ -240,14 +240,17 @@ class OutboxRelayTest {
 				.doesNotContain(request.context().spanId());
 	}
 
-	/** The timer the other tests slow down: wired, with app.outbox.poll-interval as its delay. */
+	/** The timer the other tests slow down: wired, with app.outbox.poll-interval as its delay and its first wait. */
 	@Test
 	void theRelayPollsOnAFixedDelay() {
 		assertThat(scheduled.stream().flatMap(holder -> holder.getScheduledTasks().stream()))
 				.filteredOn(task -> task.toString().endsWith("OutboxRelay.poll"))
 				.singleElement()
 				.satisfies(task -> assertThat(task.getTask()).isInstanceOfSatisfying(FixedDelayTask.class,
-						delay -> assertThat(delay.getIntervalDuration()).isEqualTo(Duration.ofHours(1))));
+						delay -> {
+							assertThat(delay.getIntervalDuration()).isEqualTo(Duration.ofHours(1));
+							assertThat(delay.getInitialDelayDuration()).isEqualTo(Duration.ofHours(1));   // no poll at startup
+						}));
 	}
 
 	private UUID writeCommitted(UUID aggregate) {

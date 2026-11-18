@@ -69,8 +69,12 @@ class OutboxRelay {
 		this.batchSize = settings.batchSize();
 	}
 
-	/** {@code fixedDelay}: the next poll starts an interval after this one ended, so polls never overlap. */
-	@Scheduled(fixedDelayString = "${app.outbox.poll-interval}")
+	/**
+	 * {@code fixedDelay}: the next poll starts an interval after this one ended, so polls never overlap. The first one
+	 * waits an interval too: without it, a fixed delay polls once at startup, and in tests (an hour) that one poll
+	 * could run late, in the middle of a test that pumps the outbox itself, and take its events (seen in CI, 4.3b).
+	 */
+	@Scheduled(fixedDelayString = "${app.outbox.poll-interval}", initialDelayString = "${app.outbox.poll-interval}")
 	void poll() {
 		publishBatch();
 	}
