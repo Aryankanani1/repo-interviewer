@@ -123,3 +123,36 @@ Found on the way:
 1. **2 of 7 plans rejected.** "Could not plan questions grounded in this repository's code": the PLAN reply failed `TopicValidator` and the session ended in PLANNING. The same repository planned fine in task 3.3; one rejected plan ends a session with no retry.
 2. **A transient failure of Ollama ended a session.** Under the load, a pod could not resolve `host.docker.internal` for one embedding call (the orchestrator's retrieval for the next question). `ResourceAccessException` is not retryable (DECISIONS.md D-019), so the event went to the dead-letter topic and the session FAILED ("The interview could not continue"). Embedding errors should be retried like an unavailable model.
 3. **KEDA could not read the lag for short spells**: Kafka answered "consumer group not coordinated by this broker" while groups rebalanced and while the node was overloaded; the HPA kept its last decision meanwhile.
+
+## One answer, traced across the three services (task 4.3, 2026-11-18)
+
+Acceptance criterion of task 4.3: one trace covering a full `submitAnswer`. The three apps in dev with Kafka (`dev,kafka`, commit `d74e90e`), Compose Postgres and Kafka, Jaeger, Prometheus and Grafana (`docker compose --profile kafka --profile observability up -d`), Ollama on the Mac, the real Claude models. The eval repository (`aryankanani1/shopping-cart-spring-security`) analyzed first (READY in about 5 minutes, one SUMMARY call), then an interview of 3 questions started (38 s: PLAN, then the first question) and one answer sent with a W3C `traceparent` of our own, so the trace could be found by its id.
+
+![Jaeger: the trace of one submitAnswer across graphql-gateway, interview-service and analysis-service](images/4.3-submitAnswer-trace.png)
+
+One trace, 33 spans, 3 services, 53.7 s from the request to the gateway forwarding the next question (Jaeger marks it "Incomplete" because its root's parent is the `traceparent` sent by `curl`, which recorded no span):
+
+| From the start of `submitAnswer` | Span | Took |
+|---|---|---|
+| 0.00 s | graphql-gateway `http post /graphql` (the request: the answer is saved and AnswerSubmitted written) | 0.25 s |
+| 0.09 s | interview-service `http post /internal/questions/{id}/answer` | 0.15 s |
+| 0.56 s | interview-service `outbox AnswerSubmitted` (the relay's next poll, then the send) | 0.30 s |
+| 0.87 s | interview-service `interview.answer.submitted process` (the evaluation worker) | 10.75 s |
+| 0.92 s | analysis-service `http post /internal/projects/{id}/chunks/ranges` (the code to grade against) | 0.06 s |
+| 1.00 s | interview-service `llm EVALUATION` | 10.45 s |
+| 11.65 s | interview-service `outbox AnswerEvaluated` | 0.05 s |
+| 11.71 s | interview-service `interview.answer.evaluated process` (the orchestrator) | 41.62 s |
+| 11.78 s | analysis-service `http post /internal/projects/{id}/chunks/search` (with a 0.25 s Ollama embedding) | 0.40 s |
+| 11.94 s | graphql-gateway `interview.answer.evaluated process` (the grade to the subscription) | 0.08 s |
+| 12.27 s | interview-service `llm QUESTION` | 40.97 s |
+| 53.65 s | interview-service `outbox QuestionReady` | 0.03 s |
+| 53.70 s | graphql-gateway `interview.question.ready process` (the next question to the subscription) | 0.01 s |
+
+What it shows:
+- **The model is the time.** Of 53.7 s, 51.4 s are the two model calls; everything the services do around them (HTTP between them, the outbox, Kafka, the code lookups, the embedding) adds up to about 2.3 s, and the slowest single piece is the outbox's wait for its next poll (up to 500 ms).
+- **A prefetch race made the candidate wait 40 s for nothing.** The next question (topic 2) was being prefetched since the first question was asked, and was saved 2 s after the orchestrator, finding none, had started its own QUESTION call. When that call ended 41 s later, the orchestrator found the prefetched question and asked it (as LLD §9.4 says: "the second waits for the first and uses its question"), so its own call was wasted. Correct, but while the grade reached the gateway after 11.9 s, the next question came after 53.7 s instead of about 14 s (when the prefetched one was saved). A follow-up: when a prefetch for the topic is running, wait for it instead of generating a second question.
+- The prefetch itself runs on its own executor, so its QUESTION call is a trace of its own, not part of this one (DECISIONS.md D-028).
+
+Model calls of this session (`interview.llm_call`): PLAN 12.0 s, QUESTION 19.7 s (first question), EVALUATION 10.5 s, QUESTION 24.6 s (the prefetch of question 2), QUESTION 41.0 s (the wasted one), QUESTION 21.1 s (the prefetch of question 3), all successful; 57.9k input and 11.6k output tokens on Sonnet, about $0.23 at $2 / $10 per MTok. Plus the analysis's SUMMARY on Haiku (17.3k input, 1.3k output tokens).
+
+The screenshot was taken with headless Chrome from Jaeger's trace page (`--screenshot`, 1800 × 1300), so it shows span names and timings only: no prompt, answer or score.
