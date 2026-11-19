@@ -37,6 +37,16 @@ docker compose exec -T postgres psql -U ri -d repo_interviewer < interview-servi
 docker compose --profile observability up -d
 ```
 
+### Tokens for local use (task 4.4)
+Every GraphQL request needs a JWT (`Authorization: Bearer <token>`), signed RS256 with a key the gateway trusts. Locally that is your own key pair, kept in `.dev-keys/` (gitignored, never committed):
+```bash
+mkdir -p .dev-keys
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out .dev-keys/jwt-private.pem
+openssl pkey -in .dev-keys/jwt-private.pem -pubout -out .dev-keys/jwt-public.pem
+java scripts/DevToken.java            # a token for "local-dev", valid 8 hours; "alice 30": alice, 30 minutes
+```
+In GraphiQL, put `{"Authorization": "Bearer <token>"}` in the headers editor. Each user sees only their own projects and interviews; those from before task 4.4 belong to `local-dev`. The gateway's dev profile reads `.dev-keys/jwt-public.pem` (`JWT_PUBLIC_KEY_LOCATION` changes it); stage and prod must set `JWT_PUBLIC_KEY_LOCATION`.
+
 ## Environments
 Code moves **dev → test → stage → prod**. `application.yml` holds the defaults every environment starts from; each environment's file overrides it ([`docs/DECISIONS.md`](docs/DECISIONS.md) D-015).
 

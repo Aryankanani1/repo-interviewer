@@ -220,7 +220,7 @@ class AnalysisJobTest {
 	private UUID submitted(String repo) {
 		GithubUrl url = GithubUrl.parse("https://github.com/acme/" + repo);
 		Project project = new Project(url, new RemoteHead(LocalDirectoryRepoFetcher.DEFAULT_SHA, "main"),
-				new SubmitProjectCommand(url.normalized(), "Learn Spring Boot", null, null));
+				new SubmitProjectCommand("user-a", url.normalized(), "Learn Spring Boot", null, null));
 		return projects.save(project).getId();
 	}
 

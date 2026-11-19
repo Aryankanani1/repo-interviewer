@@ -134,7 +134,8 @@ public class InterviewService {
 				: List.copyOf(new LinkedHashSet<>(command.focusAreas()));
 
 		InterviewSession created = transaction.execute(
-				status -> sessions.save(new InterviewSession(project.id(), difficulty, focusAreas, count)));
+				status -> sessions.save(new InterviewSession(command.userId(), project.id(), difficulty, focusAreas,
+						count)));
 		UUID sessionId = created.getId();
 		MDC.put("sessionId", sessionId.toString());
 		try {

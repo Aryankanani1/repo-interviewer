@@ -76,7 +76,7 @@ class InterviewApiControllerTest {
 		llm.enqueue(LlmPurpose.QUESTION, question("Why does refund take a RefundRequest body?"));
 
 		start("""
-				{"projectId": "%s", "difficulty": "MID", "focusAreas": ["SECURITY"], "questionCount": 3}
+				{"userId": "user-a", "projectId": "%s", "difficulty": "MID", "focusAreas": ["SECURITY"], "questionCount": 3}
 				""".formatted(project))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.session.projectId").value(project.toString()))
@@ -95,12 +95,24 @@ class InterviewApiControllerTest {
 	@Test
 	void aFailureBeforeTheSessionExistsIsAProblemDetail() throws Exception {
 		start("""
-				{"projectId": "%s"}
+				{"userId": "user-a", "projectId": "%s"}
 				""".formatted(UUID.randomUUID()))
 				.andExpect(status().isNotFound())
 				.andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
 				.andExpect(jsonPath("$.code").value("NOT_FOUND"))
 				.andExpect(jsonPath("$.field").value("projectId"));
+	}
+
+	/** Task 4.4: the gateway always says whose session it is; without that, nothing is saved. */
+	@Test
+	void aStartWithoutAUserIsA422OnUserId() throws Exception {
+		start("""
+				{"projectId": "%s"}
+				""".formatted(project))
+				.andExpect(status().isUnprocessableContent())
+				.andExpect(jsonPath("$.code").value("INVALID_INPUT"))
+				.andExpect(jsonPath("$.field").value("userId"));
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM interview_session", Integer.class)).isZero();
 	}
 
 	/** Task 4.2: analysis-service down (its client's ServiceCallGuard gave up), before any session is saved. */
@@ -109,7 +121,7 @@ class InterviewApiControllerTest {
 		fixture.failNextCall(new ServiceUnavailableException(UNAVAILABLE));
 
 		start("""
-				{"projectId": "%s"}
+				{"userId": "user-a", "projectId": "%s"}
 				""".formatted(project))
 				.andExpect(status().isServiceUnavailable())
 				.andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
@@ -126,7 +138,7 @@ class InterviewApiControllerTest {
 		}
 
 		start("""
-				{"projectId": "%s"}
+				{"userId": "user-a", "projectId": "%s"}
 				""".formatted(project))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.session.status").value("FAILED"))
@@ -222,7 +234,7 @@ class InterviewApiControllerTest {
 	private String startedQuestion() throws Exception {
 		llm.enqueue(LlmPurpose.QUESTION, question("Why does refund take a RefundRequest body?"));
 		String body = start("""
-				{"projectId": "%s"}
+				{"userId": "user-a", "projectId": "%s"}
 				""".formatted(project)).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
 		return JsonPath.read(body, "$.firstQuestion.id");
 	}

@@ -9,6 +9,7 @@ import com.aryankanani.repointerviewer.FakeAnalysisServer;
 import com.aryankanani.repointerviewer.FakeLlmGateway;
 import com.aryankanani.repointerviewer.FakeModelServer;
 import com.aryankanani.repointerviewer.KafkaIntegrationTest;
+import com.aryankanani.repointerviewer.TestUsers;
 import com.aryankanani.repointerviewer.TestcontainersConfiguration;
 import com.aryankanani.repointerviewer.WorkerProcess;
 import com.aryankanani.repointerviewer.common.messaging.Topics;
@@ -108,7 +109,8 @@ class WorkerCrashTest {
 	@Test
 	void aWorkerKilledDuringTheEvaluationCallIsRestartedAndTheAnswerIsGradedOnce() throws Exception {
 		models.holdFirstEvaluation();
-		StartResponse started = interviews.start(new StartInterviewRequest(fixture.readyProject(), null, null, 3));
+		StartResponse started = interviews.start(new StartInterviewRequest(TestUsers.CANDIDATE,
+				fixture.readyProject(), null, null, 3));
 		String sessionId = started.session().id().toString();
 		UUID question = started.firstQuestion().id();
 		String questionId = question.toString();

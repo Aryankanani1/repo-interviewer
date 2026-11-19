@@ -10,6 +10,7 @@ import static com.aryankanani.repointerviewer.interview.QuestionPrefetcherTest.s
 import com.aryankanani.repointerviewer.FakeAnalysisApi;
 import com.aryankanani.repointerviewer.FakeLlmGateway;
 import com.aryankanani.repointerviewer.IntegrationTest;
+import com.aryankanani.repointerviewer.TestUsers;
 import com.aryankanani.repointerviewer.llm.LlmPurpose;
 import java.time.Duration;
 import java.util.UUID;
@@ -60,7 +61,8 @@ class QuestionPrefetchBackgroundTest {
 				ORDER + "OrderController.java", 27, 30));
 		llm.enqueue(LlmPurpose.QUESTION, secondTopicQuestion());   // taken by the background prefetch
 
-		StartResult started = interviewService.start(new StartInterviewCommand(project, null, null, null));
+		StartResult started = interviewService.start(new StartInterviewCommand(TestUsers.CANDIDATE,
+				project, null, null, null));
 
 		InterviewTopic secondTopic = topics.findBySessionIdOrderByOrderIndex(started.session().getId()).get(1);
 		await().atMost(Duration.ofSeconds(10))

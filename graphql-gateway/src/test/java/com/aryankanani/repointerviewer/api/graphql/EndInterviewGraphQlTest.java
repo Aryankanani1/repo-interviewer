@@ -117,7 +117,8 @@ class EndInterviewGraphQlTest {
 	}
 
 	private SessionDto ended(InterviewReport report) {
-		return new SessionDto(session.id(), session.projectId(), SessionStatus.ABANDONED, session.difficulty(),
+		return new SessionDto(session.id(), session.userId(), session.projectId(), SessionStatus.ABANDONED,
+				session.difficulty(),
 				session.focusAreas(), session.plannedQuestionCount(), null, report, session.startedAt(),
 				Instant.now(), null);
 	}

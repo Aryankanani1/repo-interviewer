@@ -24,6 +24,9 @@ secretGenerator:
     literals:
       - username=interview_svc
       - password=interview_svc
+  - name: jwt-public-key   # task 4.4: the public half of your local dev key pair (README "Tokens for local use")
+    files:
+      - jwt-public.pem=../../../.dev-keys/jwt-public.pem
 # The images built locally and loaded into the node (k8s/README.md), not from a registry: one per service.
 images:
   - name: graphql-gateway

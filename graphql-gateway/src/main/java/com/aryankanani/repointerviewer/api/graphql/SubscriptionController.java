@@ -2,8 +2,11 @@ package com.aryankanani.repointerviewer.api.graphql;
 
 import com.aryankanani.repointerviewer.api.events.InterviewEvent;
 import com.aryankanani.repointerviewer.api.events.InterviewEventStream;
+import com.aryankanani.repointerviewer.api.security.CurrentUser;
+import com.aryankanani.repointerviewer.api.security.Ownership;
 import com.aryankanani.repointerviewer.contracts.interview.InterviewApi;
 import com.aryankanani.repointerviewer.contracts.interview.QuestionDto;
+import java.security.Principal;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
@@ -29,18 +32,22 @@ class SubscriptionController {
 
 	private final InterviewApi interviews;
 
-	SubscriptionController(InterviewEventStream stream, InterviewApi interviews) {
+	private final Ownership ownership;
+
+	SubscriptionController(InterviewEventStream stream, InterviewApi interviews, Ownership ownership) {
 		this.stream = stream;
 		this.interviews = interviews;
+		this.ownership = ownership;
 	}
 
 	/**
 	 * {@code interviewEvents(sessionId: ID!): InterviewEvent!}: this session's events from now on, none from before.
 	 * The reads (blocking calls) run on Reactor's thread pool for blocking work, not on the Kafka listener thread
-	 * that emits.
+	 * that emits. Only the session's own user may subscribe (task 4.4): checked once, before the stream opens.
 	 */
 	@SubscriptionMapping
-	Flux<InterviewEventView> interviewEvents(@Argument UUID sessionId) {
+	Flux<InterviewEventView> interviewEvents(@Argument UUID sessionId, Principal user) {
+		ownership.session(sessionId, CurrentUser.id(user));
 		return stream.forSession(sessionId).publishOn(Schedulers.boundedElastic()).map(this::view);
 	}
 

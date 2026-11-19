@@ -272,8 +272,9 @@ class SpringAiLlmGatewayTest {
 
 	private UUID newSession(int callsUsed) {
 		return jdbc.queryForObject("""
-				INSERT INTO interview_session (project_id, status, difficulty, planned_question_count, llm_call_count)
-				VALUES (?, 'IN_PROGRESS', 'JUNIOR', 5, ?)
+				INSERT INTO interview_session (user_id, project_id, status, difficulty, planned_question_count,
+				                               llm_call_count)
+				VALUES ('user-a', ?, 'IN_PROGRESS', 'JUNIOR', 5, ?)
 				RETURNING id
 				""", UUID.class, project, callsUsed);
 	}

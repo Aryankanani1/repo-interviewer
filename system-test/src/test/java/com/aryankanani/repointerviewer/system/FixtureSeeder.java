@@ -2,6 +2,7 @@ package com.aryankanani.repointerviewer.system;
 
 import com.aryankanani.repointerviewer.FakeModelServer;
 import com.aryankanani.repointerviewer.FixtureAnalysis;
+import com.aryankanani.repointerviewer.TestUsers;
 import com.aryankanani.repointerviewer.contracts.analysis.ProjectDto;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -71,21 +72,22 @@ final class FixtureSeeder {
 	private static UUID insertProject(Connection db, FixtureAnalysis fixture) throws SQLException {
 		ProjectDto.Stats stats = fixture.stats();
 		try (PreparedStatement insert = db.prepareStatement("""
-				INSERT INTO project (github_url, owner, repo_name, commit_sha, status, file_count, java_file_count,
-				    total_lines, chunk_count, primary_language, summary, repo_map, analysis_started_at,
-				    analysis_completed_at)
-				VALUES ('https://github.com/acme/shop', 'acme', 'shop', ?, 'READY', ?, ?, ?, ?, ?, CAST(? AS jsonb), ?,
-				    now(), now())
+				INSERT INTO project (user_id, github_url, owner, repo_name, commit_sha, status, file_count,
+				    java_file_count, total_lines, chunk_count, primary_language, summary, repo_map,
+				    analysis_started_at, analysis_completed_at)
+				VALUES (?, 'https://github.com/acme/shop', 'acme', 'shop', ?, 'READY', ?, ?, ?, ?, ?, CAST(? AS jsonb),
+				    ?, now(), now())
 				RETURNING id
 				""")) {
-			insert.setString(1, "1".repeat(40));
-			insert.setInt(2, stats.fileCount());
-			insert.setInt(3, stats.javaFileCount());
-			insert.setInt(4, stats.totalLines());
-			insert.setInt(5, stats.chunkCount());
-			insert.setString(6, stats.primaryLanguage());
-			insert.setString(7, JSON.writeValueAsString(fixture.summary()));
-			insert.setString(8, fixture.repoMap());
+			insert.setString(1, TestUsers.CANDIDATE);   // task 4.4: the user the system test's token names
+			insert.setString(2, "1".repeat(40));
+			insert.setInt(3, stats.fileCount());
+			insert.setInt(4, stats.javaFileCount());
+			insert.setInt(5, stats.totalLines());
+			insert.setInt(6, stats.chunkCount());
+			insert.setString(7, stats.primaryLanguage());
+			insert.setString(8, JSON.writeValueAsString(fixture.summary()));
+			insert.setString(9, fixture.repoMap());
 			return returnedId(insert);
 		}
 	}

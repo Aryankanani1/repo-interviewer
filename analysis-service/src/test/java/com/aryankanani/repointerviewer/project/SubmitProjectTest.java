@@ -34,6 +34,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 @IntegrationTest
 class SubmitProjectTest {
 
+	private static final String USER = "user-a";
+
 	private final AnalysisApi analysis;
 
 	private final JdbcTemplate jdbc;
@@ -110,11 +112,12 @@ class SubmitProjectTest {
 				Connection winner = dataSource.getConnection()) {
 			winner.setAutoCommit(false);
 			try (PreparedStatement insert = winner.prepareStatement("""
-					INSERT INTO project (id, github_url, owner, repo_name, commit_sha, status)
-					VALUES (?, 'https://github.com/acme/shop', 'acme', 'shop', ?, 'SUBMITTED')
+					INSERT INTO project (id, user_id, github_url, owner, repo_name, commit_sha, status)
+					VALUES (?, ?, 'https://github.com/acme/shop', 'acme', 'shop', ?, 'SUBMITTED')
 					""")) {
 				insert.setObject(1, winnerId);
-				insert.setString(2, LocalDirectoryRepoFetcher.DEFAULT_SHA);
+				insert.setString(2, USER);
+				insert.setString(3, LocalDirectoryRepoFetcher.DEFAULT_SHA);
 				insert.executeUpdate();
 			}
 
@@ -138,6 +141,20 @@ class SubmitProjectTest {
 		assertThat(projectCount()).isEqualTo(2);
 	}
 
+	/** Task 4.4: a project is its user's, so another user's submit of the same commit is a project of its own. */
+	@Test
+	void anotherUserSubmittingTheSameCommitGetsTheirOwnProject() {
+		ProjectDto mine = submit("https://github.com/acme/shop");
+		ProjectDto theirs = analysis.submit(new SubmitProjectRequest("user-b", "https://github.com/acme/shop", null,
+				null, null));
+
+		assertThat(theirs.id()).isNotEqualTo(mine.id());
+		assertThat(mine.userId()).isEqualTo(USER);
+		assertThat(theirs.userId()).isEqualTo("user-b");
+		assertThat(projectCount()).isEqualTo(2);
+		assertThat(pipeline.starts()).hasSize(2);   // each is analyzed
+	}
+
 	@Test
 	void missingRepositoryIsRepoNotFoundOnTheGithubUrlField() {
 		repoFetcher.markMissing("acme/private-repo");
@@ -155,9 +172,9 @@ class SubmitProjectTest {
 	void failedProjectForTheSameCommitIsReturnedWithItsReason() {
 		UUID failedId = UUID.randomUUID();
 		jdbc.update("""
-				INSERT INTO project (id, github_url, owner, repo_name, commit_sha, status, failure_reason)
-				VALUES (?, 'https://github.com/acme/shop', 'acme', 'shop', ?, 'FAILED', 'Clone timed out')
-				""", failedId, LocalDirectoryRepoFetcher.DEFAULT_SHA);
+				INSERT INTO project (id, user_id, github_url, owner, repo_name, commit_sha, status, failure_reason)
+				VALUES (?, ?, 'https://github.com/acme/shop', 'acme', 'shop', ?, 'FAILED', 'Clone timed out')
+				""", failedId, USER, LocalDirectoryRepoFetcher.DEFAULT_SHA);
 
 		ProjectDto project = submit("https://github.com/acme/shop");
 
@@ -169,7 +186,7 @@ class SubmitProjectTest {
 
 	@Test
 	void contextTextIsTrimmedCappedAndBlankBecomesNull() {
-		ProjectDto project = analysis.submit(new SubmitProjectRequest("https://github.com/acme/shop",
+		ProjectDto project = analysis.submit(new SubmitProjectRequest(USER, "https://github.com/acme/shop",
 				"  " + "x".repeat(600) + "  ", "   ", null));
 
 		assertThat(project.goal()).isEqualTo("x".repeat(500));
@@ -177,7 +194,7 @@ class SubmitProjectTest {
 	}
 
 	private ProjectDto submit(String githubUrl) {
-		return analysis.submit(new SubmitProjectRequest(githubUrl, null, null, null));
+		return analysis.submit(new SubmitProjectRequest(USER, githubUrl, null, null, null));
 	}
 
 	private int projectCount() {

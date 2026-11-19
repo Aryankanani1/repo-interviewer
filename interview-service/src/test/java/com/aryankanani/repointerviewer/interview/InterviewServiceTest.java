@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.aryankanani.repointerviewer.FakeAnalysisApi;
 import com.aryankanani.repointerviewer.FakeLlmGateway;
 import com.aryankanani.repointerviewer.IntegrationTest;
+import com.aryankanani.repointerviewer.TestUsers;
 import com.aryankanani.repointerviewer.common.error.DomainException;
 import com.aryankanani.repointerviewer.common.error.ErrorCode;
 import com.aryankanani.repointerviewer.contracts.interview.CodeRef;
@@ -238,7 +239,8 @@ class InterviewServiceTest {
 	void aProjectThatIsNotReadyCannotBeInterviewedAbout() {
 		UUID parsing = fixture.newProject();   // status PARSING
 
-		assertThatThrownBy(() -> interviewService.start(new StartInterviewCommand(parsing, null, null, null)))
+		assertThatThrownBy(() -> interviewService.start(new StartInterviewCommand(TestUsers.CANDIDATE,
+				parsing, null, null, null)))
 				.isInstanceOfSatisfying(DomainException.class, ex -> {
 					assertThat(ex.code()).isEqualTo(ErrorCode.PROJECT_NOT_READY);
 					assertThat(ex.field()).contains("projectId");
@@ -262,7 +264,8 @@ class InterviewServiceTest {
 
 	@Test
 	void anUnknownProjectIsNotFound() {
-		assertThatThrownBy(() -> interviewService.start(new StartInterviewCommand(UUID.randomUUID(), null, null, null)))
+		assertThatThrownBy(() -> interviewService.start(new StartInterviewCommand(TestUsers.CANDIDATE,
+				UUID.randomUUID(), null, null, null)))
 				.isInstanceOfSatisfying(DomainException.class,
 						ex -> assertThat(ex.code()).isEqualTo(ErrorCode.NOT_FOUND));
 	}
@@ -271,7 +274,8 @@ class InterviewServiceTest {
 	void focusAreasAreStoredOnceEachAndSentToThePlan() {
 		llm.enqueue(LlmPurpose.QUESTION, question("Why?", new CodeRefOutput(ORDER + "OrderController.java", 27, 30)));
 
-		StartResult result = interviewService.start(new StartInterviewCommand(project, Difficulty.MID,
+		StartResult result = interviewService.start(new StartInterviewCommand(TestUsers.CANDIDATE,
+				project, Difficulty.MID,
 				List.of(QuestionCategory.CONCURRENCY, QuestionCategory.TESTING, QuestionCategory.CONCURRENCY), 3));
 
 		assertThat(result.session().getFocusAreas()).containsExactly(QuestionCategory.CONCURRENCY, QuestionCategory.TESTING);
@@ -280,7 +284,7 @@ class InterviewServiceTest {
 	}
 
 	private StartInterviewCommand command(Integer questionCount) {
-		return new StartInterviewCommand(project, null, null, questionCount);
+		return new StartInterviewCommand(TestUsers.CANDIDATE, project, null, null, questionCount);
 	}
 
 	private int sessionCount() {

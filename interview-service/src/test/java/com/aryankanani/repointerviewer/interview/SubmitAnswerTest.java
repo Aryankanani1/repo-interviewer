@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.aryankanani.repointerviewer.FakeAnalysisApi;
 import com.aryankanani.repointerviewer.FakeLlmGateway;
 import com.aryankanani.repointerviewer.IntegrationTest;
+import com.aryankanani.repointerviewer.TestUsers;
 import com.aryankanani.repointerviewer.common.error.DomainException;
 import com.aryankanani.repointerviewer.common.error.ErrorCode;
 import com.aryankanani.repointerviewer.contracts.interview.AnswerVerdict;
@@ -70,7 +71,8 @@ class SubmitAnswerTest {
 		UUID project = fixture.readyProject();
 		llm.enqueue(LlmPurpose.QUESTION, question("Why does OrderController#refund take a RefundRequest body?",
 				ORDER + "OrderController.java", 27, 30));
-		StartResult started = interviewService.start(new StartInterviewCommand(project, null, null, null));
+		StartResult started = interviewService.start(new StartInterviewCommand(TestUsers.CANDIDATE,
+				project, null, null, null));
 		session = started.session();
 		first = started.firstQuestion();
 		llm.reset();   // count only the calls made by submitAnswer

@@ -24,7 +24,7 @@ import org.springframework.validation.BindException;
  * of mutations never get here: controllers return them in the payload's {@code errors}. Three cases:
  * <ul>
  * <li>A {@link DomainException} that escaped a resolver: its message was written for users, so it is kept, with
- * {@code extensions.code} and {@code extensions.field}.</li>
+ * {@code extensions.code} and {@code extensions.field} (classified NOT_FOUND, FORBIDDEN or BAD_REQUEST).</li>
  * <li>Input Spring could not read, such as an {@code ID} that is not a UUID: {@code INVALID_INPUT} with the field.</li>
  * <li>Anything else is a bug or an outage: {@code INTERNAL}, a fixed message and a {@code correlationId}. The
  * exception's own message can contain SQL, file paths or prompt text, so it never leaves the server: the full
@@ -41,7 +41,7 @@ class GraphQlExceptionResolver extends DataFetcherExceptionResolverAdapter {
 	protected GraphQLError resolveToSingleError(Throwable ex, DataFetchingEnvironment env) {
 		if (ex instanceof DomainException domain) {
 			return GraphqlErrorBuilder.newError(env)
-					.errorType(domain.code() == ErrorCode.NOT_FOUND ? ErrorType.NOT_FOUND : ErrorType.BAD_REQUEST)
+					.errorType(errorType(domain.code()))
 					.message(domain.getMessage())
 					.extensions(extensions(domain.code().name(), domain.field().map(List::of).orElse(null)))
 					.build();
@@ -63,6 +63,15 @@ class GraphQlExceptionResolver extends DataFetcherExceptionResolverAdapter {
 				.message("Something went wrong on our side. Reference: " + correlationId)
 				.extensions(Map.of("code", ErrorCode.INTERNAL.name(), "correlationId", correlationId))
 				.build();
+	}
+
+	/** Also used for subscriptions ({@link GraphQlSubscriptionExceptionResolver}). */
+	static ErrorType errorType(ErrorCode code) {
+		return switch (code) {
+			case NOT_FOUND -> ErrorType.NOT_FOUND;
+			case FORBIDDEN -> ErrorType.FORBIDDEN;   // task 4.4
+			default -> ErrorType.BAD_REQUEST;
+		};
 	}
 
 	/**

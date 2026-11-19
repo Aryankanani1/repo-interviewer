@@ -6,6 +6,7 @@ import static org.awaitility.Awaitility.await;
 import com.aryankanani.repointerviewer.FakeAnalysisApi;
 import com.aryankanani.repointerviewer.FakeLlmGateway;
 import com.aryankanani.repointerviewer.KafkaIntegrationTest;
+import com.aryankanani.repointerviewer.TestUsers;
 import com.aryankanani.repointerviewer.contracts.interview.AnswerFlowEvent;
 import com.aryankanani.repointerviewer.contracts.interview.AnswerRequest;
 import com.aryankanani.repointerviewer.contracts.interview.InterviewApi;
@@ -65,7 +66,8 @@ class AnswerTraceTest {
 		jdbc.update("DELETE FROM processed_event");
 		fixture.reset();
 		llm.reset();
-		StartResponse started = interviews.start(new StartInterviewRequest(fixture.readyProject(), null, null, 3));
+		StartResponse started = interviews.start(new StartInterviewRequest(TestUsers.CANDIDATE,
+				fixture.readyProject(), null, null, 3));
 		UUID session = started.session().id();
 
 		Span request = tracer.nextSpan().name("submitAnswer").start();

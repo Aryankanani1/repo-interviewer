@@ -12,6 +12,6 @@ import java.util.UUID;
  * @param focusAreas null or empty means balanced
  * @param questionCount null means {@code app.interview.default-question-count}
  */
-public record StartInterviewCommand(UUID projectId, Difficulty difficulty, List<QuestionCategory> focusAreas,
-		Integer questionCount) {
+public record StartInterviewCommand(String userId, UUID projectId, Difficulty difficulty,
+		List<QuestionCategory> focusAreas, Integer questionCount) {
 }

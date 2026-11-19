@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
 import com.aryankanani.repointerviewer.CannedLlmOutputs;
+import com.aryankanani.repointerviewer.TestTokens;
+import com.aryankanani.repointerviewer.TestUsers;
 import com.aryankanani.repointerviewer.llm.LlmPurpose;
 import com.aryankanani.repointerviewer.llm.output.EvaluationOutput;
 import java.net.URI;
@@ -50,7 +52,7 @@ import tools.jackson.databind.json.JsonMapper;
  * {@code system-test/target/system-*.log}.
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-@TestMethodOrder(MethodOrderer.OrderAnnotation.class)   // 3 and 4 read what 2 left; the last two stop the services
+@TestMethodOrder(MethodOrderer.OrderAnnotation.class)   // 3-5 read what 2 left; the last two stop the services
 class InterviewSystemTest {
 
 	private static final String ANALYSIS_UNAVAILABLE = "The analysis service is not available right now. "
@@ -82,7 +84,7 @@ class InterviewSystemTest {
 	void startTheSystem() throws Exception {
 		apps = ThreeApps.start();
 		project = FixtureSeeder.seed(apps.adminJdbcUrl());
-		graphQl = new GraphQlHttp(apps.gatewayUrl());
+		graphQl = new GraphQlHttp(apps.gatewayUrl(), TestTokens.token(TestUsers.CANDIDATE));   // task 4.4
 	}
 
 	@AfterAll
@@ -231,9 +233,29 @@ class InterviewSystemTest {
 		}
 	}
 
-	/** Each service owns the tables of its schema, and the gateway made none (it has no database). */
+	/**
+	 * Task 4.4: the running gateway checks who asks. No token is 401 before GraphQL runs; another user's valid token
+	 * sees none of the candidate's projects, and their interview is FORBIDDEN.
+	 */
 	@Test
 	@Order(5)
+	void theGatewayChecksWhoAsks() throws Exception {
+		try (GraphQlHttp anonymous = new GraphQlHttp(apps.gatewayUrl(), null);
+				GraphQlHttp someoneElse = new GraphQlHttp(apps.gatewayUrl(), TestTokens.token(TestUsers.OTHER))) {
+			assertThat(anonymous.status("{ projects(first: 1) { edges { node { id } } } }")).isEqualTo(401);
+
+			JsonNode projects = someoneElse.execute("{ projects(first: 5) { edges { node { id } } } }", Map.of());
+			assertThat(projects.at("/data/projects/edges").size()).as(projects.toString()).isZero();
+			JsonNode session = someoneElse.execute("query ($id: ID!) { interviewSession(id: $id) { status } }",
+					Map.of("id", endedSession));
+			assertThat(session.at("/errors/0/extensions/code").asString()).as(session.toString())
+					.isEqualTo("FORBIDDEN");
+		}
+	}
+
+	/** Each service owns the tables of its schema, and the gateway made none (it has no database). */
+	@Test
+	@Order(6)
 	void eachServiceOwnsItsSchemaAndTheGatewayHasNone() throws Exception {
 		assertThat(count("""
 				SELECT count(*) FROM pg_tables WHERE schemaname = 'analysis' AND tableowner <> 'analysis_svc'
@@ -251,7 +273,7 @@ class InterviewSystemTest {
 	 * own call for projects fails the same way; what interview-service holds is still served.
 	 */
 	@Test
-	@Order(6)
+	@Order(7)
 	void withAnalysisServiceDownAStartFailsFastWithAClearError() throws Exception {
 		apps.analysisService().stop();
 
@@ -279,7 +301,7 @@ class InterviewSystemTest {
 
 	/** interview-service stopped too: the gateway still answers at once, with the same clear error for it. */
 	@Test
-	@Order(7)
+	@Order(8)
 	void withInterviewServiceDownTheGatewayStillAnswersAtOnce() throws Exception {
 		apps.interviewService().stop();
 

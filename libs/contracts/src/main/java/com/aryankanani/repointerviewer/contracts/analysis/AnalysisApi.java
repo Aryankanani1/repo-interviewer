@@ -36,11 +36,12 @@ public interface AnalysisApi {
 	List<ProjectDto> findByIds(@RequestParam List<UUID> ids);
 
 	/**
-	 * Newest first, keyset paging: the next page starts after the last project of this one, given by its
-	 * {@code createdAt} and {@code id} (both or neither).
+	 * One user's projects (task 4.4), newest first, keyset paging: the next page starts after the last project of
+	 * this one, given by its {@code createdAt} and {@code id} (both or neither).
 	 */
 	@GetExchange("/projects/page")
-	ProjectPage page(@RequestParam int limit, @RequestParam(required = false) Instant afterCreatedAt,
+	ProjectPage page(@RequestParam String userId, @RequestParam int limit,
+			@RequestParam(required = false) Instant afterCreatedAt,
 			@RequestParam(required = false) UUID afterId);
 
 	/** What prompts need about a project: status, the candidate's context, summary and repo map. NOT_FOUND if unknown. */

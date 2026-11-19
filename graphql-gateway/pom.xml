@@ -52,6 +52,11 @@
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-actuator</artifactId>
 		</dependency>
+		<!-- Every GraphQL request carries an RS256 JWT, checked here (task 4.4, DECISIONS.md D-030) -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-security-oauth2-resource-server</artifactId>
+		</dependency>
 		<!-- Traces over OTLP (task 4.3): Micrometer Tracing on OpenTelemetry. The exporter starts only when
 		     management.opentelemetry.tracing.export.otlp.endpoint is set (application-dev.yml: Jaeger). -->
 		<dependency>
@@ -109,6 +114,11 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-actuator-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-security-oauth2-resource-server-test</artifactId>
 			<scope>test</scope>
 		</dependency>
 		<dependency>

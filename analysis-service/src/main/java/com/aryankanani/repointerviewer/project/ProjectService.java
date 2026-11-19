@@ -69,15 +69,18 @@ public class ProjectService {
 				project.getSummary(), project.getRepoMap()));
 	}
 
-	/** Newest first. Start with {@code ScrollPosition.keyset()}, then pass the position of the last item seen. */
+	/**
+	 * One user's projects, newest first. Start with {@code ScrollPosition.keyset()}, then pass the position of the
+	 * last item seen.
+	 */
 	@Transactional(readOnly = true)
-	public Window<Project> page(ScrollPosition position, int limit) {
-		return projectRepository.findAllByOrderByCreatedAtDescIdDesc(position, Limit.of(limit));
+	public Window<Project> page(String userId, ScrollPosition position, int limit) {
+		return projectRepository.findAllByUserIdOrderByCreatedAtDescIdDesc(userId, position, Limit.of(limit));
 	}
 
 	/**
-	 * Registers a repository at its current commit, or returns the existing project for that commit
-	 * (any status, FAILED included; the client retries with reanalyzeProject).
+	 * Registers a repository at its current commit for the user, or returns that user's existing project for that
+	 * commit (any status, FAILED included; the client retries with reanalyzeProject).
 	 *
 	 * <p>Deliberately not {@code @Transactional}: {@code resolveHead} is a network call (up to 15 s), and a
 	 * transaction must never stay open across one. Order: parse (no I/O), ls-remote (no transaction), then
@@ -92,10 +95,10 @@ public class ProjectService {
 			return transaction.execute(status -> findOrInsert(url, head, command));
 		}
 		catch (DataIntegrityViolationException ex) {
-			// Another request inserted the same (url, commit) between our check and our insert. Postgres made
-			// our insert wait for that transaction, so the winner is committed: read it and return it.
+			// Another request of the same user inserted the same (url, commit) between our check and our insert.
+			// Postgres made our insert wait for that transaction, so the winner is committed: read it and return it.
 			return transaction.execute(status -> projectRepository
-					.findByGithubUrlAndCommitSha(url.normalized(), head.commitSha())
+					.findByUserIdAndGithubUrlAndCommitSha(command.userId(), url.normalized(), head.commitSha())
 					.orElseThrow(() -> ex));
 		}
 	}
@@ -126,7 +129,8 @@ public class ProjectService {
 	}
 
 	private Project findOrInsert(GithubUrl url, RemoteHead head, SubmitProjectCommand command) {
-		Optional<Project> existing = projectRepository.findByGithubUrlAndCommitSha(url.normalized(), head.commitSha());
+		Optional<Project> existing = projectRepository.findByUserIdAndGithubUrlAndCommitSha(command.userId(),
+				url.normalized(), head.commitSha());
 		if (existing.isPresent()) {
 			return existing.get();
 		}

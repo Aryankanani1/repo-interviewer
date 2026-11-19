@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.aryankanani.repointerviewer.FakeAnalysisApi;
 import com.aryankanani.repointerviewer.FakeLlmGateway;
 import com.aryankanani.repointerviewer.IntegrationTest;
+import com.aryankanani.repointerviewer.TestUsers;
 import com.aryankanani.repointerviewer.llm.LlmPurpose;
 import com.aryankanani.repointerviewer.llm.LlmUnavailableException;
 import com.aryankanani.repointerviewer.llm.output.CodeRefOutput;
@@ -72,7 +73,8 @@ class QuestionPrefetcherTest {
 		UUID project = fixture.readyProject();
 		llm.enqueue(LlmPurpose.QUESTION, question("Why does OrderController#refund take a RefundRequest body?",
 				ORDER + "OrderController.java", 27, 30));
-		StartResult started = interviewService.start(new StartInterviewCommand(project, null, null, null));
+		StartResult started = interviewService.start(new StartInterviewCommand(TestUsers.CANDIDATE,
+				project, null, null, null));
 		session = started.session();
 		first = started.firstQuestion();
 		secondTopic = topics.findBySessionIdOrderByOrderIndex(session.getId()).get(1);

@@ -8,6 +8,7 @@ import com.aryankanani.repointerviewer.FakeLlmGateway;
 import com.aryankanani.repointerviewer.KafkaConsumerLag;
 import com.aryankanani.repointerviewer.KafkaIntegrationTest;
 import com.aryankanani.repointerviewer.RecordingRetryListener;
+import com.aryankanani.repointerviewer.TestUsers;
 import com.aryankanani.repointerviewer.common.error.ServiceUnavailableException;
 import com.aryankanani.repointerviewer.common.messaging.Topics;
 import com.aryankanani.repointerviewer.contracts.interview.AnswerDto;
@@ -94,7 +95,8 @@ class AsyncAnswerTest {
 		jdbc.update("DELETE FROM processed_event");
 		llm.reset();
 		retries.reset();
-		StartResponse started = interviews.start(new StartInterviewRequest(fixture.readyProject(), null, null, 3));
+		StartResponse started = interviews.start(new StartInterviewRequest(TestUsers.CANDIDATE,
+				fixture.readyProject(), null, null, 3));
 		sessionId = started.session().id();
 		firstQuestionId = started.firstQuestion().id();
 	}

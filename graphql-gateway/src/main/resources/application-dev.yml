@@ -14,6 +14,13 @@ spring:
   kafka:
     # docker compose --profile kafka up -d. Used only with the kafka profile (-Dspring-boot.run.profiles=dev,kafka).
     bootstrap-servers: localhost:${KAFKA_PORT:9094}
+  # Task 4.4: the public half of your local dev key pair (README "Tokens for local use"; .dev-keys/ is gitignored).
+  # Tokens: java scripts/DevToken.java [user], sent as "Authorization: Bearer <token>".
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          public-key-location: ${JWT_PUBLIC_KEY_LOCATION:file:.dev-keys/jwt-public.pem}
 
 logging:
   level:

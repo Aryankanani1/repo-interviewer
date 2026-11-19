@@ -2,6 +2,8 @@ package com.aryankanani.repointerviewer.api.graphql;
 
 import com.aryankanani.repointerviewer.api.error.InputValidator;
 import com.aryankanani.repointerviewer.api.error.UserErrorMapper;
+import com.aryankanani.repointerviewer.api.security.CurrentUser;
+import com.aryankanani.repointerviewer.api.security.Ownership;
 import com.aryankanani.repointerviewer.common.error.DomainException;
 import com.aryankanani.repointerviewer.contracts.analysis.AnalysisApi;
 import com.aryankanani.repointerviewer.contracts.analysis.ProjectDto;
@@ -15,6 +17,7 @@ import com.aryankanani.repointerviewer.contracts.interview.SessionDto;
 import com.aryankanani.repointerviewer.contracts.interview.StartInterviewRequest;
 import com.aryankanani.repointerviewer.contracts.interview.StartResponse;
 import com.aryankanani.repointerviewer.contracts.interview.SubmitAnswerResponse;
+import java.security.Principal;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -39,7 +42,8 @@ import org.springframework.stereotype.Controller;
  * resolver runs once per field for all parents. {@code NPlusOneTest} proves the count stays fixed.
  *
  * <p>Everything about interviews comes from {@link InterviewApi} as records (task 4.1), never from the interview
- * side's entities.
+ * side's entities. The operations reach only the caller's projects and sessions (task 4.4, {@link Ownership}); the
+ * nested fields below follow from a parent the caller was allowed to see.
  */
 @Controller
 class InterviewController {
@@ -50,18 +54,24 @@ class InterviewController {
 
 	private final InputValidator inputValidator;
 
-	InterviewController(InterviewApi interviews, AnalysisApi analysis, InputValidator inputValidator) {
+	private final Ownership ownership;
+
+	InterviewController(InterviewApi interviews, AnalysisApi analysis, InputValidator inputValidator,
+			Ownership ownership) {
 		this.interviews = interviews;
 		this.analysis = analysis;
 		this.inputValidator = inputValidator;
+		this.ownership = ownership;
 	}
 
 	/** {@code startInterview(input): StartInterviewPayload!}. Can take several seconds: two or more model calls. */
 	@MutationMapping
-	StartInterviewPayload startInterview(@Argument StartInterviewInput input) {
-		var request = new StartInterviewRequest(input.projectId(), input.difficulty(), input.focusAreas(),
+	StartInterviewPayload startInterview(@Argument StartInterviewInput input, Principal user) {
+		String userId = CurrentUser.id(user);
+		var request = new StartInterviewRequest(userId, input.projectId(), input.difficulty(), input.focusAreas(),
 				input.questionCount());
 		try {
+			ownership.project(input.projectId(), userId);
 			StartResponse result = interviews.start(request);
 			return new StartInterviewPayload(InterviewSessionView.from(result.session()),
 					result.firstQuestion() == null ? null : QuestionView.from(result.firstQuestion()),
@@ -77,12 +87,13 @@ class InterviewController {
 	 * completed session. Safe to send again with the same text.
 	 */
 	@MutationMapping
-	SubmitAnswerPayload submitAnswer(@Argument SubmitAnswerInput input) {
+	SubmitAnswerPayload submitAnswer(@Argument SubmitAnswerInput input, Principal user) {
 		var invalid = inputValidator.firstError(input);
 		if (invalid.isPresent()) {
 			return new SubmitAnswerPayload(null, null, null, List.of(invalid.get()));
 		}
 		try {
+			ownership.sessionOfQuestion(input.questionId(), CurrentUser.id(user));
 			SubmitAnswerResponse result = interviews.submitAnswer(input.questionId(), new AnswerRequest(input.text()));
 			return new SubmitAnswerPayload(AnswerView.from(result.answer()),
 					result.nextQuestion() == null ? null : QuestionView.from(result.nextQuestion()),
@@ -99,8 +110,9 @@ class InterviewController {
 	 * Safe to call again: on an ended session it only retries a missing report.
 	 */
 	@MutationMapping
-	EndInterviewPayload endInterview(@Argument EndInterviewInput input) {
+	EndInterviewPayload endInterview(@Argument EndInterviewInput input, Principal user) {
 		try {
+			ownership.session(input.sessionId(), CurrentUser.id(user));
 			EndResponse result = interviews.end(input.sessionId());
 			return new EndInterviewPayload(InterviewSessionView.from(result.session()),
 					result.error() == null ? List.of() : List.of(UserErrorMapper.toUserError(result.error())));
@@ -110,10 +122,15 @@ class InterviewController {
 		}
 	}
 
-	/** {@code interviewSession(id: ID!): InterviewSession}. Not found returns null. */
+	/**
+	 * {@code interviewSession(id: ID!): InterviewSession}. Not found returns null; another user's session is a
+	 * FORBIDDEN error.
+	 */
 	@QueryMapping
-	InterviewSessionView interviewSession(@Argument UUID id) {
-		return interviews.sessions(List.of(id)).stream().findFirst().map(InterviewSessionView::from).orElse(null);
+	InterviewSessionView interviewSession(@Argument UUID id, Principal user) {
+		return Ownership.visible(interviews.sessions(List.of(id)).stream().findFirst(), SessionDto::userId,
+				CurrentUser.id(user), "This interview belongs to another user.").map(InterviewSessionView::from)
+				.orElse(null);
 	}
 
 	// Field resolvers, batched (task 1.13). Spring collects every parent object at one level of the query and calls

@@ -70,8 +70,9 @@ class StaleAnalysisRecoveryTest {
 	private UUID project(String status, String age) {
 		String repo = "shop-" + UUID.randomUUID();
 		return jdbc.queryForObject("""
-				INSERT INTO project (github_url, owner, repo_name, commit_sha, status, updated_at)
-				VALUES (?, 'acme', ?, '1111111111111111111111111111111111111111', ?, now() - CAST(? AS interval))
+				INSERT INTO project (user_id, github_url, owner, repo_name, commit_sha, status, updated_at)
+				VALUES ('user-a', ?, 'acme', ?, '1111111111111111111111111111111111111111', ?,
+				        now() - CAST(? AS interval))
 				RETURNING id
 				""", UUID.class, "https://github.com/acme/" + repo, repo, status, age);
 	}

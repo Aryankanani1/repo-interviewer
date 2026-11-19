@@ -48,8 +48,11 @@ class AnalysisApiController implements AnalysisApi {
 
 	@Override
 	public ProjectDto submit(SubmitProjectRequest request) {
-		return toDto(projectService.submit(new SubmitProjectCommand(request.githubUrl(), request.goal(),
-				request.domain(), request.targetRole())));
+		if (request.userId() == null || request.userId().isBlank()) {   // the gateway always passes it (task 4.4)
+			throw new DomainException(ErrorCode.INVALID_INPUT, "userId is required.", "userId");
+		}
+		return toDto(projectService.submit(new SubmitProjectCommand(request.userId(), request.githubUrl(),
+				request.goal(), request.domain(), request.targetRole())));
 	}
 
 	@Override
@@ -63,13 +66,13 @@ class AnalysisApiController implements AnalysisApi {
 	}
 
 	@Override
-	public ProjectPage page(int limit, Instant afterCreatedAt, UUID afterId) {
+	public ProjectPage page(String userId, int limit, Instant afterCreatedAt, UUID afterId) {
 		if ((afterCreatedAt == null) != (afterId == null)) {
 			throw new DomainException(ErrorCode.INVALID_INPUT, "Give both afterCreatedAt and afterId, or neither.");
 		}
 		ScrollPosition position = afterId == null ? ScrollPosition.keyset()
 				: ScrollPosition.forward(Map.of("createdAt", afterCreatedAt, "id", afterId));
-		Window<Project> window = projectService.page(position, Math.clamp(limit, 1, MAX_PAGE_SIZE));
+		Window<Project> window = projectService.page(userId, position, Math.clamp(limit, 1, MAX_PAGE_SIZE));
 		return new ProjectPage(window.getContent().stream().map(AnalysisApiController::toDto).toList(),
 				window.hasNext());
 	}
@@ -101,9 +104,9 @@ class AnalysisApiController implements AnalysisApi {
 	}
 
 	private static ProjectDto toDto(Project project) {
-		return new ProjectDto(project.getId(), project.getGithubUrl(), project.getOwner(), project.getRepoName(),
-				project.getCommitSha(), project.getStatus(), project.getFailureReason(), project.getGoal(),
-				project.getDomain(), project.getTargetRole(), stats(project), project.getSummary(),
+		return new ProjectDto(project.getId(), project.getUserId(), project.getGithubUrl(), project.getOwner(),
+				project.getRepoName(), project.getCommitSha(), project.getStatus(), project.getFailureReason(),
+				project.getGoal(), project.getDomain(), project.getTargetRole(), stats(project), project.getSummary(),
 				project.getCreatedAt(), project.getUpdatedAt());
 	}
 

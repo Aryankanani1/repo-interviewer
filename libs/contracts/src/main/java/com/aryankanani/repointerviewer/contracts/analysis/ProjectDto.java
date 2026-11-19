@@ -7,11 +7,12 @@ import java.util.UUID;
  * A project as the analysis side shows it to others: no repo map or files (see {@link ProjectContext} and
  * {@link AnalysisApi#codeNames}).
  *
+ * @param userId the user who submitted it (task 4.4); {@code owner} is the repository's GitHub owner
  * @param goal the candidate's own words, untrusted, like {@code domain} and {@code targetRole}
  * @param stats null until the analysis has counted everything
  * @param summary null until the SUMMARIZING stage is done
  */
-public record ProjectDto(UUID id, String githubUrl, String owner, String repoName, String commitSha,
+public record ProjectDto(UUID id, String userId, String githubUrl, String owner, String repoName, String commitSha,
 		AnalysisStatus status, String failureReason, String goal, String domain, String targetRole, Stats stats,
 		RepoSummary summary, Instant createdAt, Instant updatedAt) {
 

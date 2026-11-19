@@ -14,18 +14,18 @@ import org.springframework.data.repository.query.Param;
 interface ProjectRepository extends JpaRepository<Project, UUID> {
 
 	/**
-	 * One page of projects, newest first, using keyset scrolling.
+	 * One page of a user's projects (task 4.4), newest first, using keyset scrolling.
 	 *
 	 * <p>The sort is fixed in the method name on purpose: it must match the index
-	 * {@code ix_project_created_at (created_at DESC, id DESC)}, and {@code id} breaks ties between
+	 * {@code ix_project_user_created_at (user_id, created_at DESC, id DESC)}, and {@code id} breaks ties between
 	 * projects created at the same moment, so no row is skipped or repeated between pages.
 	 * With a keyset position, Spring Data adds {@code WHERE (created_at, id) < (last seen values)}
 	 * instead of {@code OFFSET n}.
 	 */
-	Window<Project> findAllByOrderByCreatedAtDescIdDesc(ScrollPosition position, Limit limit);
+	Window<Project> findAllByUserIdOrderByCreatedAtDescIdDesc(String userId, ScrollPosition position, Limit limit);
 
-	/** Duplicate check for submitProject. Backed by the unique constraint uq_project_url_commit. */
-	Optional<Project> findByGithubUrlAndCommitSha(String githubUrl, String commitSha);
+	/** Duplicate check for submitProject. Backed by the unique constraint uq_project_user_url_commit. */
+	Optional<Project> findByUserIdAndGithubUrlAndCommitSha(String userId, String githubUrl, String commitSha);
 
 	/**
 	 * Marks analyses that stopped moving as FAILED, in one statement ({@link StaleAnalysisRecovery}). A bulk

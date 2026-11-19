@@ -4,7 +4,7 @@ package com.aryankanani.repointerviewer.project;
  * Input for {@link ProjectService#submit}. The context fields are the candidate's own words
  * (untrusted text): trimmed, blank becomes null, and cut to {@value #MAX_CONTEXT_CHARS} characters.
  */
-public record SubmitProjectCommand(String githubUrl, String goal, String domain, String targetRole) {
+public record SubmitProjectCommand(String userId, String githubUrl, String goal, String domain, String targetRole) {
 
 	static final int MAX_CONTEXT_CHARS = 500;
 

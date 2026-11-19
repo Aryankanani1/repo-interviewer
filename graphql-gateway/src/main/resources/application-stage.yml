@@ -1,8 +1,14 @@
 # stage: production-like, the last check before prod. Same settings as prod except where noted.
 # Connection settings come from environment variables (Kubernetes ConfigMap and Secret in Phase 3):
-#   SPRING_PROFILES_ACTIVE=stage, ANALYSIS_BASE_URL, INTERVIEW_BASE_URL (task 4.1; no database since step 4a)
+#   SPRING_PROFILES_ACTIVE=stage, ANALYSIS_BASE_URL, INTERVIEW_BASE_URL (task 4.1; no database since step 4a),
+#   JWT_PUBLIC_KEY_LOCATION (task 4.4: the public key that checks each request's token, file:/etc/jwt/jwt-public.pem)
 
 spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          public-key-location: ${JWT_PUBLIC_KEY_LOCATION}
   graphql:
     graphiql:
       enabled: true   # for manual checks before a release; off in prod

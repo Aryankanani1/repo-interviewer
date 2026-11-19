@@ -64,9 +64,11 @@ class AnalysisApiControllerTest {
 	void submitReturnsTheNewProjectWithTheContextCleanedOnThisSide() throws Exception {
 		String repo = "api-" + UUID.randomUUID();
 		postJson("/internal/projects", """
-				{"githubUrl": "https://github.com/acme/%s", "goal": "  Learn Kafka  ", "domain": " "}
+				{"userId": "user-a", "githubUrl": "https://github.com/acme/%s",
+				 "goal": "  Learn Kafka  ", "domain": " "}
 				""".formatted(repo))
 				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.userId").value("user-a"))
 				.andExpect(jsonPath("$.owner").value("acme"))
 				.andExpect(jsonPath("$.repoName").value(repo))
 				.andExpect(jsonPath("$.commitSha").value(LocalDirectoryRepoFetcher.DEFAULT_SHA))
@@ -80,7 +82,7 @@ class AnalysisApiControllerTest {
 	@Test
 	void anExpectedFailureIsAProblemDetailWithItsCodeAndField() throws Exception {
 		postJson("/internal/projects", """
-				{"githubUrl": "https://gitlab.com/acme/shop"}
+				{"userId": "user-a", "githubUrl": "https://gitlab.com/acme/shop"}
 				""")
 				.andExpect(status().isUnprocessableContent())
 				.andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
@@ -90,10 +92,21 @@ class AnalysisApiControllerTest {
 
 		repoFetcher.markMissing("acme/ghost");
 		postJson("/internal/projects", """
-				{"githubUrl": "https://github.com/acme/ghost"}
+				{"userId": "user-a", "githubUrl": "https://github.com/acme/ghost"}
 				""")
 				.andExpect(status().isUnprocessableContent())
 				.andExpect(jsonPath("$.code").value("REPO_NOT_FOUND"));
+	}
+
+	/** Task 4.4: the gateway always says whose project it is; without that, nothing is saved. */
+	@Test
+	void aSubmitWithoutAUserIsA422OnUserId() throws Exception {
+		postJson("/internal/projects", """
+				{"githubUrl": "https://github.com/acme/shop"}
+				""")
+				.andExpect(status().isUnprocessableContent())
+				.andExpect(jsonPath("$.code").value("INVALID_INPUT"))
+				.andExpect(jsonPath("$.field").value("userId"));
 	}
 
 	@Test
@@ -163,12 +176,12 @@ class AnalysisApiControllerTest {
 					"2000-01-01T00:00:0" + (i + 1) + "Z", projects.get(i));
 		}
 
-		mvc.perform(get("/internal/projects/page").param("limit", "2")
+		mvc.perform(get("/internal/projects/page").param("userId", FixtureIndexer.USER).param("limit", "2")
 						.param("afterCreatedAt", "2000-01-01T00:00:04Z").param("afterId", UUID.randomUUID().toString()))
 				.andExpect(jsonPath("$.items[*].id").value(contains(projects.get(2).toString(), projects.get(1).toString())))
 				.andExpect(jsonPath("$.hasNext").value(true));
 
-		mvc.perform(get("/internal/projects/page").param("limit", "2")
+		mvc.perform(get("/internal/projects/page").param("userId", FixtureIndexer.USER).param("limit", "2")
 						.param("afterCreatedAt", "2000-01-01T00:00:02Z").param("afterId", projects.get(1).toString()))
 				.andExpect(jsonPath("$.items[*].id").value(contains(projects.get(0).toString())))
 				.andExpect(jsonPath("$.hasNext").value(false));
@@ -176,7 +189,8 @@ class AnalysisApiControllerTest {
 
 	@Test
 	void halfAPagePositionIsRejected() throws Exception {
-		mvc.perform(get("/internal/projects/page").param("limit", "2").param("afterId", UUID.randomUUID().toString()))
+		mvc.perform(get("/internal/projects/page").param("userId", FixtureIndexer.USER).param("limit", "2")
+						.param("afterId", UUID.randomUUID().toString()))
 				.andExpect(status().isUnprocessableContent())
 				.andExpect(jsonPath("$.code").value("INVALID_INPUT"));
 	}

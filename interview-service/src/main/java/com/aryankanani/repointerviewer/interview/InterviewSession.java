@@ -46,6 +46,9 @@ public class InterviewSession {
 	@UuidGenerator(style = UuidGenerator.Style.VERSION_7)
 	private UUID id;
 
+	/** The user who started it, the JWT subject (V3, task 4.4). */
+	private String userId;
+
 	private UUID projectId;
 
 	@Enumerated(EnumType.STRING)
@@ -96,7 +99,9 @@ public class InterviewSession {
 	protected InterviewSession() {
 	}
 
-	InterviewSession(UUID projectId, Difficulty difficulty, List<QuestionCategory> focusAreas, int requestedCount) {
+	InterviewSession(String userId, UUID projectId, Difficulty difficulty, List<QuestionCategory> focusAreas,
+			int requestedCount) {
+		this.userId = userId;
 		this.projectId = projectId;
 		this.status = SessionStatus.PLANNING;
 		this.difficulty = difficulty;
@@ -169,6 +174,10 @@ public class InterviewSession {
 
 	public UUID getId() {
 		return id;
+	}
+
+	public String getUserId() {
+		return userId;
 	}
 
 	public UUID getProjectId() {

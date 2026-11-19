@@ -142,8 +142,8 @@ class OutboxRelayTest {
 		assertThatThrownBy(() -> transaction.executeWithoutResult(status -> {
 			// The state change: a row of this service's own (a project row while this ran in the one app).
 			session.set(jdbc.queryForObject("""
-					INSERT INTO interview_session (project_id, status, difficulty, planned_question_count)
-					VALUES (?, 'IN_PROGRESS', 'JUNIOR', 3) RETURNING id
+					INSERT INTO interview_session (user_id, project_id, status, difficulty, planned_question_count)
+					VALUES ('user-a', ?, 'IN_PROGRESS', 'JUNIOR', 3) RETURNING id
 					""", UUID.class, UUID.randomUUID()));
 			writer.write(TOPIC, AggregateType.PROJECT, session.get(), "AnalysisRequested", Map.of());
 			throw new IllegalStateException("rolled back on purpose");

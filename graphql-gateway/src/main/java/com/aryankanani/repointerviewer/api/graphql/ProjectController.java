@@ -2,11 +2,14 @@ package com.aryankanani.repointerviewer.api.graphql;
 
 import com.aryankanani.repointerviewer.api.error.InputValidator;
 import com.aryankanani.repointerviewer.api.error.UserErrorMapper;
+import com.aryankanani.repointerviewer.api.security.CurrentUser;
+import com.aryankanani.repointerviewer.api.security.Ownership;
 import com.aryankanani.repointerviewer.common.error.DomainException;
 import com.aryankanani.repointerviewer.contracts.analysis.AnalysisApi;
 import com.aryankanani.repointerviewer.contracts.analysis.ProjectDto;
 import com.aryankanani.repointerviewer.contracts.analysis.ProjectPage;
 import com.aryankanani.repointerviewer.contracts.analysis.SubmitProjectRequest;
+import java.security.Principal;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -24,7 +27,7 @@ import org.springframework.stereotype.Controller;
  * Resolvers for {@code Query.project}, {@code Query.projects}, {@code Mutation.submitProject} and
  * {@code Mutation.reanalyzeProject}
  * (schema-first: the method name is the field name). Calls the analysis side's {@link AnalysisApi} and maps its
- * records to views; no business logic here.
+ * records to views; no business logic here. Each one sees only the caller's projects (task 4.4, {@link Ownership}).
  */
 @Controller
 class ProjectController {
@@ -42,15 +45,22 @@ class ProjectController {
 
 	private final InputValidator inputValidator;
 
-	ProjectController(AnalysisApi analysis, InputValidator inputValidator) {
+	private final Ownership ownership;
+
+	ProjectController(AnalysisApi analysis, InputValidator inputValidator, Ownership ownership) {
 		this.analysis = analysis;
 		this.inputValidator = inputValidator;
+		this.ownership = ownership;
 	}
 
-	/** {@code project(id: ID!): Project}. Not found returns null (the field is nullable), not an error. */
+	/**
+	 * {@code project(id: ID!): Project}. Not found returns null (the field is nullable), not an error; another user's
+	 * project is a FORBIDDEN error.
+	 */
 	@QueryMapping
-	ProjectView project(@Argument UUID id) {
-		return analysis.findByIds(List.of(id)).stream().findFirst().map(ProjectView::from).orElse(null);
+	ProjectView project(@Argument UUID id, Principal user) {
+		return Ownership.visible(analysis.findByIds(List.of(id)).stream().findFirst(), ProjectDto::userId,
+				CurrentUser.id(user), "This project belongs to another user.").map(ProjectView::from).orElse(null);
 	}
 
 	/**
@@ -60,11 +70,11 @@ class ProjectController {
 	 * "Connection".
 	 */
 	@QueryMapping
-	Window<ProjectView> projects(ScrollSubrange subrange) {
+	Window<ProjectView> projects(ScrollSubrange subrange, Principal user) {
 		Map<String, ?> cursor = subrange.position()   // no "after": the first page
 				.map(position -> ((KeysetScrollPosition) position).getKeys()).orElse(Map.of());
 		int pageSize = Math.clamp(subrange.count().orElse(DEFAULT_PAGE_SIZE), 1, MAX_PAGE_SIZE);
-		ProjectPage page = analysis.page(pageSize,
+		ProjectPage page = analysis.page(CurrentUser.id(user), pageSize,
 				cursor.isEmpty() ? null : Instant.parse((String) cursor.get(CREATED_AT)),
 				cursor.isEmpty() ? null : UUID.fromString((String) cursor.get(ID)));
 		List<ProjectDto> projects = page.items();
@@ -82,12 +92,13 @@ class ProjectController {
 	 * back as {@code errors} in the payload, not as GraphQL errors, so clients can show them per field.
 	 */
 	@MutationMapping
-	SubmitProjectPayload submitProject(@Argument SubmitProjectInput input) {
+	SubmitProjectPayload submitProject(@Argument SubmitProjectInput input, Principal user) {
 		var invalid = inputValidator.firstError(input);
 		if (invalid.isPresent()) {
 			return SubmitProjectPayload.failure(invalid.get());
 		}
-		var request = new SubmitProjectRequest(input.githubUrl(), input.goal(), input.domain(), input.targetRole());
+		var request = new SubmitProjectRequest(CurrentUser.id(user), input.githubUrl(), input.goal(), input.domain(),
+				input.targetRole());
 		try {
 			return SubmitProjectPayload.success(ProjectView.from(analysis.submit(request)));
 		}
@@ -96,10 +107,11 @@ class ProjectController {
 		}
 	}
 
-	/** {@code reanalyzeProject(input): SubmitProjectPayload!}. Retries a FAILED analysis. */
+	/** {@code reanalyzeProject(input): SubmitProjectPayload!}. Retries a FAILED analysis of the caller's project. */
 	@MutationMapping
-	SubmitProjectPayload reanalyzeProject(@Argument ReanalyzeProjectInput input) {
+	SubmitProjectPayload reanalyzeProject(@Argument ReanalyzeProjectInput input, Principal user) {
 		try {
+			ownership.project(input.projectId(), CurrentUser.id(user));
 			return SubmitProjectPayload.success(ProjectView.from(analysis.reanalyze(input.projectId())));
 		}
 		catch (DomainException ex) {

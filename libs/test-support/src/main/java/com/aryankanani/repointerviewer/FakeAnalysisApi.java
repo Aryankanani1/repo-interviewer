@@ -75,9 +75,17 @@ public class FakeAnalysisApi implements AnalysisApi {
 
 	// --- What a test sets up
 
-	/** A READY project with the fixture's stats and summary, like {@code FixtureIndexer.readyProject()}. */
+	/**
+	 * A READY project of {@link TestUsers#CANDIDATE} with the fixture's stats and summary, like
+	 * {@code FixtureIndexer.readyProject()}.
+	 */
 	public UUID readyProject() {
 		return add(AnalysisStatus.READY).id();
+	}
+
+	/** A READY project of another user (task 4.4). */
+	public UUID readyProjectOf(String userId) {
+		return add(AnalysisStatus.READY, userId).id();
 	}
 
 	/** A project still being analyzed (PARSING): no stats, summary or repo map yet. */
@@ -85,13 +93,18 @@ public class FakeAnalysisApi implements AnalysisApi {
 		return add(AnalysisStatus.PARSING).id();
 	}
 
-	/** A project of the fixture in {@code status}; each one newer than the one before. */
+	/** A project of the fixture in {@code status}, of {@link TestUsers#CANDIDATE}; each newer than the one before. */
 	public ProjectDto add(AnalysisStatus status) {
+		return add(status, TestUsers.CANDIDATE);
+	}
+
+	/** A project of the fixture in {@code status}, of {@code userId}. */
+	public ProjectDto add(AnalysisStatus status, String userId) {
 		UUID id = UUID.randomUUID();
 		String repo = "shop-" + id.toString().substring(0, 8);
 		boolean ready = status == AnalysisStatus.READY;
-		return put(new ProjectDto(id, "https://github.com/acme/" + repo, "acme", repo, "1".repeat(40), status,
-				status == AnalysisStatus.FAILED ? "The analysis failed." : null, null, null, null,
+		return put(new ProjectDto(id, userId, "https://github.com/acme/" + repo, "acme", repo, "1".repeat(40),
+				status, status == AnalysisStatus.FAILED ? "The analysis failed." : null, null, null, null,
 				ready ? fixture.stats() : null, ready ? fixture.summary() : null, nextCreatedAt(), nextCreatedAt()));
 	}
 
@@ -135,9 +148,9 @@ public class FakeAnalysisApi implements AnalysisApi {
 		String[] parts = request.githubUrl().replaceAll("/+$", "").split("/");
 		String owner = parts[parts.length - 2];
 		String repo = parts[parts.length - 1];
-		return put(new ProjectDto(UUID.randomUUID(), request.githubUrl(), owner, repo, "1".repeat(40),
-				AnalysisStatus.SUBMITTED, null, request.goal(), request.domain(), request.targetRole(), null, null,
-				nextCreatedAt(), nextCreatedAt()));
+		return put(new ProjectDto(UUID.randomUUID(), request.userId(), request.githubUrl(), owner, repo,
+				"1".repeat(40), AnalysisStatus.SUBMITTED, null, request.goal(), request.domain(), request.targetRole(),
+				null, null, nextCreatedAt(), nextCreatedAt()));
 	}
 
 	@Override
@@ -147,9 +160,9 @@ public class FakeAnalysisApi implements AnalysisApi {
 		if (project.status() != AnalysisStatus.FAILED) {
 			return project;
 		}
-		return put(new ProjectDto(id, project.githubUrl(), project.owner(), project.repoName(), project.commitSha(),
-				AnalysisStatus.SUBMITTED, null, project.goal(), project.domain(), project.targetRole(), null, null,
-				project.createdAt(), nextCreatedAt()));
+		return put(new ProjectDto(id, project.userId(), project.githubUrl(), project.owner(), project.repoName(),
+				project.commitSha(), AnalysisStatus.SUBMITTED, null, project.goal(), project.domain(),
+				project.targetRole(), null, null, project.createdAt(), nextCreatedAt()));
 	}
 
 	@Override
@@ -159,9 +172,10 @@ public class FakeAnalysisApi implements AnalysisApi {
 	}
 
 	@Override
-	public ProjectPage page(int limit, Instant afterCreatedAt, UUID afterId) {
+	public ProjectPage page(String userId, int limit, Instant afterCreatedAt, UUID afterId) {
 		called("page");
 		List<ProjectDto> after = projects.values().stream()
+				.filter(project -> project.userId().equals(userId))
 				.filter(project -> afterId == null || isAfter(project, afterCreatedAt, afterId))
 				.sorted(Comparator.comparing(ProjectDto::createdAt).thenComparing(ProjectDto::id).reversed())
 				.toList();

@@ -8,6 +8,7 @@ import com.aryankanani.repointerviewer.FakeLlmGateway;
 import com.aryankanani.repointerviewer.InterviewServiceApplication;
 import com.aryankanani.repointerviewer.KafkaIntegrationTest;
 import com.aryankanani.repointerviewer.TestDoublesConfiguration;
+import com.aryankanani.repointerviewer.TestUsers;
 import com.aryankanani.repointerviewer.TestcontainersConfiguration;
 import com.aryankanani.repointerviewer.contracts.interview.AnswerFlowEvent;
 import com.aryankanani.repointerviewer.contracts.interview.AnswerRequest;
@@ -105,7 +106,8 @@ class TwoInstancesTest {
 		llm.reset();
 		FakeLlmGateway llmB = instanceB.getBean(FakeLlmGateway.class);
 		llmB.reset();
-		StartResponse started = interviews.start(new StartInterviewRequest(fixture.readyProject(), null, null, 3));
+		StartResponse started = interviews.start(new StartInterviewRequest(TestUsers.CANDIDATE,
+				fixture.readyProject(), null, null, 3));
 		UUID sessionId = started.session().id();
 
 		assertThat(interviews.submitAnswer(started.firstQuestion().id(),

@@ -100,7 +100,7 @@ class ProjectTest {
 	private static Project projectIn(AnalysisStatus status) {
 		GithubUrl url = GithubUrl.parse("https://github.com/acme/shop");
 		Project project = new Project(url, new RemoteHead("1111111111111111111111111111111111111111", "main"),
-				new SubmitProjectCommand(url.normalized(), null, null, null));
+				new SubmitProjectCommand("user-a", url.normalized(), null, null, null));
 		List<Runnable> path = switch (status) {
 			case SUBMITTED -> List.of();
 			case CLONING -> List.of(project::startAnalysis);

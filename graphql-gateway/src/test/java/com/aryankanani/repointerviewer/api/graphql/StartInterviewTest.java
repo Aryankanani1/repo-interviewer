@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.aryankanani.repointerviewer.FakeAnalysisApi;
 import com.aryankanani.repointerviewer.FakeInterviewApi;
 import com.aryankanani.repointerviewer.IntegrationTest;
+import com.aryankanani.repointerviewer.TestUsers;
 import com.aryankanani.repointerviewer.common.error.DomainException;
 import com.aryankanani.repointerviewer.common.error.ErrorCode;
 import com.aryankanani.repointerviewer.contracts.interview.Difficulty;
@@ -65,7 +66,8 @@ class StartInterviewTest {
 
 	@Test
 	void startSendsTheInputAndReturnsTheSessionAndTheFirstQuestion() {
-		SessionDto session = new SessionDto(UUID.randomUUID(), project, SessionStatus.IN_PROGRESS, Difficulty.MID,
+		SessionDto session = new SessionDto(UUID.randomUUID(), TestUsers.CANDIDATE, project, SessionStatus.IN_PROGRESS,
+				Difficulty.MID,
 				List.of(QuestionCategory.SECURITY), 3, null, null, FakeInterviewApi.session(project).startedAt(), null,
 				null);
 		startsWith(session);
@@ -73,8 +75,8 @@ class StartInterviewTest {
 		GraphQlTester.Response response = start(Map.of("projectId", project, "difficulty", "MID",
 				"focusAreas", List.of("SECURITY"), "questionCount", 3));
 
-		assertThat(interviews.lastStart()).isEqualTo(new StartInterviewRequest(project, Difficulty.MID,
-				List.of(QuestionCategory.SECURITY), 3));
+		assertThat(interviews.lastStart()).isEqualTo(new StartInterviewRequest(TestUsers.CANDIDATE, project,
+				Difficulty.MID, List.of(QuestionCategory.SECURITY), 3));   // task 4.4: the caller is the session's user
 		response.path("startInterview.errors").entityList(Object.class).hasSize(0);
 		response.path("startInterview.session.status").entity(String.class).isEqualTo("IN_PROGRESS");
 		response.path("startInterview.session.difficulty").entity(String.class).isEqualTo("MID");
@@ -157,7 +159,8 @@ class StartInterviewTest {
 	@Test
 	void aFailedStartStillReturnsTheFailedSession() {
 		SessionDto started = FakeInterviewApi.session(project);
-		SessionDto failed = new SessionDto(started.id(), project, SessionStatus.FAILED, started.difficulty(),
+		SessionDto failed = new SessionDto(started.id(), started.userId(), project, SessionStatus.FAILED,
+				started.difficulty(),
 				started.focusAreas(), started.plannedQuestionCount(), "Could not write a question grounded in this "
 						+ "repository's code. Try again.", null, started.startedAt(), null, null);
 		interviews.onStart(new StartResponse(failed, null,

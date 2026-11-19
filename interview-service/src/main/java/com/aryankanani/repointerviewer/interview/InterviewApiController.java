@@ -1,6 +1,7 @@
 package com.aryankanani.repointerviewer.interview;
 
 import com.aryankanani.repointerviewer.common.error.DomainException;
+import com.aryankanani.repointerviewer.common.error.ErrorCode;
 import com.aryankanani.repointerviewer.contracts.interview.AnswerDto;
 import com.aryankanani.repointerviewer.contracts.interview.AnswerRequest;
 import com.aryankanani.repointerviewer.contracts.interview.EndResponse;
@@ -33,7 +34,8 @@ class InterviewApiController implements InterviewApi {
 
 	@Override
 	public StartResponse start(StartInterviewRequest request) {
-		StartResult result = interviewService.start(new StartInterviewCommand(request.projectId(),
+		requireUser(request.userId());
+		StartResult result = interviewService.start(new StartInterviewCommand(request.userId(), request.projectId(),
 				request.difficulty(), request.focusAreas(), request.questionCount()));
 		return new StartResponse(toDto(result.session()),
 				result.firstQuestion() == null ? null : toDto(result.firstQuestion()), toError(result.error()));
@@ -88,10 +90,18 @@ class InterviewApiController implements InterviewApi {
 		return answers.values().stream().map(answer -> toDto(answer, questions.get(answer.getQuestionId()))).toList();
 	}
 
+	/** The gateway always passes the caller (task 4.4); a request without one is a bug, refused before any work. */
+	private static void requireUser(String userId) {
+		if (userId == null || userId.isBlank()) {
+			throw new DomainException(ErrorCode.INVALID_INPUT, "userId is required.", "userId");
+		}
+	}
+
 	private static SessionDto toDto(InterviewSession session) {
-		return new SessionDto(session.getId(), session.getProjectId(), session.getStatus(), session.getDifficulty(),
-				session.getFocusAreas(), session.getPlannedQuestionCount(), session.getFailureReason(),
-				session.getReport(), session.getStartedAt(), session.getCompletedAt(), session.getCurrentQuestionId());
+		return new SessionDto(session.getId(), session.getUserId(), session.getProjectId(), session.getStatus(),
+				session.getDifficulty(), session.getFocusAreas(), session.getPlannedQuestionCount(),
+				session.getFailureReason(), session.getReport(), session.getStartedAt(), session.getCompletedAt(),
+				session.getCurrentQuestionId());
 	}
 
 	private static QuestionDto toDto(Question question) {

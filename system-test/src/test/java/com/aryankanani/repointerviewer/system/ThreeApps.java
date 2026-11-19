@@ -3,6 +3,9 @@ package com.aryankanani.repointerviewer.system;
 import static org.awaitility.Awaitility.await;
 
 import com.aryankanani.repointerviewer.FakeModelServer;
+import com.aryankanani.repointerviewer.TestTokens;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -85,7 +88,9 @@ final class ThreeApps implements AutoCloseable {
 					"--app.interview.prefetch-enabled=false"));
 			system.gateway = system.app("graphql-gateway", List.of(
 					"--spring.http.serviceclient.analysis.base-url=" + system.analysis.url(),
-					"--spring.http.serviceclient.interview.base-url=" + system.interview.url()));
+					"--spring.http.serviceclient.interview.base-url=" + system.interview.url(),
+					// task 4.4: the tests' public key, as a file like a deployment's Secret
+					"--spring.security.oauth2.resourceserver.jwt.public-key-location=file:" + publicKeyFile()));
 			for (AppProcess app : system.apps) {
 				app.awaitReady(START_TIMEOUT);
 			}
@@ -95,6 +100,13 @@ final class ThreeApps implements AutoCloseable {
 			system.close();
 			throw ex;
 		}
+	}
+
+	/** {@link TestTokens}'s public key in a temporary PEM file, which the gateway checks every token with. */
+	private static Path publicKeyFile() throws IOException {
+		Path pem = Files.createTempFile("jwt-public", ".pem");
+		pem.toFile().deleteOnExit();
+		return Files.writeString(pem, TestTokens.publicKeyPem());
 	}
 
 	String gatewayUrl() {

@@ -26,6 +26,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
  */
 public class FixtureIndexer {
 
+	/** The user every fixture project belongs to (task 4.4). */
+	public static final String USER = TestUsers.CANDIDATE;
+
 	/** A summary of the fixture, as the SUMMARIZING stage would store it. */
 	public static final String SUMMARY_JSON = """
 			{"oneLiner": "A small order service that places and refunds orders.",
@@ -93,10 +96,10 @@ public class FixtureIndexer {
 	public UUID newProject() {
 		String repo = "shop-" + UUID.randomUUID();
 		return jdbc.queryForObject("""
-				INSERT INTO project (github_url, owner, repo_name, commit_sha, status)
-				VALUES (?, 'acme', ?, ?, 'PARSING')
+				INSERT INTO project (user_id, github_url, owner, repo_name, commit_sha, status)
+				VALUES (?, ?, 'acme', ?, ?, 'PARSING')
 				RETURNING id
-				""", UUID.class, "https://github.com/acme/" + repo, repo, LocalDirectoryRepoFetcher.DEFAULT_SHA);
+				""", UUID.class, USER, "https://github.com/acme/" + repo, repo, LocalDirectoryRepoFetcher.DEFAULT_SHA);
 	}
 
 	/** @return every chunk saved for the project */

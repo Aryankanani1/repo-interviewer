@@ -92,8 +92,9 @@ class ReanalyzeProjectTest {
 	private UUID project(String status, String failureReason) {
 		String repo = "shop-" + UUID.randomUUID();
 		return jdbc.queryForObject("""
-				INSERT INTO project (github_url, owner, repo_name, commit_sha, default_branch, status, failure_reason)
-				VALUES (?, 'acme', ?, '1111111111111111111111111111111111111111', 'main', ?, ?)
+				INSERT INTO project (user_id, github_url, owner, repo_name, commit_sha, default_branch, status,
+				                     failure_reason)
+				VALUES ('user-a', ?, 'acme', ?, '1111111111111111111111111111111111111111', 'main', ?, ?)
 				RETURNING id
 				""", UUID.class, "https://github.com/acme/" + repo, repo, status, failureReason);
 	}

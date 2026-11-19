@@ -8,6 +8,7 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
+import com.aryankanani.repointerviewer.TestUsers;
 import com.aryankanani.repointerviewer.common.error.DomainException;
 import com.aryankanani.repointerviewer.common.error.ErrorCode;
 import com.aryankanani.repointerviewer.common.error.ServiceUnavailableException;
@@ -86,8 +87,8 @@ class InterviewClientTest {
 							 "error": null}
 							""".formatted(session, project, question, question, session), MediaType.APPLICATION_JSON));
 
-			StartResponse started = interviews.start(new StartInterviewRequest(project, Difficulty.MID,
-					List.of(QuestionCategory.SECURITY), 3));
+			StartResponse started = interviews.start(new StartInterviewRequest(TestUsers.CANDIDATE, project,
+					Difficulty.MID, List.of(QuestionCategory.SECURITY), 3));
 
 			assertThat(started.session().status()).isEqualTo(SessionStatus.IN_PROGRESS);
 			assertThat(started.session().startedAt()).isEqualTo(Instant.parse("2026-11-15T10:00:00Z"));
@@ -186,7 +187,8 @@ class InterviewClientTest {
 									""".formatted(analysisDown)));
 
 			for (int call = 0; call < 10; call++) {
-				assertThatThrownBy(() -> interviews.start(new StartInterviewRequest(UUID.randomUUID(), null, null, null)))
+				assertThatThrownBy(() -> interviews.start(new StartInterviewRequest(TestUsers.CANDIDATE,
+						UUID.randomUUID(), null, null, null)))
 						.isInstanceOf(ServiceUnavailableException.class).hasMessage(analysisDown);
 			}
 			server.verify();

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
 import com.aryankanani.repointerviewer.EvalTest;
+import com.aryankanani.repointerviewer.TestUsers;
 import com.aryankanani.repointerviewer.contracts.analysis.AnalysisApi;
 import com.aryankanani.repointerviewer.contracts.analysis.AnalysisStatus;
 import com.aryankanani.repointerviewer.contracts.analysis.ProjectDto;
@@ -66,7 +67,7 @@ class QuestionQualityEvalTest {
 	private static final String PINNED_COMMIT = "0d2ffc0";
 
 	/** The candidate context of the first real run, so the plan sees the same input. */
-	private static final SubmitProjectRequest SUBMIT = new SubmitProjectRequest(REPO,
+	private static final SubmitProjectRequest SUBMIT = new SubmitProjectRequest(TestUsers.CANDIDATE, REPO,
 			"Spring Boot shopping cart REST API with Spring Security, JPA, and MySQL", "e-commerce",
 			"new-grad backend SWE");
 
@@ -123,7 +124,8 @@ class QuestionQualityEvalTest {
 				.as("analysis FAILED: see analysis-service's log (Ollama running? network?)")
 				.isEqualTo(AnalysisStatus.READY);
 
-		StartResult started = interviewService.start(new StartInterviewCommand(projectId, Difficulty.JUNIOR, null, 5));
+		StartResult started = interviewService.start(new StartInterviewCommand(TestUsers.CANDIDATE,
+				projectId, Difficulty.JUNIOR, null, 5));
 		assertThat(started.error()).as("startInterview").isNull();
 		UUID sessionId = started.session().getId();
 		Map<UUID, Integer> interviewGrades = new HashMap<>();

@@ -37,6 +37,9 @@ public class Project {
 	@UuidGenerator(style = UuidGenerator.Style.VERSION_7)
 	private UUID id;
 
+	/** The user who submitted it, the JWT subject (V3, task 4.4). */
+	private String userId;
+
 	private String githubUrl;
 
 	private String owner;
@@ -114,6 +117,7 @@ public class Project {
 
 	/** A new project waiting for analysis. Only {@link ProjectService} creates projects. */
 	Project(GithubUrl url, RemoteHead head, SubmitProjectCommand command) {
+		this.userId = command.userId();
 		this.githubUrl = url.normalized();
 		this.owner = url.owner();
 		this.repoName = url.repo();
@@ -189,6 +193,10 @@ public class Project {
 
 	public UUID getId() {
 		return id;
+	}
+
+	public String getUserId() {
+		return userId;
 	}
 
 	public String getGithubUrl() {

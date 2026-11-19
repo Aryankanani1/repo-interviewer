@@ -27,6 +27,7 @@ public final class DomainProblems {
 	public static HttpStatus status(ErrorCode code) {
 		return switch (code) {
 			case NOT_FOUND -> HttpStatus.NOT_FOUND;
+			case FORBIDDEN -> HttpStatus.FORBIDDEN;
 			case BUDGET_EXCEEDED -> HttpStatus.TOO_MANY_REQUESTS;
 			case LLM_UNAVAILABLE, SERVICE_UNAVAILABLE -> HttpStatus.SERVICE_UNAVAILABLE;
 			default -> HttpStatus.UNPROCESSABLE_CONTENT;

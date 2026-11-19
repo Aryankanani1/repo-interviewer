@@ -126,8 +126,8 @@ class KafkaAnalysisPipelineTest {
 	}
 
 	private UUID submit() {
-		return projectService.submit(new SubmitProjectCommand("https://github.com/acme/shop-" + UUID.randomUUID(),
-				"Learn Spring Boot", null, null)).getId();
+		return projectService.submit(new SubmitProjectCommand("user-a",
+				"https://github.com/acme/shop-" + UUID.randomUUID(), "Learn Spring Boot", null, null)).getId();
 	}
 
 	/** Pumps the outbox until the project is READY or FAILED. */

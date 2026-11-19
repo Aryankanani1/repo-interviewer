@@ -69,17 +69,22 @@ public class FakeInterviewApi implements InterviewApi {
 
 	// --- Records for tests: plausible values, each one later than the one before
 
-	/** An IN_PROGRESS JUNIOR session of 3 questions, with no current question yet. */
+	/** An IN_PROGRESS JUNIOR session of 3 questions of {@link TestUsers#CANDIDATE}, with no current question yet. */
 	public static SessionDto session(UUID projectId) {
-		return new SessionDto(UUID.randomUUID(), projectId, SessionStatus.IN_PROGRESS, Difficulty.JUNIOR, List.of(), 3,
-				null, null, next(), null, null);
+		return session(projectId, TestUsers.CANDIDATE);
+	}
+
+	/** {@link #session(UUID)}, of {@code userId} (task 4.4). */
+	public static SessionDto session(UUID projectId, String userId) {
+		return new SessionDto(UUID.randomUUID(), userId, projectId, SessionStatus.IN_PROGRESS, Difficulty.JUNIOR,
+				List.of(), 3, null, null, next(), null, null);
 	}
 
 	/** {@code session} with this question waiting for an answer. */
 	public static SessionDto asking(SessionDto session, UUID questionId) {
-		return new SessionDto(session.id(), session.projectId(), session.status(), session.difficulty(),
-				session.focusAreas(), session.plannedQuestionCount(), session.failureReason(), session.report(),
-				session.startedAt(), session.completedAt(), questionId);
+		return new SessionDto(session.id(), session.userId(), session.projectId(), session.status(),
+				session.difficulty(), session.focusAreas(), session.plannedQuestionCount(), session.failureReason(),
+				session.report(), session.startedAt(), session.completedAt(), questionId);
 	}
 
 	/**

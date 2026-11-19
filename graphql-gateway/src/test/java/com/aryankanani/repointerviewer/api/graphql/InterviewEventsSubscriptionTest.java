@@ -145,7 +145,8 @@ class InterviewEventsSubscriptionTest {
 	@Test
 	void aFailedSessionIsSentWithItsReasonAndTheUngradedAnswer() {
 		interviews.add(FakeInterviewApi.ungraded(first.id(), "Both read the same refundedAmount."));
-		interviews.add(new SessionDto(session.id(), session.projectId(), SessionStatus.FAILED, session.difficulty(),
+		interviews.add(new SessionDto(session.id(), session.userId(), session.projectId(), SessionStatus.FAILED,
+				session.difficulty(),
 				session.focusAreas(), session.plannedQuestionCount(), "The AI model is not available right now.",
 				null, session.startedAt(), null, null));
 		List<GraphQlTester.Response> events = subscribe();

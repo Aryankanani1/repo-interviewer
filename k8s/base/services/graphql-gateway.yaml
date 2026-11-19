@@ -1,6 +1,7 @@
 # graphql-gateway (task 4.1 step 4c, LLD §14.3): the public GraphQL API and the SSE subscriptions, behind the Service
 # "graphql-gateway". No database and no API key: it calls analysis-service and interview-service (ANALYSIS_BASE_URL,
-# INTERVIEW_BASE_URL in the ConfigMap "app") and reads their events from Kafka. Shutdown: 5 s to leave the Service,
+# INTERVIEW_BASE_URL in the ConfigMap "app") and reads their events from Kafka. Every request needs a JWT, checked with
+# the public key in the Secret "jwt-public-key" (task 4.4; the overlay makes it). Shutdown: 5 s to leave the Service,
 # then Spring's graceful shutdown (open requests get up to 30 s), within the 45 s grace period.
 # It was the Deployment "api" of the single app until task 4.1.
 apiVersion: apps/v1
@@ -41,6 +42,8 @@ spec:
           env:
             - name: SPRING_PROFILES_ACTIVE
               value: stage,kafka
+            - name: JWT_PUBLIC_KEY_LOCATION
+              value: file:/etc/jwt/jwt-public.pem
           # Startup: up to 5 min to boot before the other two probes begin (three JVMs booting at once on a busy
           # laptop node took over 3 min; alone, 12 s). Liveness: is this JVM still working? Restart it only after
           # a minute without an answer: a busy but healthy JVM (a long GC pause, a starved node) must not be killed.
@@ -83,10 +86,16 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            - name: jwt-public-key
+              mountPath: /etc/jwt
+              readOnly: true
       volumes:
         - name: tmp   # Tomcat's temporary files
           emptyDir:
             sizeLimit: 256Mi
+        - name: jwt-public-key   # only the public key: the gateway checks tokens, it cannot make them
+          secret:
+            secretName: jwt-public-key
 ---
 # The gateway inside the cluster, on port 8080. Locally: kubectl port-forward svc/graphql-gateway 8080:8080.
 apiVersion: v1

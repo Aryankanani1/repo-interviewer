@@ -140,7 +140,9 @@ kubectl -n repo-interviewer create secret generic anthropic \
 
 # 6. Everything else: Postgres, Kafka, the Job that creates the services' database users, the three services, the
 #    ScaledObjects. The base reads the services' own db/bootstrap.sql from outside k8s/, which "kubectl apply -k"
-#    refuses, so build it with the load restrictor off and apply the result.
+#    refuses, so build it with the load restrictor off and apply the result. Since task 4.4 the overlay also makes
+#    the Secret jwt-public-key from .dev-keys/jwt-public.pem: create your dev key pair first (README, "Tokens for
+#    local use"), and the gateway accepts the tokens of java scripts/DevToken.java.
 kubectl kustomize --load-restrictor LoadRestrictionsNone k8s/overlays/kind | kubectl apply --server-side -f -
 kubectl -n repo-interviewer wait pod -l app.kubernetes.io/name=postgres --for=condition=Ready --timeout=5m
 kubectl -n repo-interviewer wait kafka/events --for=condition=Ready --timeout=10m

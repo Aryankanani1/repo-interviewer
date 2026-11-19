@@ -8,6 +8,7 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
+import com.aryankanani.repointerviewer.TestUsers;
 import com.aryankanani.repointerviewer.common.error.DomainException;
 import com.aryankanani.repointerviewer.common.error.ErrorCode;
 import com.aryankanani.repointerviewer.common.error.ModelUnavailableException;
@@ -95,13 +96,14 @@ class AnalysisClientTest {
 	void aPagePositionIsSentAsQueryParameters() {
 		UUID after = UUID.randomUUID();
 		run((analysis, server) -> {
-			server.expect(requestTo(BASE + "/internal/projects/page?limit=2&afterCreatedAt=2026-11-07T10%3A00%3A00Z"
-					+ "&afterId=" + after))
+			server.expect(requestTo(BASE + "/internal/projects/page?userId=user-a&limit=2"
+					+ "&afterCreatedAt=2026-11-07T10%3A00%3A00Z&afterId=" + after))
 					.andRespond(withSuccess("""
 							{"items": [], "hasNext": false}
 							""", MediaType.APPLICATION_JSON));
 
-			assertThat(analysis.page(2, Instant.parse("2026-11-07T10:00:00Z"), after).items()).isEmpty();
+			assertThat(analysis.page(TestUsers.CANDIDATE, 2, Instant.parse("2026-11-07T10:00:00Z"), after).items())
+					.isEmpty();
 			server.verify();
 		});
 	}

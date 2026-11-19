@@ -7,6 +7,8 @@ public enum ErrorCode {
 	REPO_TOO_LARGE,
 	UNSUPPORTED_LANGUAGE,
 	NOT_FOUND,
+	/** It exists, but belongs to another user (task 4.4): the caller may not read or change it. */
+	FORBIDDEN,
 	PROJECT_NOT_READY,
 	INVALID_QUESTION_COUNT,
 	SESSION_NOT_ACTIVE,
