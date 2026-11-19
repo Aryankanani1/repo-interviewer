@@ -2,6 +2,7 @@ package com.aryankanani.repointerviewer.api.graphql;
 
 import com.aryankanani.repointerviewer.api.error.InputValidator;
 import com.aryankanani.repointerviewer.api.error.UserErrorMapper;
+import com.aryankanani.repointerviewer.api.ratelimit.RateLimits;
 import com.aryankanani.repointerviewer.api.security.CurrentUser;
 import com.aryankanani.repointerviewer.api.security.Ownership;
 import com.aryankanani.repointerviewer.common.error.DomainException;
@@ -9,6 +10,7 @@ import com.aryankanani.repointerviewer.contracts.analysis.AnalysisApi;
 import com.aryankanani.repointerviewer.contracts.analysis.ProjectDto;
 import com.aryankanani.repointerviewer.contracts.analysis.ProjectPage;
 import com.aryankanani.repointerviewer.contracts.analysis.SubmitProjectRequest;
+import com.aryankanani.repointerviewer.contracts.interview.InterviewApi;
 import java.security.Principal;
 import java.time.Instant;
 import java.util.List;
@@ -24,8 +26,8 @@ import org.springframework.graphql.data.query.ScrollSubrange;
 import org.springframework.stereotype.Controller;
 
 /**
- * Resolvers for {@code Query.project}, {@code Query.projects}, {@code Mutation.submitProject} and
- * {@code Mutation.reanalyzeProject}
+ * Resolvers for {@code Query.project}, {@code Query.projects}, {@code Mutation.submitProject},
+ * {@code Mutation.reanalyzeProject} and {@code Mutation.deleteProject}
  * (schema-first: the method name is the field name). Calls the analysis side's {@link AnalysisApi} and maps its
  * records to views; no business logic here. Each one sees only the caller's projects (task 4.4, {@link Ownership}).
  */
@@ -47,10 +49,17 @@ class ProjectController {
 
 	private final Ownership ownership;
 
-	ProjectController(AnalysisApi analysis, InputValidator inputValidator, Ownership ownership) {
+	private final RateLimits rateLimits;
+
+	private final InterviewApi interviews;
+
+	ProjectController(AnalysisApi analysis, InputValidator inputValidator, Ownership ownership, RateLimits rateLimits,
+			InterviewApi interviews) {
 		this.analysis = analysis;
 		this.inputValidator = inputValidator;
 		this.ownership = ownership;
+		this.rateLimits = rateLimits;
+		this.interviews = interviews;
 	}
 
 	/**
@@ -100,6 +109,7 @@ class ProjectController {
 		var request = new SubmitProjectRequest(CurrentUser.id(user), input.githubUrl(), input.goal(), input.domain(),
 				input.targetRole());
 		try {
+			rateLimits.take(RateLimits.Operation.SUBMIT_PROJECT, request.userId());   // task 4.4
 			return SubmitProjectPayload.success(ProjectView.from(analysis.submit(request)));
 		}
 		catch (DomainException ex) {
@@ -116,6 +126,24 @@ class ProjectController {
 		}
 		catch (DomainException ex) {
 			return SubmitProjectPayload.failure(UserErrorMapper.toUserError(ex));
+		}
+	}
+
+	/**
+	 * {@code deleteProject(input): DeleteProjectPayload!} (task 4.4): the caller's project, with its analysis, its
+	 * interviews and their answers. The interviews go first, so a delete that stops halfway never leaves interviews
+	 * pointing at a project that is gone; both deletes accept what is already gone, so running it again finishes it.
+	 */
+	@MutationMapping
+	DeleteProjectPayload deleteProject(@Argument DeleteProjectInput input, Principal user) {
+		try {
+			ownership.project(input.projectId(), CurrentUser.id(user));
+			interviews.deleteByProject(input.projectId());
+			analysis.delete(input.projectId());
+			return DeleteProjectPayload.success(input.projectId());
+		}
+		catch (DomainException ex) {
+			return DeleteProjectPayload.failure(UserErrorMapper.toUserError(ex));
 		}
 	}
 

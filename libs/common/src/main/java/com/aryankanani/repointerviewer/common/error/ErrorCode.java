@@ -9,6 +9,8 @@ public enum ErrorCode {
 	NOT_FOUND,
 	/** It exists, but belongs to another user (task 4.4): the caller may not read or change it. */
 	FORBIDDEN,
+	/** Too many expensive requests by this user in a short time (task 4.4): a token bucket is empty. */
+	RATE_LIMITED,
 	PROJECT_NOT_READY,
 	INVALID_QUESTION_COUNT,
 	SESSION_NOT_ACTIVE,

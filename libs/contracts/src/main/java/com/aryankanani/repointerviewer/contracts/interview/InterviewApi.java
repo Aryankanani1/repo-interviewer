@@ -5,6 +5,7 @@ import java.util.UUID;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.service.annotation.DeleteExchange;
 import org.springframework.web.service.annotation.GetExchange;
 import org.springframework.web.service.annotation.HttpExchange;
 import org.springframework.web.service.annotation.PostExchange;
@@ -36,6 +37,13 @@ public interface InterviewApi {
 	/** Ends the session early and writes the report. Safe to call again: it only retries a missing report. */
 	@PostExchange("/sessions/{id}/end")
 	EndResponse end(@PathVariable UUID id);
+
+	/**
+	 * Deletes every session of the project, with their questions and answers (task 4.4, {@code deleteProject}).
+	 * None is no error, so a delete that stopped halfway can simply run again.
+	 */
+	@DeleteExchange("/projects/{projectId}/sessions")
+	void deleteByProject(@PathVariable UUID projectId);
 
 	@GetExchange("/sessions")
 	List<SessionDto> sessions(@RequestParam List<UUID> ids);

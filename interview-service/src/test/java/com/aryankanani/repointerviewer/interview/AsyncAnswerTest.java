@@ -260,6 +260,26 @@ class AsyncAnswerTest {
 		assertThat(llm.calls(LlmPurpose.EVALUATION)).isZero();   // the code to grade against never came
 	}
 
+	/**
+	 * Task 4.4: the session was deleted with its project before its answer was graded. The worker finds it gone and
+	 * skips the event: no model call, no retry, no dead letter, and no SessionFailed for a session nobody can see.
+	 */
+	@Test
+	void anAnswerOfADeletedSessionIsSkipped() {
+		submit(firstQuestionId, "Both read the same refundedAmount.");
+		UUID project = jdbc.queryForObject("SELECT project_id FROM interview_session WHERE id = ?", UUID.class,
+				sessionId);
+		interviews.deleteByProject(project);
+
+		assertThat(OutboxPump.publishPending(context)).hasSize(1);   // AnswerSubmitted: outbox rows are not cascaded
+		KafkaConsumerLag.awaitCaughtUp(kafkaAdmin, Map.of(AnswerEvaluationConsumer.NAME, Topics.ANSWER_SUBMITTED));
+
+		assertThat(llm.calls(LlmPurpose.EVALUATION)).isZero();
+		assertThat(retries.failedAttempts(Topics.ANSWER_SUBMITTED, sessionId.toString())).isEmpty();
+		assertThat(retries.deadLettered(Topics.ANSWER_SUBMITTED, sessionId.toString())).isZero();
+		assertThat(eventTypes()).containsExactly(AnswerFlowEvent.ANSWER_SUBMITTED);
+	}
+
 	/** A reply the model would get wrong again is not retried: the session fails at once, after one call. */
 	@Test
 	void anUnusableGradeFailsTheSessionAtOnce() {

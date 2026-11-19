@@ -154,6 +154,12 @@ public class FakeAnalysisApi implements AnalysisApi {
 	}
 
 	@Override
+	public void delete(UUID id) {
+		called("delete");
+		projects.remove(id);
+	}
+
+	@Override
 	public ProjectDto reanalyze(UUID id) {
 		called("reanalyze");
 		ProjectDto project = existing(id);

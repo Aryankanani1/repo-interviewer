@@ -56,6 +56,11 @@ class AnalysisApiController implements AnalysisApi {
 	}
 
 	@Override
+	public void delete(UUID id) {
+		projectService.delete(id);
+	}
+
+	@Override
 	public ProjectDto reanalyze(UUID id) {
 		return toDto(projectService.reanalyze(id));
 	}

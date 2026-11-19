@@ -116,3 +116,10 @@ app:
     failure-rate-threshold: 50  # and half of them got no answer (refused, timed out), it opens:
     open-duration: 10s          # every call fails at once for 10 s, without a request,
     trial-calls: 2              # then 2 go through, and if they get answers it closes
+  rate-limits:                  # per user, on the mutations that cost model calls (task 4.4, RateLimits)
+    submit-project:             # a clone and a summary call each
+      capacity: 3               # 3 at once,
+      refill-every: 20m         # then one more every 20 minutes: 3 an hour
+    start-interview:            # a plan call and at least one question call each
+      capacity: 5
+      refill-every: 10m         # 6 an hour

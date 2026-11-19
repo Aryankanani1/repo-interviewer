@@ -6,6 +6,7 @@ import java.util.UUID;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.service.annotation.DeleteExchange;
 import org.springframework.web.service.annotation.GetExchange;
 import org.springframework.web.service.annotation.HttpExchange;
 import org.springframework.web.service.annotation.PostExchange;
@@ -30,6 +31,13 @@ public interface AnalysisApi {
 	/** Starts a FAILED analysis again; any other status returns the project unchanged. NOT_FOUND if unknown. */
 	@PostExchange("/projects/{id}/reanalyze")
 	ProjectDto reanalyze(@PathVariable UUID id);
+
+	/**
+	 * Deletes the project with its files and chunks (task 4.4, {@code deleteProject}). Deleting one that is already
+	 * gone is no error, so a delete that stopped halfway can simply run again.
+	 */
+	@DeleteExchange("/projects/{id}")
+	void delete(@PathVariable UUID id);
 
 	/** The projects that exist among {@code ids}, in no particular order: an unknown id is left out. */
 	@GetExchange("/projects")

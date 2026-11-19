@@ -2,6 +2,7 @@ package com.aryankanani.repointerviewer.api.graphql;
 
 import com.aryankanani.repointerviewer.api.error.InputValidator;
 import com.aryankanani.repointerviewer.api.error.UserErrorMapper;
+import com.aryankanani.repointerviewer.api.ratelimit.RateLimits;
 import com.aryankanani.repointerviewer.api.security.CurrentUser;
 import com.aryankanani.repointerviewer.api.security.Ownership;
 import com.aryankanani.repointerviewer.common.error.DomainException;
@@ -56,12 +57,15 @@ class InterviewController {
 
 	private final Ownership ownership;
 
+	private final RateLimits rateLimits;
+
 	InterviewController(InterviewApi interviews, AnalysisApi analysis, InputValidator inputValidator,
-			Ownership ownership) {
+			Ownership ownership, RateLimits rateLimits) {
 		this.interviews = interviews;
 		this.analysis = analysis;
 		this.inputValidator = inputValidator;
 		this.ownership = ownership;
+		this.rateLimits = rateLimits;
 	}
 
 	/** {@code startInterview(input): StartInterviewPayload!}. Can take several seconds: two or more model calls. */
@@ -72,6 +76,7 @@ class InterviewController {
 				input.questionCount());
 		try {
 			ownership.project(input.projectId(), userId);
+			rateLimits.take(RateLimits.Operation.START_INTERVIEW, userId);   // task 4.4
 			StartResponse result = interviews.start(request);
 			return new StartInterviewPayload(InterviewSessionView.from(result.session()),
 					result.firstQuestion() == null ? null : QuestionView.from(result.firstQuestion()),

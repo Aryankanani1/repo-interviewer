@@ -90,6 +90,11 @@ class InterviewApiController implements InterviewApi {
 		return answers.values().stream().map(answer -> toDto(answer, questions.get(answer.getQuestionId()))).toList();
 	}
 
+	@Override
+	public void deleteByProject(UUID projectId) {
+		interviewService.deleteSessionsOfProject(projectId);
+	}
+
 	/** The gateway always passes the caller (task 4.4); a request without one is a bug, refused before any work. */
 	private static void requireUser(String userId) {
 		if (userId == null || userId.isBlank()) {

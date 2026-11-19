@@ -25,6 +25,8 @@ type Query {
 type Mutation {
   submitProject(input: SubmitProjectInput!): SubmitProjectPayload!
   reanalyzeProject(input: ReanalyzeProjectInput!): SubmitProjectPayload!
+  "Deletes your project with its analysis, its interviews and your answers. Running it again after a failure is safe."
+  deleteProject(input: DeleteProjectInput!): DeleteProjectPayload!
   startInterview(input: StartInterviewInput!): StartInterviewPayload!
   submitAnswer(input: SubmitAnswerInput!): SubmitAnswerPayload!
   endInterview(input: EndInterviewInput!): EndInterviewPayload!
@@ -297,6 +299,16 @@ input ReanalyzeProjectInput {
   projectId: ID!
 }
 
+input DeleteProjectInput {
+  projectId: ID!
+}
+
+type DeleteProjectPayload {
+  "The project that is now gone; null when it was not deleted (see errors)."
+  deletedProjectId: ID
+  errors: [UserError!]!
+}
+
 type SubmitProjectPayload {
   project: Project
   errors: [UserError!]!
@@ -355,6 +367,8 @@ enum ErrorCode {
   NOT_FOUND
   "It exists, but belongs to another user: you may not read or change it."
   FORBIDDEN
+  "Too many projects submitted or interviews started in a short time. The message says how long to wait."
+  RATE_LIMITED
   PROJECT_NOT_READY
   INVALID_QUESTION_COUNT
   SESSION_NOT_ACTIVE

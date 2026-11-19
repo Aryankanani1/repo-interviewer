@@ -13,3 +13,12 @@ spring:
   graphql:
     graphiql:
       enabled: false
+
+app:
+  rate-limits:   # task 4.4: so high that no test meets them by chance; RateLimitTest sets its own
+    submit-project:
+      capacity: 10000
+      refill-every: 1ms
+    start-interview:
+      capacity: 10000
+      refill-every: 1ms

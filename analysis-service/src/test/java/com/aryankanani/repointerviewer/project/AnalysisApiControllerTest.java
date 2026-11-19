@@ -1,5 +1,6 @@
 package com.aryankanani.repointerviewer.project;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.everyItem;
@@ -7,6 +8,7 @@ import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.nullValue;
 import static org.hamcrest.Matchers.startsWith;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -96,6 +98,25 @@ class AnalysisApiControllerTest {
 				""")
 				.andExpect(status().isUnprocessableContent())
 				.andExpect(jsonPath("$.code").value("REPO_NOT_FOUND"));
+	}
+
+	/**
+	 * Task 4.4, deleteProject's analysis half: the project goes with its files and chunks, another project stays, and
+	 * deleting it again is no error (a delete that stopped halfway runs again).
+	 */
+	@Test
+	void deletingAProjectRemovesItsFilesAndChunksAndAgainIsNoError() throws Exception {
+		UUID project = fixtures.readyProject();
+		UUID other = fixtures.readyProject();
+		assertThat(count("SELECT count(*) FROM code_chunk WHERE project_id = ?", project)).isPositive();
+
+		mvc.perform(delete("/internal/projects/{id}", project)).andExpect(status().isOk());
+		mvc.perform(delete("/internal/projects/{id}", project)).andExpect(status().isOk());
+
+		assertThat(count("SELECT count(*) FROM project WHERE id = ?", project)).isZero();
+		assertThat(count("SELECT count(*) FROM code_file WHERE project_id = ?", project)).isZero();
+		assertThat(count("SELECT count(*) FROM code_chunk WHERE project_id = ?", project)).isZero();
+		assertThat(count("SELECT count(*) FROM code_chunk WHERE project_id = ?", other)).isPositive();
 	}
 
 	/** Task 4.4: the gateway always says whose project it is; without that, nothing is saved. */
@@ -193,6 +214,10 @@ class AnalysisApiControllerTest {
 						.param("afterId", UUID.randomUUID().toString()))
 				.andExpect(status().isUnprocessableContent())
 				.andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+	}
+
+	private int count(String query, UUID project) {
+		return jdbc.queryForObject(query, Integer.class, project);
 	}
 
 	private ResultActions postJson(String path, String json) throws Exception {

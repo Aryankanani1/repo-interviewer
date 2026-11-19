@@ -212,6 +212,25 @@ public class FakeInterviewApi implements InterviewApi {
 		return response;
 	}
 
+	/** Like interview-service: the project's sessions go, and their questions and answers with them. */
+	@Override
+	public void deleteByProject(UUID projectId) {
+		called("deleteByProject");
+		sessions.values().removeIf(session -> {
+			if (!session.projectId().equals(projectId)) {
+				return false;
+			}
+			questions.values().removeIf(question -> {
+				boolean ofSession = question.sessionId().equals(session.id());
+				if (ofSession) {
+					answers.remove(question.id());
+				}
+				return ofSession;
+			});
+			return true;
+		});
+	}
+
 	@Override
 	public List<SessionDto> sessions(List<UUID> ids) {
 		called("sessions");

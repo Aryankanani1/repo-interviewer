@@ -3,6 +3,7 @@ package com.aryankanani.repointerviewer.common.config;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.aryankanani.repointerviewer.AppPropertiesConfiguration;
+import com.aryankanani.repointerviewer.api.ratelimit.RateLimitProperties;
 import java.time.Duration;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.ConfigDataApplicationContextInitializer;
@@ -29,6 +30,9 @@ class AppPropertiesTest {
 			ServiceCallProperties calls = context.getBean(ServiceCallProperties.class);   // task 4.2
 			assertThat(calls.maxAttempts()).isEqualTo(3);
 			assertThat(calls.openDuration()).isEqualTo(Duration.ofSeconds(10));
+			RateLimitProperties limits = context.getBean(RateLimitProperties.class);   // task 4.4
+			assertThat(limits.submitProject().capacity()).isEqualTo(3);
+			assertThat(limits.startInterview().refillEvery()).isEqualTo(Duration.ofMinutes(10));
 		});
 	}
 

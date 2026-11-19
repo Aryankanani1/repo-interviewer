@@ -312,6 +312,15 @@ public class InterviewService {
 		return sessions.findById(sessionId);
 	}
 
+	/**
+	 * {@code deleteProject} (task 4.4): every session of the project, with what hangs off it. An answer still being
+	 * graded finds its session gone and is skipped by the workers. None: nothing to do.
+	 */
+	@Transactional
+	public void deleteSessionsOfProject(UUID projectId) {
+		sessions.deleteByProject(projectId);
+	}
+
 	/** The questions shown so far, in order. Prepared (prefetched) ones are never returned. */
 	@Transactional(readOnly = true)
 	public List<Question> askedQuestions(UUID sessionId) {

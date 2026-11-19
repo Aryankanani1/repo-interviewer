@@ -62,6 +62,10 @@ class AnswerEvaluationConsumer {
 			if (processed.isProcessed(event.eventId(), NAME)) {
 				return;
 			}
+			if (interviewService.find(sessionId).isEmpty()) {   // deleted with its project (task 4.4)
+				log.info("Event skipped: its session no longer exists");
+				return;
+			}
 			try {
 				interviewService.grade(payload.answerId());
 			}

@@ -128,6 +128,15 @@ public class ProjectService {
 		}
 	}
 
+	/**
+	 * {@code deleteProject} (task 4.4): the project, its files and its chunks. Events still on their way for it find
+	 * no project and are skipped by every stage. Gone already: nothing to do.
+	 */
+	@Transactional
+	public void delete(UUID projectId) {
+		projectRepository.deleteProject(projectId);   // 0 rows when it was already gone: nothing to do
+	}
+
 	private Project findOrInsert(GithubUrl url, RemoteHead head, SubmitProjectCommand command) {
 		Optional<Project> existing = projectRepository.findByUserIdAndGithubUrlAndCommitSha(command.userId(),
 				url.normalized(), head.commitSha());

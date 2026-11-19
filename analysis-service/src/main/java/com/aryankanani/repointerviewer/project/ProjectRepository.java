@@ -28,6 +28,14 @@ interface ProjectRepository extends JpaRepository<Project, UUID> {
 	Optional<Project> findByUserIdAndGithubUrlAndCommitSha(String userId, String githubUrl, String commitSha);
 
 	/**
+	 * Deletes a project (task 4.4). The database removes its files and chunks ({@code ON DELETE CASCADE}) and keeps
+	 * its model calls with no project ({@code ON DELETE SET NULL}). @return 0 when it was already gone
+	 */
+	@Modifying
+	@Query(value = "DELETE FROM project WHERE id = :id", nativeQuery = true)
+	int deleteProject(@Param("id") UUID id);
+
+	/**
 	 * Marks analyses that stopped moving as FAILED, in one statement ({@link StaleAnalysisRecovery}). A bulk
 	 * UPDATE skips Hibernate, so it sets {@code updated_at} and bumps {@code version} itself.
 	 */

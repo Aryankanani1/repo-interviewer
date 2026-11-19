@@ -6,6 +6,7 @@ import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.nullValue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -101,6 +102,32 @@ class InterviewApiControllerTest {
 				.andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
 				.andExpect(jsonPath("$.code").value("NOT_FOUND"))
 				.andExpect(jsonPath("$.field").value("projectId"));
+	}
+
+	/**
+	 * Task 4.4, deleteProject's interview half: the project's sessions go with their questions and answers, another
+	 * project's stay, and deleting again is no error.
+	 */
+	@Test
+	void deletingAProjectsSessionsRemovesTheirQuestionsAndAnswers() throws Exception {
+		String question = startedQuestion();
+		answer(question, """
+				{"text": "Both read the same refundedAmount."}
+				""").andExpect(status().isOk());
+		UUID otherProject = fixture.readyProject();
+		start("""
+				{"userId": "user-a", "projectId": "%s"}
+				""".formatted(otherProject)).andExpect(status().isOk());
+
+		mvc.perform(delete("/internal/projects/{projectId}/sessions", project)).andExpect(status().isOk());
+		mvc.perform(delete("/internal/projects/{projectId}/sessions", project)).andExpect(status().isOk());
+
+		assertThat(count("SELECT count(*) FROM interview_session WHERE project_id = ?", project)).isZero();
+		assertThat(count("SELECT count(*) FROM interview_session WHERE project_id = ?", otherProject)).isEqualTo(1);
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM question WHERE id = ?::uuid", Integer.class, question))
+				.isZero();
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM answer WHERE question_id = ?::uuid", Integer.class,
+				question)).isZero();
 	}
 
 	/** Task 4.4: the gateway always says whose session it is; without that, nothing is saved. */
@@ -241,6 +268,10 @@ class InterviewApiControllerTest {
 
 	private ResultActions start(String json) throws Exception {
 		return mvc.perform(post("/internal/sessions").contentType(MediaType.APPLICATION_JSON).content(json));
+	}
+
+	private int count(String query, UUID projectId) {
+		return jdbc.queryForObject(query, Integer.class, projectId);
 	}
 
 	private ResultActions answer(String questionId, String json) throws Exception {
