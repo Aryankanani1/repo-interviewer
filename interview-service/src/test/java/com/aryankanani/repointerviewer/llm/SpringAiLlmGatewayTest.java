@@ -7,6 +7,7 @@ import static org.assertj.core.groups.Tuple.tuple;
 import com.aryankanani.repointerviewer.IntegrationTest;
 import com.aryankanani.repointerviewer.common.error.ErrorCode;
 import com.aryankanani.repointerviewer.llm.output.EvaluationOutput;
+import com.aryankanani.repointerviewer.llm.output.PlanOutput;
 import com.aryankanani.repointerviewer.llm.output.SummaryOutput;
 import io.micrometer.common.KeyValue;
 import io.micrometer.core.instrument.observation.DefaultMeterObservationHandler;
@@ -22,8 +23,12 @@ import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.ai.anthropic.AnthropicCacheOptions;
+import org.springframework.ai.anthropic.AnthropicCacheStrategy;
 import org.springframework.ai.anthropic.AnthropicChatOptions;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.MessageType;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -36,6 +41,12 @@ import org.springframework.transaction.support.TransactionTemplate;
  */
 @IntegrationTest
 class SpringAiLlmGatewayTest {
+
+	private static final String VALID_PLAN = """
+			{"topics": [{"title": "Overall design", "category": "ARCHITECTURE",
+			  "targetPaths": ["src/main/java/com/example/shop/order/OrderController.java"],
+			  "targetSymbols": ["OrderController"], "rationale": "Shows the layers."}]}
+			""";
 
 	private static final String VALID_SUMMARY = """
 			{"oneLiner": "  A small order service.  ", "architectureStyle": "layered monolith",
@@ -146,6 +157,61 @@ class SpringAiLlmGatewayTest {
 		});
 		assertThat(stopped).extracting(context -> context.getLowCardinalityKeyValue("outcome").getValue())
 				.containsExactly("output_invalid", "success");
+	}
+
+	/**
+	 * Task 4.5: PLAN sends its project context as a second system message, after the system prompt and out of the
+	 * user message, with Spring AI's SYSTEM_ONLY cache option, which joins both into one block marked for Anthropic's
+	 * prompt cache. The reply's cache reads and writes are recorded.
+	 */
+	@Test
+	void aPlanSendsItsProjectContextAsACachedSystemBlockAndRecordsTheCacheTokens() {
+		claude.cacheTokens(0, 18_000).reply(VALID_PLAN);
+
+		gateway.call(planRequest());
+
+		Prompt prompt = claude.prompts().getFirst();
+		assertThat(prompt.getInstructions()).extracting(Message::getMessageType)
+				.containsExactly(MessageType.SYSTEM, MessageType.SYSTEM, MessageType.USER);
+		assertThat(prompt.getInstructions().get(0).getText()).isEqualTo(templates.system());
+		assertThat(prompt.getInstructions().get(1).getText()).contains("REPO MAP", "ARCHITECTURE SUMMARY");
+		assertThat(prompt.getUserMessage().getText()).contains("JUNIOR").doesNotContain("REPO MAP");
+		assertThat(((AnthropicChatOptions) prompt.getOptions()).getCacheOptions().getStrategy())
+				.isEqualTo(AnthropicCacheStrategy.SYSTEM_ONLY);
+		LlmCall row = calls.findAll().getFirst();
+		assertThat(row.getCacheWriteTokens()).isEqualTo(18_000);
+		assertThat(row.getCachedTokens()).isZero();
+		assertThat(meters.get("ri.llm.tokens").tag("purpose", "PLAN").tag("type", "cache_write").counter().count())
+				.isEqualTo(18_000);
+	}
+
+	/** A prompt with no project context has only the ~200-token system prompt, too short to cache: no option. */
+	@Test
+	void aPromptWithoutContextIsNotMarkedForTheCache() {
+		claude.reply(VALID_SUMMARY);
+
+		gateway.call(summaryRequest(null));
+
+		Prompt prompt = claude.prompts().getFirst();
+		assertThat(prompt.getInstructions()).extracting(Message::getMessageType)
+				.containsExactly(MessageType.SYSTEM, MessageType.USER);
+		assertThat(cacheStrategy(prompt)).isEqualTo(AnthropicCacheStrategy.NONE);
+	}
+
+	/** {@code app.llm.prompt-caching: false}: the same messages, nothing marked (the "before" of task 4.5's AC). */
+	@Test
+	void withPromptCachingOffAPlanIsNotMarked() {
+		LlmProperties off = new LlmProperties(settings.models(), settings.maxOutputTokens(),
+				settings.maxCallsPerSession(), settings.maxCallsPerDay(), settings.timeout(), false);
+		SpringAiLlmGateway uncached = new SpringAiLlmGateway(ChatClient.builder(claude), templates, budget, ledger, off,
+				observations, meters);
+		claude.reply(VALID_PLAN);
+
+		uncached.call(planRequest());
+
+		Prompt prompt = claude.prompts().getFirst();
+		assertThat(prompt.getInstructions()).hasSize(3);
+		assertThat(cacheStrategy(prompt)).isEqualTo(AnthropicCacheStrategy.NONE);
 	}
 
 	@Test
@@ -277,6 +343,25 @@ class SpringAiLlmGatewayTest {
 				VALUES ('user-a', ?, 'IN_PROGRESS', 'JUNIOR', 5, ?)
 				RETURNING id
 				""", UUID.class, project, callsUsed);
+	}
+
+	private LlmRequest<PlanOutput> planRequest() {
+		Map<String, Object> variables = new HashMap<>();
+		variables.put("difficulty", "JUNIOR");
+		variables.put("questionCount", 3);
+		variables.put("focusAreas", List.of());
+		variables.put("targetRole", "backend intern");
+		variables.put("goal", null);
+		variables.put("summary", "ARCHITECTURE SUMMARY");
+		variables.put("repoMap", "REPO MAP");
+		variables.put("retryFeedback", null);
+		return new LlmRequest<>(LlmPurpose.PLAN, variables, PlanOutput.class, project, null);
+	}
+
+	/** The cache strategy the prompt's options carry; NONE when nothing set one. */
+	private static AnthropicCacheStrategy cacheStrategy(Prompt prompt) {
+		AnthropicCacheOptions options = ((AnthropicChatOptions) prompt.getOptions()).getCacheOptions();
+		return options == null ? AnthropicCacheStrategy.NONE : options.getStrategy();
 	}
 
 	/** {@code ri.llm.tokens} of the SUMMARY calls, by type. */

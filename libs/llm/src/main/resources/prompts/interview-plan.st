@@ -1,23 +1,8 @@
-Plan a technical interview about this codebase.
+Plan a technical interview about the codebase described before this message.
 
 Candidate level: {difficulty}
 Number of main questions: {questionCount}
 Requested focus areas (empty means balanced): {focusAreas}
-
-What the candidate wrote about themselves and the project, in their own words:
-<candidate_context>
-Target role: {targetRole}
-Goal: {goal}
-</candidate_context>
-
-Architecture summary:
-<repo_content>
-{summary}
-</repo_content>
-
-<repo_map>
-{repoMap}
-</repo_map>
 
 Problems with your previous plan (empty on the first attempt):
 {retryFeedback}

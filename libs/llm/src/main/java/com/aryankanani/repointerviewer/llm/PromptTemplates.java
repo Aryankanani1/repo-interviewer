@@ -41,6 +41,10 @@ import org.springframework.stereotype.Component;
  * <p>{@code prompt_version} ({@link #version}) is the template name plus the first 8 hex characters of the
  * SHA-256 of the system prompt and the template together, for example {@code repo-summary@1a2b3c4d}. Editing
  * either file changes it, so results in {@code llm_call} can be compared before and after a prompt change.
+ *
+ * <p>A template may have a context part, {@code <name>-context.st} (task 4.5): the text that stays the same for
+ * every call about one project, sent after the system prompt so Anthropic can cache it ({@link #renderParts}).
+ * It counts in the template's version.
  */
 @Component
 public class PromptTemplates {
@@ -48,6 +52,8 @@ public class PromptTemplates {
 	static final String SYSTEM = "system-interviewer";
 
 	static final String NOT_PROVIDED = "(not provided)";
+
+	static final String CONTEXT_SUFFIX = "-context";
 
 	private static final String LOCATION = "classpath:prompts/*.st";
 
@@ -70,8 +76,8 @@ public class PromptTemplates {
 			throw new IllegalStateException("prompts/" + SYSTEM + ".st is missing");
 		}
 		Map<String, Template> checked = new HashMap<>();
-		texts.forEach((name, text) -> checked.put(name,
-				new Template(text, placeholders(name, text), name + "@" + shortHash(system + "\n" + text))));
+		texts.forEach((name, text) -> checked.put(name, new Template(text, placeholders(name, text),
+				name + "@" + shortHash(system + "\n" + texts.getOrDefault(name + CONTEXT_SUFFIX, "") + "\n" + text))));
 		if (!checked.get(SYSTEM).placeholders().isEmpty()) {
 			throw new IllegalStateException("prompts/" + SYSTEM + ".st must not have placeholders");
 		}
@@ -104,6 +110,34 @@ public class PromptTemplates {
 		Map<String, Object> values = new HashMap<>();
 		variables.forEach((key, value) -> values.put(key, asText(value)));
 		return PromptTemplate.builder().template(template.text()).variables(values).build().render();
+	}
+
+	/**
+	 * A template and its context part, if it has one, each filled in with its own variables (task 4.5). Together their
+	 * placeholders must match the variables exactly, like {@link #render}.
+	 *
+	 * @return the context part (null when the template has none) and the main part
+	 * @throws IllegalArgumentException a placeholder has no value, or a value has no placeholder
+	 */
+	public Parts renderParts(String name, Map<String, Object> variables) {
+		Template context = templates.get(name + CONTEXT_SUFFIX);
+		if (context == null) {
+			return new Parts(null, render(name, variables));
+		}
+		Map<String, Object> contextValues = new HashMap<>();
+		Map<String, Object> mainValues = new HashMap<>();
+		variables.forEach((key, value) -> (context.placeholders().contains(key) ? contextValues : mainValues)
+				.put(key, value));
+		return new Parts(render(name + CONTEXT_SUFFIX, contextValues), render(name, mainValues));
+	}
+
+	/**
+	 * One call's prompt text besides the system prompt.
+	 *
+	 * @param context the part that stays the same for every call about the project, or null
+	 * @param main the rest, which goes in the user message
+	 */
+	public record Parts(String context, String main) {
 	}
 
 	private Template template(String name) {

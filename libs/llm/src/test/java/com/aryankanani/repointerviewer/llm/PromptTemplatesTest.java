@@ -53,7 +53,8 @@ class PromptTemplatesTest {
 		Map<String, Object> variables = new HashMap<>();
 		VARIABLES.get(purpose).forEach(name -> variables.put(name, "value-of-" + name));
 
-		String prompt = templates.render(purpose.template(), variables);
+		PromptTemplates.Parts parts = templates.renderParts(purpose.template(), variables);
+		String prompt = (parts.context() == null ? "" : parts.context() + "\n") + parts.main();
 
 		assertThat(prompt).doesNotContain("{", "}");
 		VARIABLES.get(purpose).forEach(name -> assertThat(prompt).contains("value-of-" + name));
@@ -63,8 +64,11 @@ class PromptTemplatesTest {
 	@ParameterizedTest
 	@EnumSource(LlmPurpose.class)
 	void untrustedPlaceholdersSitInsideTheirTag(LlmPurpose purpose) throws IOException {
-		String text = new ClassPathResource("prompts/" + purpose.template() + ".st")
-				.getContentAsString(StandardCharsets.UTF_8);
+		ClassPathResource main = new ClassPathResource("prompts/" + purpose.template() + ".st");
+		ClassPathResource context = new ClassPathResource(
+				"prompts/" + purpose.template() + PromptTemplates.CONTEXT_SUFFIX + ".st");
+		String text = (context.exists() ? context.getContentAsString(StandardCharsets.UTF_8) + "\n" : "")   // task 4.5
+				+ main.getContentAsString(StandardCharsets.UTF_8);
 
 		UNTRUSTED.forEach((name, tag) -> {
 			for (int at = text.indexOf("{" + name + "}"); at >= 0; at = text.indexOf("{" + name + "}", at + 1)) {
@@ -89,6 +93,7 @@ class PromptTemplatesTest {
 		List<String> expected = new ArrayList<>(
 				Arrays.stream(LlmPurpose.values()).map(LlmPurpose::template).toList());
 		expected.add(PromptTemplates.SYSTEM);
+		expected.add(LlmPurpose.PLAN.template() + PromptTemplates.CONTEXT_SUFFIX);   // task 4.5
 
 		assertThat(templates.names()).containsExactlyInAnyOrderElementsOf(expected);
 		assertThat(templates.system()).contains("<candidate_answer>").doesNotContain("{", "}");
@@ -196,6 +201,48 @@ class PromptTemplatesTest {
 		assertThat(original.version("demo")).matches("demo@[0-9a-f]{8}").isEqualTo(sameText.version("demo"));
 		assertThat(templateChanged.version("demo")).isNotEqualTo(original.version("demo"));
 		assertThat(systemChanged.version("demo")).isNotEqualTo(original.version("demo"));
+	}
+
+	/**
+	 * Task 4.5: PLAN's project context (what stays the same for every plan of the project) is its own part, which the
+	 * gateway sends after the system prompt for caching; the rest varies per interview and holds none of it.
+	 */
+	@Test
+	void planPutsTheProjectContextInItsOwnPart() {
+		Map<String, Object> variables = new HashMap<>();
+		VARIABLES.get(LlmPurpose.PLAN).forEach(name -> variables.put(name, "value-of-" + name));
+
+		PromptTemplates.Parts parts = templates.renderParts(LlmPurpose.PLAN.template(), variables);
+
+		assertThat(parts.context()).contains("value-of-targetRole", "value-of-goal", "value-of-summary",
+				"value-of-repoMap").doesNotContain("value-of-difficulty", "value-of-questionCount",
+						"value-of-focusAreas", "value-of-retryFeedback");
+		assertThat(parts.main()).contains("value-of-difficulty", "value-of-questionCount", "value-of-retryFeedback")
+				.doesNotContain("value-of-repoMap", "value-of-summary", "value-of-goal");
+	}
+
+	@Test
+	void aTemplateWithoutContextHasOnlyAMainPart() {
+		Map<String, Object> variables = new HashMap<>();
+		VARIABLES.get(LlmPurpose.EVALUATION).forEach(name -> variables.put(name, "x"));
+
+		PromptTemplates.Parts parts = templates.renderParts(LlmPurpose.EVALUATION.template(), variables);
+
+		assertThat(parts.context()).isNull();
+		assertThat(parts.main()).isEqualTo(templates.render(LlmPurpose.EVALUATION.template(), variables));
+	}
+
+	/** Editing a template's context part changes the template's version too (task 4.5). */
+	@Test
+	void theContextPartCountsInTheVersion() {
+		PromptTemplates original = new PromptTemplates(Map.of(PromptTemplates.SYSTEM, "You interview.",
+				"demo", "Ask about {topic}.", "demo-context", "Project {name}."));
+		PromptTemplates contextChanged = new PromptTemplates(Map.of(PromptTemplates.SYSTEM, "You interview.",
+				"demo", "Ask about {topic}.", "demo-context", "The project {name}."));
+
+		assertThat(contextChanged.version("demo")).isNotEqualTo(original.version("demo"));
+		assertThatThrownBy(() -> original.renderParts("demo", Map.of("topic", "x", "name", "y", "extra", "z")))
+				.isInstanceOf(IllegalArgumentException.class).hasMessageContaining("extra");
 	}
 
 	@ParameterizedTest

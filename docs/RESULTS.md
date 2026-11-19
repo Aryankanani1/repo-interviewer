@@ -16,7 +16,7 @@ Measured from the app log (stage start/end lines, `Analysis READY in 159031 ms`)
 |---|---|---|---|---|---|---|
 | Phase 1, no prefetch | 34.9 s | 41.5 s | 120 873 | 21 731 | — | 2026-10-31 / `39f98ec` |
 | Phase 1, prefetch | 18.1 s | 26.8 s | 95 024 | 20 414 | — | 2026-10-31 / `36ddfce` + task 1.16 |
-| Phase 4, prompt caching | | | | | | |
+| Phase 4, prompt caching | — (not measured: only PLAN is cached, see below) | — | PLAN 494 uncached + 21 350 cached | — | 21 350 per repeated PLAN | 2026-11-19 / task 4.5 |
 
 Useful query:
 
@@ -156,3 +156,23 @@ What it shows:
 Model calls of this session (`interview.llm_call`): PLAN 12.0 s, QUESTION 19.7 s (first question), EVALUATION 10.5 s, QUESTION 24.6 s (the prefetch of question 2), QUESTION 41.0 s (the wasted one), QUESTION 21.1 s (the prefetch of question 3), all successful; 57.9k input and 11.6k output tokens on Sonnet, about $0.23 at $2 / $10 per MTok. Plus the analysis's SUMMARY on Haiku (17.3k input, 1.3k output tokens).
 
 The screenshot was taken with headless Chrome from Jaeger's trace page (`--screenshot`, 1800 × 1300), so it shows span names and timings only: no prompt, answer or score.
+
+## Prompt caching (task 4.5, 2026-11-19)
+
+Acceptance criterion of task 4.5: input-token cost and latency per session, before and after. Only PLAN carries a block worth caching (DECISIONS.md D-032), so the measurement is the start of an interview (PLAN, then the first question), four times on the same analyzed project (`aryankanani1/shopping-cart-spring-security`, 3 questions, prefetch off so each start makes exactly these calls): two with `app.llm.prompt-caching=false`, then two with it on, back to back. Prices: Sonnet 5 input $2/MTok, cache write $2.50 (1.25x), cache read $0.20 (0.1x), output $10.
+
+| Start | PLAN input (uncached) | PLAN cache write | PLAN cache read | PLAN input cost | PLAN latency | Start total (input + output, all calls) | Client time |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| off-1 | 21 844 + re-plan 22 090 | 0 | 0 | $0.0437 + $0.0442 | 10.1 s + 17.9 s | $0.149 (3 calls) | 54.4 s |
+| off-2 | 21 844 | 0 | 0 | $0.0437 | 8.7 s | $0.077 | 22.3 s |
+| on-1 | 494 | 21 350 | 0 | $0.0544 (+24%) | 9.2 s | $0.090 | 28.5 s |
+| on-2 | 494 | 0 | 21 350 | $0.0053 (−88%) | 9.1 s | $0.043 (−44%) | 27.7 s |
+
+What it shows:
+- **The cached block is 21 350 tokens** (the system prompt and the project context); only 494 tokens of a PLAN remain uncached. A PLAN that repeats within 5 minutes costs 88% less input, and the start of that interview 44% less in all (the first question's code is per topic and not cached).
+- **The first one pays 24% more** on its PLAN input (the 1.25x write). Two PLANs within 5 minutes already break even (1.25 + 0.1 = 1.35 against 2).
+- **No latency gain to see:** PLAN took 8.7-10.1 s in every case. Its time goes into writing ~900 tokens of plan, not into reading the input; one sample each, so differences of a second are noise. Client times also include the first question (13-22 s) and, for off-1, a re-plan.
+- **off-1 hit the case caching is for, by chance:** its first plan was rejected (task 3.7's re-plan), and the second PLAN re-sent the same 21 844-token block. With caching on, that second PLAN would read it at 0.1x: $0.0442 → about $0.005.
+- In a single interview with nothing repeated, caching costs slightly more (one write); it pays for re-plans, second attempts, a candidate starting again, back-to-back interviews of a project, load tests and evals.
+
+Recorded in `llm_call` (V4 `cache_write_tokens` next to `cached_tokens`); the run cost $0.36 in all.

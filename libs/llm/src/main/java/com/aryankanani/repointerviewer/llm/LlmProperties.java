@@ -14,6 +14,7 @@ import org.springframework.validation.annotation.Validated;
  * {@code app.llm}: the model per purpose, output caps and call budgets of {@link LlmGateway} (LLD §5.4), in each
  * service that calls a model. Validated at startup; {@code ignoreUnknownFields = false} makes a misspelled key fail.
  * Every nested section needs {@code @Valid}; without it the constraints inside that section are never checked.
+ * {@code prompt-caching} (task 4.5): whether a prompt's project context is marked for Anthropic's prompt cache.
  */
 @Validated
 @ConfigurationProperties(prefix = "app.llm", ignoreUnknownFields = false)
@@ -22,7 +23,8 @@ public record LlmProperties(
 		@Valid @NotNull MaxOutputTokens maxOutputTokens,
 		@Positive int maxCallsPerSession,
 		@Positive int maxCallsPerDay,
-		@NotNull @DurationMin(seconds = 1) Duration timeout) {
+		@NotNull @DurationMin(seconds = 1) Duration timeout,
+		boolean promptCaching) {
 
 	@AssertTrue(message = "must satisfy max-calls-per-session <= max-calls-per-day")
 	boolean isCallLimitsValid() {

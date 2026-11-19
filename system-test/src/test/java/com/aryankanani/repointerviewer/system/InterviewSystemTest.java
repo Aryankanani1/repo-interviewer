@@ -167,6 +167,15 @@ class InterviewSystemTest {
 		endedSession = session;
 		assertThat(ended.at("/data/endInterview/session/report/overallScore").asDouble()).isPositive();
 
+		// Task 4.5: on the wire, PLAN's system prompt and project context are one block marked for the prompt cache,
+		// and the repository map is in it, not in the user message.
+		JsonNode plan = JsonMapper.builder().build().readTree(apps.models().lastRequest(LlmPurpose.PLAN));
+		JsonNode system = plan.path("system");
+		assertThat(system.isArray()).as(plan.path("system").toString()).isTrue();
+		assertThat(system.get(system.size() - 1).path("cache_control").path("type").asString()).isEqualTo("ephemeral");
+		assertThat(system.get(system.size() - 1).path("text").asString()).contains("<repo_map>");
+		assertThat(plan.path("messages").toString()).doesNotContain("<repo_map>");
+
 		// Every model call is interview-service's, recorded in its own schema; the analysis was loaded, not run.
 		Map<String, Integer> calls = modelCalls("interview", UUID.fromString(session));
 		assertThat(calls).containsEntry("PLAN", 1).containsEntry("EVALUATION", 1).containsEntry("REPORT", 1);

@@ -173,3 +173,4 @@ app:
     # 1/5 in analysis-service (dev 48 + 12, stage 80 + 20, prod 240 + 60). The GraphQL app makes no model calls.
     max-calls-per-day: 240
     timeout: 60s
+    prompt-caching: true   # task 4.5: PLAN's project context in Anthropic's 5-minute prompt cache (LLD §8.1)

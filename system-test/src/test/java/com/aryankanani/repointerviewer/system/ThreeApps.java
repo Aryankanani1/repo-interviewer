@@ -130,6 +130,11 @@ final class ThreeApps implements AutoCloseable {
 		return "http://" + jaeger.getHost() + ":" + jaeger.getMappedPort(JAEGER_API);
 	}
 
+	/** The fake Claude and Ollama, to read what the apps sent them. */
+	FakeModelServer models() {
+		return models;
+	}
+
 	AppProcess analysisService() {
 		return analysis;
 	}

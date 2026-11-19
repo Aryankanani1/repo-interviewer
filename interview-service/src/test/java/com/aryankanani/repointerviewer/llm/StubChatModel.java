@@ -33,8 +33,19 @@ class StubChatModel implements ChatModel {
 
 	private final List<Prompt> prompts = new ArrayList<>();
 
+	private Long cacheRead;
+
+	private Long cacheWrite;
+
 	StubChatModel reply(String text) {
 		replies.add(text);
+		return this;
+	}
+
+	/** From now on, each reply reports these prompt-cache tokens, like Anthropic's usage (task 4.5). */
+	StubChatModel cacheTokens(long read, long write) {
+		this.cacheRead = read;
+		this.cacheWrite = write;
 		return this;
 	}
 
@@ -64,7 +75,8 @@ class StubChatModel implements ChatModel {
 			throw failure;
 		}
 		return new ChatResponse(List.of(new Generation(new AssistantMessage((String) next))),
-				ChatResponseMetadata.builder().usage(new DefaultUsage(INPUT_TOKENS, OUTPUT_TOKENS)).build());
+				ChatResponseMetadata.builder().usage(new DefaultUsage(INPUT_TOKENS, OUTPUT_TOKENS,
+						INPUT_TOKENS + OUTPUT_TOKENS, null, cacheRead, cacheWrite)).build());
 	}
 
 }

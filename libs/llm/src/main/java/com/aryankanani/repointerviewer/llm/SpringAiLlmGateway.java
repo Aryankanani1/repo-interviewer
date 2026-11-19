@@ -7,10 +7,14 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
 import java.time.Duration;
+import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.ai.anthropic.AnthropicCacheOptions;
+import org.springframework.ai.anthropic.AnthropicCacheStrategy;
 import org.springframework.ai.anthropic.AnthropicChatOptions;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.converter.BeanOutputConverter;
@@ -80,7 +84,7 @@ class SpringAiLlmGateway implements LlmGateway {
 		LlmPurpose purpose = request.purpose();
 		String model = model(purpose);
 		String version = templates.version(purpose.template());
-		String prompt = templates.render(purpose.template(), request.variables());
+		PromptTemplates.Parts prompt = templates.renderParts(purpose.template(), request.variables());
 		BeanOutputConverter<T> converter = new BeanOutputConverter<>(request.outputType());
 
 		String correction = "";
@@ -96,12 +100,9 @@ class SpringAiLlmGateway implements LlmGateway {
 			try (Observation.Scope scope = observation.openScope()) {   // Spring AI's span becomes a child of this one
 				response = chatClient.prompt()
 						.system(templates.system())
-						.user(prompt + correction)
-						.options(AnthropicChatOptions.builder()
-								.model(model)
-								.maxTokens(maxOutputTokens(purpose))
-								.timeout(settings.timeout())
-								.outputSchema(converter.getJsonSchema()))
+						.messages(prompt.context() == null ? List.of() : List.of(new SystemMessage(prompt.context())))
+						.user(prompt.main() + correction)
+						.options(options(model, purpose, converter.getJsonSchema(), prompt.context() != null))
 						.call()
 						.chatResponse();
 			}
@@ -127,6 +128,24 @@ class SpringAiLlmGateway implements LlmGateway {
 		}
 	}
 
+	/**
+	 * The call's options. With a project context and {@code app.llm.prompt-caching} on (task 4.5), Spring AI joins the
+	 * system prompt and the context into one system block marked for the 5-minute prompt cache: the next call with
+	 * the same block (a re-plan, a second attempt, another interview of the project) reads it at 0.1x the price.
+	 * Without a context, a call has only the system prompt, under Sonnet's 1024-token minimum, so nothing is marked.
+	 */
+	private AnthropicChatOptions.Builder options(String model, LlmPurpose purpose, String schema, boolean hasContext) {
+		AnthropicChatOptions.Builder options = AnthropicChatOptions.builder()
+				.model(model)
+				.maxTokens(maxOutputTokens(purpose))
+				.timeout(settings.timeout())
+				.outputSchema(schema);
+		if (hasContext && settings.promptCaching()) {
+			options.cacheOptions(AnthropicCacheOptions.builder().strategy(AnthropicCacheStrategy.SYSTEM_ONLY).build());
+		}
+		return options;
+	}
+
 	@Override
 	public String promptVersion(LlmPurpose purpose) {
 		return templates.version(purpose.template());
@@ -140,6 +159,7 @@ class SpringAiLlmGateway implements LlmGateway {
 		countTokens(request, model, "input", tokens.input());
 		countTokens(request, model, "output", tokens.output());
 		countTokens(request, model, "cached", tokens.cached());
+		countTokens(request, model, "cache_write", tokens.cacheWrite());
 		int latencyMs = (int) Duration.ofNanos(nanos).toMillis();
 		ledger.record(new LlmCall(request, model, version, attempt, latencyMs, tokens, errorType));
 		// Never the prompt or the reply: they hold repository code and candidate answers.
@@ -164,9 +184,12 @@ class SpringAiLlmGateway implements LlmGateway {
 		if (usage == null) {
 			return Tokens.NONE;
 		}
-		Long cached = usage.getCacheReadInputTokens();
-		return new Tokens(usage.getPromptTokens(), usage.getCompletionTokens(),
-				cached == null ? null : Math.toIntExact(cached));
+		return new Tokens(usage.getPromptTokens(), usage.getCompletionTokens(), toInt(usage.getCacheReadInputTokens()),
+				toInt(usage.getCacheWriteInputTokens()));
+	}
+
+	private static Integer toInt(Long tokens) {
+		return tokens == null ? null : Math.toIntExact(tokens);
 	}
 
 	/** Parser messages can quote the whole reply; the first line says what was wrong. */

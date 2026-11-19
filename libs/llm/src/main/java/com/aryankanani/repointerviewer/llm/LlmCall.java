@@ -41,6 +41,9 @@ public class LlmCall {
 
 	private Integer cachedTokens;
 
+	/** Input tokens written to the prompt cache, billed at 1.25x (V4, task 4.5); null when none. */
+	private Integer cacheWriteTokens;
+
 	private int latencyMs;
 
 	private boolean success;
@@ -68,16 +71,23 @@ public class LlmCall {
 		this.inputTokens = tokens.input();
 		this.outputTokens = tokens.output();
 		this.cachedTokens = tokens.cached();
+		this.cacheWriteTokens = tokens.cacheWrite();
 		this.latencyMs = latencyMs;
 		this.success = errorType == null;
 		this.errorType = errorType;
 		this.attempt = attempt;
 	}
 
-	/** Token counts from the response's usage metadata; null when there was no response. */
-	record Tokens(Integer input, Integer output, Integer cached) {
+	/**
+	 * Token counts from the response's usage metadata; null when there was no response. Anthropic counts the three
+	 * input kinds apart: {@code input} is only what was neither read from nor written to the cache.
+	 *
+	 * @param cached read from the prompt cache, billed at 0.1x
+	 * @param cacheWrite written to the prompt cache, billed at 1.25x (task 4.5)
+	 */
+	record Tokens(Integer input, Integer output, Integer cached, Integer cacheWrite) {
 
-		static final Tokens NONE = new Tokens(null, null, null);
+		static final Tokens NONE = new Tokens(null, null, null, null);
 
 	}
 
@@ -115,6 +125,10 @@ public class LlmCall {
 
 	public Integer getCachedTokens() {
 		return cachedTokens;
+	}
+
+	public Integer getCacheWriteTokens() {
+		return cacheWriteTokens;
 	}
 
 	public int getLatencyMs() {

@@ -14,6 +14,7 @@ import java.util.Collections;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -60,6 +61,8 @@ public final class FakeModelServer implements AutoCloseable {
 
 	private final Map<LlmPurpose, AtomicInteger> requests = new EnumMap<>(LlmPurpose.class);
 
+	private final Map<LlmPurpose, String> lastBodies = new ConcurrentHashMap<>();
+
 	private final AtomicInteger embedRequests = new AtomicInteger();
 
 	private final AtomicInteger otherRequests = new AtomicInteger();
@@ -98,6 +101,11 @@ public final class FakeModelServer implements AutoCloseable {
 		release.countDown();
 	}
 
+	/** The JSON body of the last chat request for {@code purpose}, as sent to Anthropic (task 4.5); null if none. */
+	public String lastRequest(LlmPurpose purpose) {
+		return lastBodies.get(purpose);
+	}
+
 	/** Chat requests for {@code purpose}; FOLLOW_UP is counted as QUESTION (same output schema). */
 	public int requests(LlmPurpose purpose) {
 		return requests.get(purpose).get();
@@ -133,6 +141,7 @@ public final class FakeModelServer implements AutoCloseable {
 			return;
 		}
 		int number = requests.get(purpose).incrementAndGet();
+		lastBodies.put(purpose, body);
 		if (purpose == LlmPurpose.EVALUATION && number == 1 && holdFirstEvaluation) {
 			evaluationArrived.countDown();
 			try {

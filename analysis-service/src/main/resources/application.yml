@@ -166,3 +166,4 @@ app:
     # 4/5 in the app (dev 12 + 48, stage 20 + 80, prod 60 + 240).
     max-calls-per-day: 60
     timeout: 60s
+    prompt-caching: true   # task 4.5: only a PLAN prompt has a cached project context; this service makes no PLAN call
