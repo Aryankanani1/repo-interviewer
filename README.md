@@ -47,6 +47,9 @@ java scripts/DevToken.java            # a token for "local-dev", valid 8 hours; 
 ```
 In GraphiQL, put `{"Authorization": "Bearer <token>"}` in the headers editor. Each user sees only their own projects and interviews; those from before task 4.4 belong to `local-dev`. The gateway's dev profile reads `.dev-keys/jwt-public.pem` (`JWT_PUBLIC_KEY_LOCATION` changes it); stage and prod must set `JWT_PUBLIC_KEY_LOCATION`.
 
+### Operations a client may send (task 4.6)
+In prod the gateway runs only the operations in [`graphql-gateway/src/main/resources/graphql-documents/`](graphql-gateway/src/main/resources/graphql-documents/) (trusted documents, [`docs/DECISIONS.md`](docs/DECISIONS.md) D-033): send one's text as the `query`, or only its hash, `{"extensions": {"persistedQuery": {"version": 1, "sha256Hash": "<shasum -a 256 of the file>"}}, "variables": {...}}`. A new operation is a new file there. Every environment refuses a query deeper than 10 levels or with more than 200 fields; dev, test and stage run any other query, so GraphiQL works.
+
 ## Environments
 Code moves **dev → test → stage → prod**. `application.yml` holds the defaults every environment starts from; each environment's file overrides it ([`docs/DECISIONS.md`](docs/DECISIONS.md) D-015).
 

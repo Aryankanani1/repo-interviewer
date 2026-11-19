@@ -1,0 +1,20 @@
+mutation SubmitAnswer($input: SubmitAnswerInput!) {
+  submitAnswer(input: $input) {
+    answer {
+      id
+      text
+      submittedAt
+      evaluation { score verdict feedback coveredPoints missedPoints incorrectClaims idealAnswerOutline }
+    }
+    nextQuestion {
+      id
+      order
+      category
+      text
+      isFollowUp
+      codeRefs { path startLine endLine snippet }
+    }
+    session { id status }
+    errors { code message field }
+  }
+}

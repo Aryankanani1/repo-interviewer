@@ -1,5 +1,6 @@
 package com.aryankanani.repointerviewer;
 
+import com.aryankanani.repointerviewer.api.hardening.GraphQlHardeningProperties;
 import com.aryankanani.repointerviewer.api.ratelimit.RateLimitProperties;
 import com.aryankanani.repointerviewer.common.config.ConsumerRetryProperties;
 import com.aryankanani.repointerviewer.common.config.ServiceCallProperties;
@@ -15,6 +16,6 @@ import org.springframework.context.annotation.Configuration;
  */
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties({ ConsumerRetryProperties.class, ServiceCallProperties.class,
-		RateLimitProperties.class })
+		RateLimitProperties.class, GraphQlHardeningProperties.class })
 public class AppPropertiesConfiguration {
 }

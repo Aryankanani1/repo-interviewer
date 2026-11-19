@@ -1,0 +1,21 @@
+subscription InterviewEvents($sessionId: ID!) {
+  interviewEvents(sessionId: $sessionId) {
+    sessionId
+    type
+    at
+    answer {
+      id
+      text
+      evaluation { score verdict feedback coveredPoints missedPoints incorrectClaims idealAnswerOutline }
+    }
+    nextQuestion {
+      id
+      order
+      category
+      text
+      isFollowUp
+      codeRefs { path startLine endLine snippet }
+    }
+    session { id status }
+  }
+}

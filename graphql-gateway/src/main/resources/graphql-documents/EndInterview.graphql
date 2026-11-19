@@ -1,0 +1,17 @@
+mutation EndInterview($input: EndInterviewInput!) {
+  endInterview(input: $input) {
+    session {
+      id
+      status
+      report {
+        overallScore
+        summary
+        strengths
+        weaknesses
+        categoryScores { category averageScore questionCount }
+        topicsToReview { topic why }
+      }
+    }
+    errors { code message field }
+  }
+}

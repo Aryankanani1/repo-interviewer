@@ -4,12 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.aryankanani.repointerviewer.AppPropertiesConfiguration;
+import com.aryankanani.repointerviewer.api.hardening.GraphQlHardeningProperties;
 import java.time.Duration;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.boot.graphql.autoconfigure.GraphQlProperties;
 import org.springframework.boot.test.context.ConfigDataApplicationContextInitializer;
 import org.springframework.boot.test.context.assertj.AssertableApplicationContext;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -118,6 +120,19 @@ class EnvironmentProfilesTest {
 				.getProperty("spring.graphql.schema.inspection.enabled", Boolean.class)).isFalse());
 		run("dev", context -> assertThat(context.getEnvironment()
 				.getProperty("spring.graphql.schema.inspection.enabled", Boolean.class)).isTrue());
+	}
+
+	/** Task 4.6: in prod only the operations on the list run, and the schema cannot be read. */
+	@ParameterizedTest(name = "{0}: trusted documents only {1}")
+	@CsvSource({ "dev, false", "test, false", "stage, false", "prod, true" })
+	void onlyProdRunsOnlyTheTrustedDocuments(String environment, boolean only) {
+		run(environment, context -> {
+			assertThat(context.getBean(GraphQlHardeningProperties.class).trustedDocumentsOnly()).isEqualTo(only);
+			// Bound into Boot's own properties, so a misspelled key would leave introspection on and fail here.
+			GraphQlProperties graphQl = Binder.get(context.getEnvironment())
+					.bind("spring.graphql", GraphQlProperties.class).orElseGet(GraphQlProperties::new);
+			assertThat(graphQl.getSchema().getIntrospection().isEnabled()).isEqualTo(!only);
+		});
 	}
 
 	@Test

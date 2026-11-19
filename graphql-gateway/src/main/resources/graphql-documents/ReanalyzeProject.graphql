@@ -1,0 +1,6 @@
+mutation ReanalyzeProject($input: ReanalyzeProjectInput!) {
+  reanalyzeProject(input: $input) {
+    project { id name status }
+    errors { code message field }
+  }
+}

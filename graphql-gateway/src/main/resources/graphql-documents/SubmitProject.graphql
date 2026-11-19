@@ -1,0 +1,6 @@
+mutation SubmitProject($input: SubmitProjectInput!) {
+  submitProject(input: $input) {
+    project { id name status }
+    errors { code message field }
+  }
+}

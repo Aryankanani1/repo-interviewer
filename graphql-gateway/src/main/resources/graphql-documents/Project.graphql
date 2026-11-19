@@ -1,0 +1,23 @@
+query Project($id: ID!) {
+  project(id: $id) {
+    id
+    githubUrl
+    name
+    commitSha
+    status
+    failureReason
+    context { goal domain targetRole }
+    stats { fileCount javaFileCount totalLines chunkCount primaryLanguage }
+    summary {
+      oneLiner
+      architectureStyle
+      techStack
+      modules { name responsibility keyClasses }
+      notablePatterns
+      riskAreas
+    }
+    sessions { id status difficulty plannedQuestionCount startedAt completedAt }
+    createdAt
+    updatedAt
+  }
+}

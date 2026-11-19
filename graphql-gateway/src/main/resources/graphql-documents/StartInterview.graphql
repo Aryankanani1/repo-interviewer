@@ -1,0 +1,13 @@
+mutation StartInterview($input: StartInterviewInput!) {
+  startInterview(input: $input) {
+    session { id status difficulty plannedQuestionCount }
+    firstQuestion {
+      id
+      order
+      category
+      text
+      codeRefs { path startLine endLine snippet }
+    }
+    errors { code message field }
+  }
+}

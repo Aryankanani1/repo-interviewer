@@ -123,3 +123,7 @@ app:
     start-interview:            # a plan call and at least one question call each
       capacity: 5
       refill-every: 10m         # 6 an hour
+  graphql:                      # what one GraphQL request may ask for (task 4.6, GraphQlHardeningConfiguration)
+    max-depth: 10               # levels of nested fields; the deepest operation on the list has 5
+    max-complexity: 200         # fields in one request, at every level; the largest operation on the list has 53
+    trusted-documents-only: false   # true in prod: only graphql-documents/*.graphql run (TrustedDocuments)

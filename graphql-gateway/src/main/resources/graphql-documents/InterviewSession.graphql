@@ -1,0 +1,47 @@
+query InterviewSession($id: ID!) {
+  interviewSession(id: $id) {
+    id
+    status
+    difficulty
+    focusAreas
+    plannedQuestionCount
+    failureReason
+    startedAt
+    completedAt
+    project { id name }
+    questions {
+      id
+      order
+      category
+      text
+      isFollowUp
+      askedAt
+      parent { id }
+      codeRefs { path startLine endLine snippet }
+      answer {
+        id
+        text
+        submittedAt
+        evaluation {
+          score
+          verdict
+          feedback
+          coveredPoints
+          missedPoints
+          incorrectClaims
+          idealAnswerOutline
+          evaluatedAt
+        }
+      }
+    }
+    currentQuestion { id }
+    report {
+      overallScore
+      summary
+      strengths
+      weaknesses
+      categoryScores { category averageScore questionCount }
+      topicsToReview { topic why }
+    }
+  }
+}

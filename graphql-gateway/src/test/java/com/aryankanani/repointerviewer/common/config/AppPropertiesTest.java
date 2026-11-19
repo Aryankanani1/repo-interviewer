@@ -3,6 +3,7 @@ package com.aryankanani.repointerviewer.common.config;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.aryankanani.repointerviewer.AppPropertiesConfiguration;
+import com.aryankanani.repointerviewer.api.hardening.GraphQlHardeningProperties;
 import com.aryankanani.repointerviewer.api.ratelimit.RateLimitProperties;
 import java.time.Duration;
 import org.junit.jupiter.api.Test;
@@ -33,6 +34,10 @@ class AppPropertiesTest {
 			RateLimitProperties limits = context.getBean(RateLimitProperties.class);   // task 4.4
 			assertThat(limits.submitProject().capacity()).isEqualTo(3);
 			assertThat(limits.startInterview().refillEvery()).isEqualTo(Duration.ofMinutes(10));
+			GraphQlHardeningProperties graphQl = context.getBean(GraphQlHardeningProperties.class);   // task 4.6
+			assertThat(graphQl.maxDepth()).isEqualTo(10);
+			assertThat(graphQl.maxComplexity()).isEqualTo(200);
+			assertThat(graphQl.trustedDocumentsOnly()).isFalse();
 		});
 	}
 

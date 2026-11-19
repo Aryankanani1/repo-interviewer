@@ -14,3 +14,9 @@ spring:
     schema:
       inspection:
         enabled: false   # the startup report about unmapped fields is a development aid
+      introspection:
+        enabled: false   # no __schema or __type (task 4.6): GraphiQL is off here, and no client needs them
+
+app:
+  graphql:
+    trusted-documents-only: true   # task 4.6: only the operations in graphql-documents/ run, any other query is refused
