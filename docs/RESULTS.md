@@ -66,8 +66,12 @@ Per call (`llm_call` for this project, same day):
 | Repo | Grounding rate | Specificity | Duplicate rate | Grader consistency | Injection ≤ 2 | Empty ≤ 1 | Ideal answer ≥ 8 | Date / prompt versions |
 |---|---|---|---|---|---|---|---|---|
 | e-commerce @ `0d2ffc0` | 8/8 (100%) | 8/8 (100%) | 0/24 (0%) | 4/4 (100%) | 4/4 (100%) | 4/4 (100%) | 3/4 (75%) | 2026-11-01 / interview-plan@29019fc8, question-generation@c6778cfe, follow-up-question@5dd42920, answer-evaluation@b0969903 |
+| e-commerce @ `0d2ffc0` | 10/10 (100%) | 10/10 (100%) | 0/40 (0%) | 5/5 (100%) | 5/5 (100%) | 5/5 (100%) | 5/5 (100%) | 2026-11-19 / interview-plan@569d61e5, question-generation@986028b8, follow-up-question@03c4a252, answer-evaluation@534bd657 |
+| movie recommender @ `0b055cc` | 10/10 (100%) | 10/10 (100%) | 0/40 (0%) | 5/5 (100%) | 5/5 (100%) | 5/5 (100%) | 5/5 (100%) | 2026-11-19 / interview-plan@569d61e5, question-generation@986028b8, follow-up-question@03c4a252, answer-evaluation@534bd657 |
+| TaskFlow @ `4a04226` | 10/10 (100%) | 10/10 (100%) | 0/40 (0%) | 5/5 (100%) | 5/5 (100%) | 5/5 (100%) | 5/5 (100%) | 2026-11-19 / interview-plan@569d61e5, question-generation@986028b8, follow-up-question@03c4a252, answer-evaluation@534bd657 |
+| spring-petclinic @ `500158f` | 10/10 (100%) | 7/10 (70%) | 0/40 (0%) | 5/5 (100%) | 5/5 (100%) | 5/5 (100%) | 4/5 (80%) | 2026-11-19 / interview-plan@569d61e5, question-generation@986028b8, follow-up-question@03c4a252, answer-evaluation@534bd657 |
 
-How the 1.17 row was measured (`./mvnw verify -Pevals -Dtest=QuestionQualityEvalTest`, 635 s, metric definitions in LLD §12): the repo analyzed from scratch (270 s; embedding 243 s against 132 s in 1.15 for the same 2 102 chunks, Ollama sharing the laptop with the test database), one JUNIOR interview with 5 topics requested and 4 planned (all 4 got a question), every answer the first half of the question's own ideal outline, then four more grades per main question.
+How the 1.17 row (v1) was measured (`./mvnw verify -Pevals -Dtest=QuestionQualityEvalTest`, 635 s, metric definitions in LLD §12): the repo analyzed from scratch (270 s; embedding 243 s against 132 s in 1.15 for the same 2 102 chunks, Ollama sharing the laptop with the test database), one JUNIOR interview with 5 topics requested and 4 planned (all 4 got a question), every answer the first half of the question's own ideal outline, then four more grades per main question.
 
 | Q | Kind | Shows code | Names a symbol | Half | Half again | Whole outline | Injection | "I don't know." |
 |---|---|---|---|---|---|---|---|---|
@@ -86,6 +90,90 @@ Findings:
 3. **Every main question got a follow-up**: half-outline answers scored 4–6, inside the 3–7 follow-up range, as designed. So 8 questions (4 follow-ups) from 4 topics.
 4. **QUESTION output is close to its cap**: the largest reply was 3 276 tokens of a 4 000 cap, 1.2×, below the "at least 2× the largest output" rule from the 1.15 fix (largest then: 2 060). A reply cut off at the cap is unreadable JSON. Raised to 7 000 right after this run (Status log, 2026-11-01).
 5. **Calls**: 35, none failed: EVALUATION 24 (p50 6.6 s; the short adversarial answers grade fast), QUESTION 4 (p50 27.1 s), FOLLOW_UP 4, PLAN, SUMMARY and REPORT 1 each. 174 721 input and 32 181 output tokens, about $0.65.
+
+Prompt changes because of this run: none.
+
+### v2: four golden repos (task 5.1, 2026-11-19)
+
+How the four 5.1 rows were measured: `./mvnw -Pevals -pl interview-service -am test -Dtest=QuestionQualityEvalTest` (one test method per repo, LLD §12), analysis-service running in dev with Ollama on the Mac, the same procedure as v1 (one JUNIOR interview with 5 topics requested, every answer the first half of the question's own ideal outline, four more grades per main question). The Anthropic credit ran out during the first run: spring-petclinic and movie recommender finished in it; TaskFlow (credit gone during its extra grades, its numbers discarded) and e-commerce (its summary refused) ran again after the top-up with `-Dtest=QuestionQualityEvalTest#taskFlow+eCommerce`, TaskFlow reusing its analysis. Prices as in "Prompt caching" below; Haiku 4.5 $1 / $5 per MTok for REPORT and analysis-service's SUMMARY.
+
+| Repo | Java files | Chunks | Analysis | Calls | Sonnet input / cache write / output tokens | Cost | QUESTION p50 / p95 | EVALUATION p50 / p95 |
+|---|---:|---:|---:|---:|---|---:|---|---|
+| e-commerce @ `0d2ffc0` | 355 | 2 102 | 149 s | 42 + 1 | 156 724 / 21 577 / 37 424 | $0.78 | 23.1 / 29.6 s | 7.0 / 12.1 s |
+| movie recommender @ `0b055cc` | 133 | 645 | 63 s | 42 + 1 | 150 249 / 13 957 / 34 330 | $0.70 | 19.8 / 24.7 s | 6.0 / 11.0 s |
+| TaskFlow @ `4a04226` | 50 | 149 | 24 s | 42 + 1 | 136 319 / 9 177 / 31 597 | $0.63 | 13.6 / 20.6 s | 6.0 / 12.5 s |
+| spring-petclinic @ `500158f` | 50 | 271 | 36 s | 42 + 1 | 154 436 / 7 731 / 32 349 | $0.67 | 17.3 / 22.1 s | 6.4 / 12.0 s |
+
+Calls: interview-service's 42 (EVALUATION 30, QUESTION 5, FOLLOW_UP 5, PLAN 1, REPORT 1; none failed) plus analysis-service's SUMMARY. EVALUATION is 30 of them because of the eval's four extra grades per main question; an interview alone grades each answer once. The four rows cost $2.78; with the discarded TaskFlow attempt ($0.43) task 5.1 spent $3.21. The cache write is PLAN's project context (task 4.5), never read back here: each repo is planned once.
+
+**e-commerce**
+
+| Q | Kind | Shows code | Names a symbol | Half | Half again | Whole outline | Injection | "I don't know." | Text |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | ARCHITECTURE | yes | yes | 4 | 4 | 9 | 0 | 0 | In CartCatalogListener, why does the cart module react to ProductPriceChangedEvent and Pro… |
+| 2 | follow-up | yes | yes | 6 | — | — | — | — | You mentioned MANDATORY keeps things decoupled, but what specifically does Propagation.MAN… |
+| 3 | CONCURRENCY | yes | yes | 5 | 4 | 9 | 0 | 0 | Cart has a @Version field, which normally means Hibernate relies on optimistic locking to … |
+| 4 | follow-up | yes | yes | 5 | — | — | — | — | You said the second transaction would just block and then read the updated row. What exact… |
+| 5 | DATA_MODEL | yes | yes | 6 | 6 | 9 | 0 | 0 | The Image entity stores the actual file content in a @Lob Blob column in MySQL, but ImageP… |
+| 6 | follow-up | yes | yes | 7 | — | — | — | — | If the product-list endpoint eagerly loaded full Image entities for a page of 20 products … |
+| 7 | FAILURE_HANDLING | yes | yes | 4 | 5 | 8 | 0 | 0 | In PaymentRecorder#start, walk through exactly what happens when a client resends the same… |
+| 8 | follow-up | yes | yes | 5 | — | — | — | — | You said a retry while PROCESSING just returns the same payment — walk through what happen… |
+| 9 | FAILURE_HANDLING | yes | yes | 5 | 5 | 8 | 0 | 0 | RefundService#refund saves the Refund as PENDING and then calls events.publishEvent(new Re… |
+| 10 | follow-up | yes | yes | 6 | — | — | — | — | You said the in-memory event is simply lost on crash and the refund stays PENDING — what i… |
+
+**movie recommender**
+
+| Q | Kind | Shows code | Names a symbol | Half | Half again | Whole outline | Injection | "I don't know." | Text |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | ARCHITECTURE | yes | yes | 5 | 5 | 8 | 0 | 0 | The engine package (CatalogSnapshot, Recommender, ContentBasedRecommender) has no Spring a… |
+| 2 | follow-up | yes | yes | 8 | — | — | — | — | You explained why CatalogSnapshot can be built without Spring — but what about Recommender… |
+| 3 | DATA_MODEL | yes | yes | 7 | 6 | 9 | 0 | 0 | Movie-to-Genre is modeled as a @ManyToMany with a movie_genre join table, but Movie-to-Tag… |
+| 4 | follow-up | yes | yes | 5 | — | — | — | — | You said MovieTag needs its own entity because of the count attribute — but why is its pri… |
+| 5 | CONCURRENCY | yes | yes | 5 | 5 | 9 | 0 | 0 | CatalogSnapshotHolder stores the catalog in an AtomicReference<CatalogSnapshot>, written o… |
+| 6 | follow-up | yes | yes | 6 | — | — | — | — | You explained why AtomicReference gives safe publication for the snapshot that's already t… |
+| 7 | PERFORMANCE | yes | yes | 4 | 4 | 9 | 0 | 0 | CatalogSnapshot.itemVectors(useIdf, tagWeight) caches the built ItemVectors in itemVectorC… |
+| 8 | follow-up | yes | yes | 5 | — | — | — | — | If 10,000 requests each used a slightly different tagWeight, what would happen to the size… |
+| 9 | SECURITY | yes | yes | 5 | 5 | 9 | 0 | 0 | Walk through what happens end-to-end when an already-logged-in browser submits a grade for… |
+| 10 | follow-up | yes | yes | 5 | — | — | — | — | You covered authentication and CSRF, but how does currentUser() make sure the grade gets a… |
+
+**TaskFlow**
+
+| Q | Kind | Shows code | Names a symbol | Half | Half again | Whole outline | Injection | "I don't know." | Text |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | ARCHITECTURE | yes | yes | 7 | 6 | 10 | 0 | 0 | Walk me through what happens, layer by layer, when a request comes in for GET /tasks/{task… |
+| 2 | follow-up | yes | yes | 4 | — | — | — | — | You said the controller passes taskId and userId into the service - but could TaskControll… |
+| 3 | SECURITY | yes | yes | 3 | 3 | 8 | 0 | 0 | Walk me through how a request carrying a Bearer JWT ends up authenticated as a specific us… |
+| 4 | follow-up | yes | yes | 4 | — | — | — | — | You described UserPrincipal.build() returning an authorities list - what actually happens … |
+| 5 | DATA_MODEL | yes | yes | 5 | 5 | 9 | 0 | 0 | CascadeType.ALL is set on both User.task and User.categories in User.java, so deleting a U… |
+| 6 | follow-up | yes | yes | 5 | — | — | — | — | You explained the cascading delete risk well - now what specific change would you make to … |
+| 7 | FAILURE_HANDLING | yes | yes | 5 | 4 | 9 | 0 | 0 | Looking at GlobalExceptionHandler, specific exceptions like UserNotFoundException and User… |
+| 8 | follow-up | yes | yes | 3 | — | — | — | — | Right now handleGeneric doesn't log the exception anywhere before returning the generic me… |
+| 9 | DESIGN_DECISION | yes | yes | 5 | 5 | 9 | 0 | 0 | In TaskService.getAll you build a Specification<Task> by chaining ownedBy, hasStatus, hasP… |
+| 10 | follow-up | yes | yes | 7 | — | — | — | — | You explained the Specification approach well, but you didn't address the second part: tra… |
+
+**spring-petclinic**
+
+| Q | Kind | Shows code | Names a symbol | Half | Half again | Whole outline | Injection | "I don't know." | Text |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | ARCHITECTURE | yes | yes | 7 | 6 | 6 | 0 | 0 | Looking at how OwnerController, PetController, and VisitController all live in the owner p… |
+| 2 | follow-up | yes | yes | 6 | — | — | — | — | You said owner/pet/visit live together because the app is organized by feature rather than… |
+| 3 | DATA_MODEL | yes | yes | 3 | 3 | 9 | 0 | 0 | Owner.pets and Pet.visits are both annotated with fetch = FetchType.EAGER and cascade = Ca… |
+| 4 | follow-up | yes | yes | 7 | — | — | — | — | You explained what EAGER fetching does here, but what does CascadeType.ALL actually contro… |
+| 5 | PERFORMANCE | yes | yes | 3 | 3 | 9 | 0 | 0 | VetRepository.findAll() and findAll(Pageable) are both annotated with @Cacheable("vets"), … |
+| 6 | follow-up | yes | NO | 8 | — | — | — | — | You said the cache avoids DB hits - but once /vets.html is loaded and cached, what exactly… |
+| 7 | FAILURE_HANDLING | yes | yes | 5 | 6 | 10 | 0 | 0 | In PetValidator.validate(), the type check is written as `if (pet.isNew() && pet.getType()… |
+| 8 | follow-up | yes | NO | 4 | — | — | — | — | You said an existing pet with a null type passes validation untouched — can you trace wher… |
+| 9 | CONCURRENCY | yes | yes | 3 | 3 | 9 | 0 | 0 | In processCreationForm, you check owner.getPet(pet.getName(), true) to reject a duplicate … |
+| 10 | follow-up | yes | NO | 2 | — | — | — | — | You said the unique constraint is what actually blocks the second insert — walk me through… |
+
+**What improved since v1.** On e-commerce, at the same commit and with the same candidate context as v1: all 5 requested topics were planned and asked (v1: 4 of 5), so 10 questions instead of 8; the whole ideal outline as the answer scored at least 8 on every main question (v1: 3 of 4, Q1 got 7); every other v1 target held, with no duplicates. The largest QUESTION reply was 2 566 tokens, 2.7× under the 7 000 cap raised after v1 (v1: 3 276 of 4 000), and QUESTION took 23.1 s at the median (v1: 27.1 s). It cost $0.78 for 43 calls against v1's $0.65 for 35: two more questions with their grades and follow-ups, and the PLAN cache write. In between, the PLAN prompt changed (task 3.7's "problems with your previous plan" block, task 4.5's cached context part), the QUESTION cap went from 4 000 to 7 000, refs on class headers got snippets (problem 3 of 1.15), and the work moved into three services (task 4.1). The QUESTION, FOLLOW_UP and EVALUATION prompt texts are the same as in v1: their version strings differ only because task 4.5 added the context part to the version hash. One interview per repo is too few to call any of these differences significant; they are what this run saw.
+
+Findings:
+1. **Every target met on all four repos except one answer**: grounding 40/40, grader consistency 20/20 (largest gap 1 point), injection 20/20 and "I don't know." 20/20 (all graded 0), duplicates 0/160 pairs. The whole outline scored at least 8 on 19 of 20 main questions; the miss is spring-petclinic's Q1, an ARCHITECTURE question, at 6. v1's only miss was an ARCHITECTURE Q1 too: over v1 and v2, 2 of 5 ARCHITECTURE main questions missed and 0 of the 19 others. Too few to change the prompt; watch it.
+2. **Specificity 37/40**: the three misses are spring-petclinic follow-ups (Q6, Q8, Q10) that talk about "the cache" or "the unique constraint" and name no class; all 20 main questions name a real class or method. A follow-up builds on the candidate's answer, so this is expected, not a grounding problem: each of them still cites code the candidate sees.
+3. **Plans**: one PLAN call per repo, none rejected (the rejection rate task 3.7 asked to measure: 0 of 4 here), 5 of 5 topics asked everywhere. Every main question got a follow-up: the half-outline answers scored 3 to 7, inside the follow-up band, as designed.
+4. **Size shows in time, little in cost**: QUESTION's median grows from 13.6 s on TaskFlow (149 chunks) to 23.1 s on e-commerce (2 102 chunks); cost per repo stays between $0.63 and $0.78, because retrieval caps the code in each prompt (`max-context-tokens`) and PLAN's large context is the only part that grows with the repo.
+5. **An empty credit balance looks like an outage**: Anthropic answers 400 "Your credit balance is too low", and the gateway turns it into LLM_UNAVAILABLE ("not available right now, try again in a minute"), the same as a timeout. interview-service's log lines give no reason (`outcome=unavailable`); analysis-service's log had the API's message. Retrying does not help with an empty balance, so an operator needs that reason in the log.
 
 Prompt changes because of this run: none.
 
