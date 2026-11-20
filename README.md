@@ -47,6 +47,9 @@ java scripts/DevToken.java            # a token for "local-dev", valid 8 hours; 
 ```
 In GraphiQL, put `{"Authorization": "Bearer <token>"}` in the headers editor. Each user sees only their own projects and interviews; those from before task 4.4 belong to `local-dev`. The gateway's dev profile reads `.dev-keys/jwt-public.pem` (`JWT_PUBLIC_KEY_LOCATION` changes it); stage and prod must set `JWT_PUBLIC_KEY_LOCATION`.
 
+### Web page (task 5.2)
+With the three services running, open http://localhost:8080/, paste a token from `java scripts/DevToken.java` and Save. Submit a public GitHub repository, wait until it is ready, start an interview and answer each question next to its code; the report comes at the end. Starting an interview and each answer make real model calls (a 5-question interview is about $0.20-0.45).
+
 ### Operations a client may send (task 4.6)
 In prod the gateway runs only the operations in [`graphql-gateway/src/main/resources/graphql-documents/`](graphql-gateway/src/main/resources/graphql-documents/) (trusted documents, [`docs/DECISIONS.md`](docs/DECISIONS.md) D-033): send one's text as the `query`, or only its hash, `{"extensions": {"persistedQuery": {"version": 1, "sha256Hash": "<shasum -a 256 of the file>"}}, "variables": {...}}`. A new operation is a new file there. Every environment refuses a query deeper than 10 levels or with more than 200 fields; dev, test and stage run any other query, so GraphiQL works.
 

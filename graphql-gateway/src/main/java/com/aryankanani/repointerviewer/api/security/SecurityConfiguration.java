@@ -16,8 +16,9 @@ import org.springframework.security.web.SecurityFilterChain;
  * HTTP 401 before GraphQL runs. The user is the token's {@code sub} claim ({@link CurrentUser}); what each user may
  * reach is checked per operation ({@link Ownership}).
  *
- * <p>Open without a token: health (Kubernetes probes), Prometheus metrics (scraped inside the network) and the
- * GraphiQL page, whose requests carry a token in its headers editor. Stateless: no session and no cookie, so no CSRF
+ * <p>Open without a token: health (Kubernetes probes), Prometheus metrics (scraped inside the network), the
+ * GraphiQL page, whose requests carry a token in its headers editor, and the web page with the documents it loads
+ * (task 5.2), whose requests carry the token pasted into it. Stateless: no session and no cookie, so no CSRF
  * protection is needed either, since a browser never adds a bearer token to a request on its own.
  *
  * <p>Only in a web application: a context without a web server (a test's second gateway instance, which only
@@ -31,7 +32,8 @@ class SecurityConfiguration {
 	SecurityFilterChain api(HttpSecurity http) throws Exception {
 		return http
 				.authorizeHttpRequests(requests -> requests
-						.requestMatchers("/actuator/health/**", "/actuator/prometheus", "/graphiql", "/error")
+						.requestMatchers("/actuator/health/**", "/actuator/prometheus", "/graphiql", "/error", "/",
+								"/index.html", "/documents/**")
 						.permitAll()
 						.anyRequest().authenticated())
 				.oauth2ResourceServer(server -> server.jwt(Customizer.withDefaults()))

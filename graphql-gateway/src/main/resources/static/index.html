@@ -1,0 +1,281 @@
+<!doctype html>
+<!--
+  Repo Interviewer's web page (task 5.2, DECISIONS.md D-034): one file, no framework, no build step.
+  It sends only the operations on the list of trusted documents (task 4.6), loaded from /documents/<Name>.graphql,
+  with the token pasted below as "Authorization: Bearer". Every text from the server (repository code, questions,
+  feedback) is added as plain text, never as HTML: it comes from repositories and a model, so it is untrusted.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Repo Interviewer</title>
+<style>
+  :root { --ink: #111; --muted: #666; --line: #ddd; --code: #f6f6f6; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #fff; color: var(--ink);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between;
+           padding: 14px 24px; border-bottom: 1px solid var(--line); }
+  header h1 { margin: 0; font-size: 16px; letter-spacing: .02em; }
+  main, #message { max-width: 760px; margin: 0 auto; padding: 0 24px; }
+  main { padding-bottom: 48px; }
+  #message { min-height: 1.5em; margin-top: 16px; color: var(--muted); }
+  #message.error { color: var(--ink); font-weight: 600; }
+  h2 { margin: 24px 0 10px; font-size: 20px; font-weight: 600; }
+  h3 { margin: 24px 0 8px; font-size: 15px; }
+  input, select, textarea, button { font: inherit; color: inherit; background: #fff;
+                                    border: 1px solid #bbb; border-radius: 4px; padding: 6px 10px; }
+  textarea { display: block; width: 100%; margin: 12px 0; }
+  button { background: var(--ink); color: #fff; border-color: var(--ink); cursor: pointer; }
+  button.quiet { background: #fff; color: var(--ink); }
+  .busy button { opacity: .4; pointer-events: none; }
+  a { color: inherit; }
+  .muted { color: var(--muted); }
+  .label { margin: 16px 0 4px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  .box { margin: 16px 0; padding: 4px 16px; border: 1px solid var(--line); }
+  .score { margin: 8px 0; font-size: 32px; font-weight: 600; }
+  .text { white-space: pre-wrap; }
+  figure { margin: 16px 0; }
+  figcaption { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); }
+  pre { margin: 4px 0 0; padding: 12px; overflow-x: auto; background: var(--code); border: 1px solid var(--line);
+        font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  ul { padding-left: 20px; }
+  li { margin: 4px 0; }
+  table { border-collapse: collapse; }
+  td { padding: 4px 16px 4px 0; border-bottom: 1px solid var(--line); }
+  details { padding: 8px 0; border-bottom: 1px solid var(--line); }
+  summary { cursor: pointer; }
+  @media (max-width: 600px) { header { padding: 12px 16px; } main, #message { padding: 0 16px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Repo Interviewer</h1>
+  <form id="token-form">
+    <input id="token" type="password" autocomplete="off" placeholder="Token: java scripts/DevToken.java" size="32"
+           aria-label="Token">
+    <button>Save</button>
+  </form>
+</header>
+<p id="message" role="status"></p>
+<main></main>
+<script>
+"use strict";
+
+const main = document.querySelector("main");
+const tokenInput = document.querySelector("#token");
+
+/** An element; strings among the children become text nodes, so nothing from the server is read as HTML. */
+function h(tag, props = {}, ...children) {
+  const node = document.createElement(tag);
+  for (const [name, value] of Object.entries(props)) {
+    if (name.startsWith("on")) node.addEventListener(name.slice(2), value);
+    else if (value === true) node.setAttribute(name, "");
+    else if (value !== false && value != null) node.setAttribute(name, value);
+  }
+  for (const child of children.flat(Infinity)) {
+    if (child != null && child !== false) node.append(child instanceof Node ? child : String(child));
+  }
+  return node;
+}
+
+const show = (...nodes) => main.replaceChildren(...nodes.flat(Infinity).filter(node => node != null && node !== false));
+const words = value => value.toLowerCase().replaceAll("_", " ");
+const link = (text, action) => h("a", { href: "#", onclick: event => { event.preventDefault(); run(action); } }, text);
+const back = (text, action) => h("p", {}, link("← " + text, action));
+const list = (title, items) => items.length ? [h("p", { class: "label" }, title), h("ul", {}, items.map(item => h("li", {}, item)))] : null;
+
+function message(text, error = false) {
+  const node = document.querySelector("#message");
+  node.textContent = text;
+  node.classList.toggle("error", error);
+}
+
+/** Runs one user action: a busy text while it runs, and its error, if any, where the user sees it. */
+async function run(action, busyText = "") {
+  message(busyText);
+  document.body.classList.add("busy");
+  try {
+    await action();
+    message("");
+  } catch (error) {
+    message(error.message, true);
+  } finally {
+    document.body.classList.remove("busy");
+  }
+}
+
+// GraphQL: the text of each operation comes from the list of trusted documents, loaded once.
+const documents = {};
+
+async function gql(name, variables = {}) {
+  documents[name] ??= fetch("documents/" + name + ".graphql").then(response => {
+    if (!response.ok) throw new Error("The page needs documents/" + name + ".graphql.");
+    return response.text();
+  });
+  const response = await fetch("graphql", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json",
+               Authorization: "Bearer " + (sessionStorage.getItem("token") ?? "") },
+    body: JSON.stringify({ query: await documents[name], variables })
+  });
+  if (response.status === 401) throw new Error("Paste a valid token above (java scripts/DevToken.java), then Save.");
+  const body = await response.json();
+  if (body.errors?.length) throw new Error(body.errors.map(error => error.message).join(" "));
+  return body.data;
+}
+
+/** A mutation's payload, or its first expected error as the message. */
+function checked(payload) {
+  if (payload.errors.length) throw new Error(payload.errors.map(error => error.message).join(" "));
+  return payload;
+}
+
+// One poll at a time: opening another view stops it.
+let timer;
+const poll = (action, ms = 3000) => { timer = setTimeout(() => run(action), ms); };
+
+async function projects() {
+  clearTimeout(timer);
+  const data = await gql("Projects", { first: 50 });
+  const url = h("input", { placeholder: "https://github.com/owner/repo", required: true, size: 36 });
+  const goal = h("input", { placeholder: "What it is for (optional)", size: 28 });
+  const submit = event => {
+    event.preventDefault();
+    run(async () => {
+      const payload = checked((await gql("SubmitProject", {
+        input: { githubUrl: url.value.trim(), goal: goal.value.trim() || null } })).submitProject);
+      await project(payload.project.id);
+    }, "Checking the repository on GitHub…");
+  };
+  const edges = data.projects.edges;
+  show(
+    h("h2", {}, "Submit a repository"),
+    h("p", { class: "muted" }, "A public Java or Spring repository on GitHub."),
+    h("form", { onsubmit: submit }, url, " ", goal, " ", h("button", {}, "Submit")),
+    h("h2", {}, "Your projects"),
+    edges.length ? h("ul", {}, edges.map(({ node }) =>
+        h("li", {}, link(node.name, () => project(node.id)), h("span", { class: "muted" }, " " + words(node.status)))))
+      : h("p", { class: "muted" }, "None yet."));
+}
+
+async function project(id) {
+  clearTimeout(timer);
+  const p = (await gql("Project", { id })).project;
+  if (!p) throw new Error("This project does not exist.");
+  const analyzing = !["READY", "FAILED"].includes(p.status);
+  const count = h("input", { type: "number", min: 3, max: 8, value: 5, "aria-label": "Questions" });
+  const level = h("select", { "aria-label": "Level" },
+    ["INTERN", "JUNIOR", "MID"].map(value => h("option", { value, selected: value === "JUNIOR" }, words(value))));
+  const start = event => {
+    event.preventDefault();
+    run(async () => {
+      const payload = checked((await gql("StartInterview", {
+        input: { projectId: p.id, difficulty: level.value, questionCount: Number(count.value) } })).startInterview);
+      await session(payload.session.id);
+    }, "Reading the code and planning your interview. This takes about half a minute.");
+  };
+  show(
+    back("Projects", projects),
+    h("h2", {}, p.name),
+    h("p", { class: "muted" }, p.githubUrl + " @ " + p.commitSha.slice(0, 7)),
+    h("p", {}, h("strong", {}, words(p.status)),
+      analyzing ? h("span", { class: "muted" }, " · analyzing, this page refreshes by itself") : null,
+      p.failureReason ? " · " + p.failureReason : null),
+    p.stats && h("p", { class: "muted" },
+      p.stats.javaFileCount + " Java files, " + p.stats.totalLines + " lines, " + p.stats.chunkCount + " chunks"),
+    p.summary && [h("p", {}, p.summary.oneLiner), h("p", { class: "muted" }, p.summary.techStack.join(", "))],
+    p.status === "READY" && [
+      h("h3", {}, "Start an interview"),
+      h("form", { onsubmit: start }, count, " questions · level ", level, " ", h("button", {}, "Start"))],
+    p.sessions.length > 0 && [
+      h("h3", {}, "Your interviews"),
+      h("ul", {}, p.sessions.map(s => h("li", {},
+        link(new Date(s.startedAt).toLocaleString(), () => session(s.id)), h("span", { class: "muted" }, " " + words(s.status)))))]);
+  if (analyzing) poll(() => project(id));
+}
+
+/** The view an interview is in: planning, a question to answer, waiting for a grade, or its report. */
+async function session(id) {
+  clearTimeout(timer);
+  const s = (await gql("InterviewSession", { id })).interviewSession;
+  if (!s) throw new Error("This interview does not exist.");
+  const current = s.questions.find(q => q.id === s.currentQuestion?.id);
+  if (s.status === "IN_PROGRESS" && current && !current.answer) return ask(s, current);
+  if (s.status === "PLANNING" || s.status === "IN_PROGRESS") {
+    // Graded and written in the background (Kafka): look again until the next question is there.
+    show(back(s.project.name, () => project(s.project.id)),
+      h("p", {}, s.status === "PLANNING" ? "Planning your interview…" : "Grading your answer and writing the next question…"));
+    return poll(() => session(id));
+  }
+  report(s);
+}
+
+function evaluation(e) {
+  return [
+    h("p", {}, h("strong", {}, e.score + "/10 · " + words(e.verdict))),
+    h("p", {}, e.feedback),
+    list("Covered", e.coveredPoints), list("Missed", e.missedPoints), list("Not correct", e.incorrectClaims),
+    list("A strong answer covers", e.idealAnswerOutline)];
+}
+
+function ask(s, q) {
+  const last = s.questions.filter(other => other.answer?.evaluation).at(-1);
+  const text = h("textarea", { rows: 8, maxlength: 4000, required: true, "aria-label": "Your answer",
+                               placeholder: "Your answer. \"I don't know.\" is a fine answer too." });
+  const submit = event => {
+    event.preventDefault();
+    run(async () => {
+      checked((await gql("SubmitAnswer", { input: { questionId: q.id, text: text.value } })).submitAnswer);
+      await session(s.id);
+    }, "Grading your answer and writing the next question. This can take up to a minute.");
+  };
+  const end = () => run(async () => {
+    checked((await gql("EndInterview", { input: { sessionId: s.id } })).endInterview);
+    await session(s.id);
+  }, "Ending the interview and writing your report…");
+  show(
+    back(s.project.name, () => project(s.project.id)),
+    last && h("div", { class: "box" }, h("p", { class: "label" }, "Your last answer"), evaluation(last.answer.evaluation)),
+    h("p", { class: "label" }, "Question " + q.order + (q.isFollowUp ? " · follow-up" : "") + " · " + words(q.category)),
+    h("h2", {}, q.text),
+    q.codeRefs.map(ref => h("figure", {},
+      h("figcaption", {}, ref.path + ":" + ref.startLine + "-" + ref.endLine), ref.snippet && h("pre", {}, ref.snippet))),
+    h("form", { onsubmit: submit }, text,
+      h("button", {}, "Submit answer"), " ", h("button", { type: "button", class: "quiet", onclick: end }, "End interview")));
+  text.focus();
+}
+
+function report(s) {
+  const r = s.report;
+  show(
+    back(s.project.name, () => project(s.project.id)),
+    h("h2", {}, "Interview " + words(s.status)),
+    s.failureReason && h("p", {}, s.failureReason),
+    r && [
+      h("p", { class: "score" }, r.overallScore.toFixed(1) + " / 10"),
+      h("p", {}, r.summary),
+      list("Strengths", r.strengths), list("To improve", r.weaknesses),
+      r.categoryScores.length > 0 && [h("p", { class: "label" }, "By category"), h("table", {}, r.categoryScores.map(c =>
+        h("tr", {}, h("td", {}, words(c.category)), h("td", {}, c.averageScore.toFixed(1)), h("td", { class: "muted" },
+          c.questionCount + (c.questionCount === 1 ? " question" : " questions")))))],
+      list("Review", r.topicsToReview.map(topic => topic.topic + ": " + topic.why))],
+    h("h3", {}, "Questions"),
+    s.questions.map(q => h("details", {}, h("summary", {}, q.order + ". " + q.text),
+      q.answer ? [h("p", { class: "label" }, "Your answer"), h("p", { class: "text" }, q.answer.text),
+                  q.answer.evaluation && evaluation(q.answer.evaluation)]
+               : h("p", { class: "muted" }, "Not answered."))));
+}
+
+document.querySelector("#token-form").addEventListener("submit", event => {
+  event.preventDefault();
+  sessionStorage.setItem("token", tokenInput.value.trim());
+  run(projects);
+});
+tokenInput.value = sessionStorage.getItem("token") ?? "";
+if (tokenInput.value) run(projects);
+else message("Paste a token above to start (java scripts/DevToken.java prints one), then Save.");
+</script>
+</body>
+</html>

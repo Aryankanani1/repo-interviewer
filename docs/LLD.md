@@ -324,6 +324,13 @@ Controllers map entities to `api` view records (`ProjectView`, `QuestionView`, .
 - Request timeout 120 s (`spring.mvc.async.request-timeout`). GraphQL over HTTP runs as an async request, and Tomcat's default 30 s is shorter than `submitAnswer` (grading + next question, 25-43 s in task 1.15). A request that still times out keeps running on the server; sending the same answer again returns its result (§9.2).
 - Hardening (task 4.6, §15.8): at most 10 levels of fields and 200 fields per request in every environment; in prod only the operations in `graphql-documents/` run (by text or by hash) and introspection is off (`spring.graphql.schema.introspection.enabled: false`).
 
+### 5.5 The web page (task 5.2, DECISIONS.md D-034)
+- `graphql-gateway/src/main/resources/static/index.html`: one file with its CSS and JavaScript, no framework and no build step, served at `/` (Boot's welcome page). Black and white.
+- **Operations:** only the trusted documents (§15.8). `api.web.WebPageConfiguration` serves `classpath:/graphql-documents/` at `/documents/<Name>.graphql`; the page fetches each text once and sends it as `query`, so it also runs in prod. `WebPageTest` checks that every `gql("<Name>", ...)` in the page has its file.
+- **Token:** pasted into the page (`java scripts/DevToken.java`), kept in the tab's `sessionStorage`, sent as `Authorization: Bearer`. `/`, `/index.html` and `/documents/**` need no token; `/graphql` still does (401).
+- **Views:** projects (list and submit), a project (status, summary, start an interview, its interviews), a question (its code refs with snippets, the answer box, End interview, the last answer's grade), the report. All rendered with `textContent`: repository code, questions and feedback are untrusted and never parsed as HTML.
+- **Waiting:** analysis progress by reading `Project` every 3 s until READY or FAILED (no subscription: task 1.18 is not built). After an answer, the page reads `InterviewSession` until the answered question has a grade and the next one is asked, or the session ended: the same code works when `submitAnswer` grades in the request (dev without Kafka) and when the grade comes later (Kafka).
+
 ## 6. Analysis pipeline
 
 ### 6.1 Port
