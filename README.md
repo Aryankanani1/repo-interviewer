@@ -8,6 +8,8 @@ Submit a GitHub repository you built. Repo Interviewer analyzes its code and run
 
 *A real 3-question interview on [`aryankanani1/taskflow-REST-Api`](https://github.com/aryankanani1/taskflow-REST-Api) through the web page (answers typed for the demo; about $0.23 of model calls, analysis included).*
 
+**[▶ Watch the 4-minute walkthrough with captions](docs/images/demo.mp4)** (MP4, 9 MB): a live analysis of [`aryankanani1/explainable-movie-recommender`](https://github.com/aryankanani1/explainable-movie-recommender), a 5-topic interview with a strong answer, a partial one that gets a follow-up, "I don't know.", a prompt injection graded 0, the report, and what runs under the hood. Answers typed for the demo; $0.32 of model calls.
+
 ## Why
 Interviews increasingly ask "walk me through your code" or let you use AI tools on a real codebase. Many candidates can build a project but cannot defend its design under questioning. This tool practices exactly that.
 
